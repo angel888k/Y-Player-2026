@@ -14,25 +14,28 @@ extension VodDetailView {
         VStack(spacing: 0) {
             // 播放器**钉在顶上**（与参考的「半屏播放器」同款）：它自己的拖动是调进度 / 音量 / 亮度，
             // 跟着滚会跟页面滚动抢手势 —— 分开两层，两边都干净。
+            // 放大成全屏（`isInlineExpanded`）时只留它：下面那块整体收掉，播放器自己铺满整屏。
             compactPlayer
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    compactSynopsis
-                    if lines.count > 1 {
-                        compactLineChips
+            if !isInlineExpanded {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        compactSynopsis
+                        if lines.count > 1 {
+                            compactLineChips
+                        }
+                        compactEpisodeSection
+                        if !errorText.isEmpty {
+                            Text(errorText)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
                     }
-                    compactEpisodeSection
-                    if !errorText.isEmpty {
-                        Text(errorText)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 14)
+                    .padding(.bottom, 28)
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 14)
-                .padding(.bottom, 28)
+                .background(autoPlayLink)
             }
-            .background(autoPlayLink)
         }
     }
 
@@ -44,11 +47,16 @@ extension VodDetailView {
     /// **尺寸由这块黑底说了算**（定尺 16:9），内容铺在它上面 —— 不能反过来（内容 + `.aspectRatio`）：
     /// `aspectRatio` 只是「提议」，子视图报多大就是多大 —— 转圈 / 文案这类**自带固有尺寸**的内容
     /// 会把槽位塌成一小块（M27 首验录屏里的「正在向站点请求播放地址…」小框就是这么来的）。
+    ///
+    /// **放大成全屏**（M27 首验之四）：`isInlineExpanded` 时不再定尺（`aspectRatio(nil)` = 不限比例），
+    /// 铺满整屏并忽略安全区 —— **同一块内容**（同一个 `PlaybackView`，引擎照旧在跑）跟着变大，
+    /// 不重建播放器（重建要黑一下、还要重新拉流 / 重解析，用户看到的就是「旧状态又来了」）。
     var compactPlayer: some View {
         Color.black
-            .aspectRatio(Self.compactPlayerAspect, contentMode: .fit)
+            .aspectRatio(isInlineExpanded ? nil : Self.compactPlayerAspect, contentMode: .fit)
             .overlay { compactPlayerContent }
             .clipped()
+            .ignoresSafeArea(isInlineExpanded ? .all : [], edges: .all)
     }
 
     /// 槽位里的内容（尺寸跟着上面的黑底走）。
@@ -83,15 +91,13 @@ extension VodDetailView {
                 isFavorite: isFavorite,
                 onToggleFavorite: { Task { await toggleFavorite() } },
                 isFullScreen: true,
-                onClose: { inlineSitePlayback = nil },
-                onRequestFullScreen: {
-                    inlineSitePlayback = nil
-                    fullScreenPlayback = target
-                },
+                onClose: { closeInlinePlayback { inlineSitePlayback = nil } },
+                onRequestFullScreen: isInlineExpanded ? nil : expandInlinePlayback,
                 // 同上：这块也是定尺槽位（16:9），画面区不带下限；
-                // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）。
+                // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）；
+                // 放大成全屏后回到完整版（那边要 ✕ 才能收回来）。
                 playerAreaMinHeight: 0,
-                minimalControls: true
+                minimalControls: !isInlineExpanded
             )
         }
     }
@@ -102,16 +108,14 @@ extension VodDetailView {
             for: target.episode,
             at: target.index,
             isFullScreen: true,
-            onClose: { inlinePlayback = nil },
-            onRequestFullScreen: {
-                inlinePlayback = nil
-                fullScreenPlayback = target
-            },
+            onClose: { closeInlinePlayback { inlinePlayback = nil } },
+            onRequestFullScreen: isInlineExpanded ? nil : expandInlinePlayback,
             // 槽位尺寸由外面的 16:9 说了算：去掉画面区的 280 下限（不清掉会把槽位顶高，
             // 点播放的瞬间下面整页内容往下跳一截）；
-            // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）。
+            // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）；
+            // 放大成全屏后回到完整版（那边要 ✕ 才能收回来）。
             playerAreaMinHeight: 0,
-            minimalControls: true
+            minimalControls: !isInlineExpanded
         )
     }
 
@@ -134,6 +138,23 @@ extension VodDetailView {
         .contentShape(Rectangle())
         .onTapGesture {
             startInlinePlaybackFromSlot()
+        }
+    }
+
+    /// 就地那块「放大成全屏」（M27 首验之四）：把状态一翻 —— **同一块画面**跟着铺满整屏，
+    /// 播放器一个字节都不重建。翻横屏那颗在控制条上（`fullScreenButton` 里顺手做）。
+    func expandInlinePlayback() {
+        isInlineExpanded = true
+    }
+
+    /// ✕ 的两种意思（M27 首验之四）：放大状态下 = 收回那块（**接着播** + 翻回竖屏）；
+    /// 没放大时 = 清掉这块画面（`clear` 由两条路各自给：直链清 `inlinePlayback`、站点清 `inlineSitePlayback`）。
+    func closeInlinePlayback(clear: @escaping () -> Void) {
+        if isInlineExpanded {
+            isInlineExpanded = false
+            PlatformShims.requestPlaybackOrientation(landscape: false)
+        } else {
+            clear()
         }
     }
 

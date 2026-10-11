@@ -111,6 +111,23 @@ public extension View {
     }
 }
 
+/// 版本自适应的「藏导航栏」：就地放大成全屏那块要盖住整屏（M27 首验之四）。
+///
+/// | 平台/版本 | 实现 |
+/// | --- | --- |
+/// | iOS 15+ | `navigationBarHidden`（iOS 13 起就有；iOS 16 起标了软弃用，仍是公开 API） |
+/// | macOS 13+ | 空操作（macOS 的导航栏是窗口工具栏，不随页面藏） |
+public extension View {
+    /// 藏 / 显导航栏 —— 返回按钮与工具栏项一起藏（放大那块画面时用）。
+    func adaptiveNavigationBarHidden(_ hidden: Bool) -> some View {
+        #if os(iOS)
+        return navigationBarHidden(hidden)
+        #else
+        return self
+        #endif
+    }
+}
+
 /// 版本自适应的「内嵌搜索栏」：搜索框放在导航栏**中间**，右侧可放一个按钮。
 ///
 /// 参考录屏的搜索页就是这个形态：返回箭头 + 搜索框 + 圆形按钮在**同一行**。

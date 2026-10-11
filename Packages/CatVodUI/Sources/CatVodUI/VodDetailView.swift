@@ -57,6 +57,10 @@ public struct VodDetailView: View {
     @State var inlinePlayback: PlaybackTarget?
     /// 同样挂在顶上、但要先向站点 / 宿主换地址的那种（`SitePlayEpisodeView` 自己换）。
     @State var inlineSitePlayback: PlaybackTarget?
+    /// 就地那块**放大成全屏**了没有（M27 首验之四）：true = 只留画面铺满整屏（导航栏也藏），
+    /// 顺手翻横屏 —— **同一块画面放大**，不重建播放器（重建 = 黑一下 + 重新拉流 / 重解析）。
+    /// 控制条右下角那颗 ⤢ 进、✕ 出（出 = 收回那块，接着播）。
+    @State var isInlineExpanded = false
     /// 精简视图「剧集」列表的两个开关（对齐参考图右侧那两颗图标：展开文件名 / 正序倒序）。
     @State var isEpisodeListExpanded = false
     @State var isEpisodeListDescending = false
@@ -104,6 +108,8 @@ public struct VodDetailView: View {
             .navigationTitle(vod?.vodName.isEmpty == false ? (vod?.vodName ?? "详情") : "详情")
             // 详情页是沉浸页：登记给本 Tab 的根页面，由它把底部 Tab 栏收起来（见 Platform/AdaptiveTabBar.swift）。
             .immersiveTabBarPage()
+            // 就地放大那块（M27 首验之四）：导航栏（返回 / 收藏 / 换源）一起藏，画面铺满整屏。
+            .adaptiveNavigationBarHidden(isInlineExpanded)
             // 全屏播放那一层（M26）：两种视图共用 —— 精简视图的就地播放器点 ⤢ 也走它。
             // 走基础件：iOS 是 `fullScreenCover`，macOS 没有这个形态、回落系统 sheet。
             .adaptiveFullScreenCover(item: $fullScreenPlayback) { target in
