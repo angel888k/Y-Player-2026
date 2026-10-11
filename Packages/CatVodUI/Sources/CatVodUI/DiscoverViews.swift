@@ -250,9 +250,9 @@ struct DiscoverSiteSwitchGlyph: View {
 /// - **搜索**：菜单里没有输入框 → 「查找站点…」开 ``DiscoverSiteFinder``（原生搜索栏的列表）；
 /// - **改名**：同上 → 「重命名站点」子菜单先选站点，由上层弹 `.alert` 输入。
 ///
-/// 分组筛选（M06e）与分组排序（M06g）也收进菜单：筛选是一个带对勾的子菜单（菜单项标题里
-/// 带着当前筛的是哪一组），排序是「分组排序 → 每组一节 → 上移 / 下移」。`selectedGroup` 是
-/// 菜单内容自己的 `@State`：随菜单每次开合重来（与上游「关掉就忘」一致）。
+/// **分组筛选 / 分组排序的菜单项已拆**（用户口径，2026-10-11）：不想要分组，菜单回到
+/// 「站点清单 + 查找 + 重命名当前站点」。底层的分组能力（`SiteNameRules.groups` /
+/// `SiteGroupOrder` / `model.siteGroupOrder`）**原样保留**，以后想恢复只需把 UI 接回来。
 struct DiscoverSiteSwitcher: View {
     let sites: [Site]
     let selectedKey: String
@@ -260,16 +260,6 @@ struct DiscoverSiteSwitcher: View {
     let title: String
     /// 显示名 / 搜索要的自定义名（``DiscoverSiteRuleInput`` 里菜单要用的只剩这一项）。
     var ruleInput = DiscoverSiteRuleInput()
-    /// 已抽好的分组标签（`site key → 标签`）。
-    ///
-    /// 抽标签要跑正则，由上层在「输入变了 / 站点清单变了」时算好传进来
-    /// （`HomeView.refreshSiteTags()`）—— **菜单内容的 `body` 何时求值由系统决定**，
-    /// 不适合放这类计算；这里只做廉价的筛选与排序。
-    var tags: [String: [String]] = [:]
-    /// 存下来的分组顺序（空 = 用「按站点顺序首次出现」的默认顺序）。
-    var savedGroupOrder: [String] = []
-    /// 分组上移 / 下移（回传分组名与方向，由上层算新顺序并落盘）。
-    var onMoveGroup: ((String, Int) -> Void)?
     /// 请求改名（菜单里放不下输入框：由上层弹 `.alert`）。
     ///
     /// **只对当前站点**（M28 首验之二十九）：原来是一层「重命名站点 → 全量站点」子菜单 ——
@@ -280,48 +270,11 @@ struct DiscoverSiteSwitcher: View {
     var onFindRequest: (() -> Void)?
     let onSelect: (String) -> Void
 
-    /// 当前筛的分组（空 = 不筛）。**跨开合记忆**（M28 首验之二十九）：由上层持有 ——
-    /// 选过一次「某组」，下次点开菜单就只列那一组的站点（主清单立刻变短，弹出更利索）；
-    /// 原来放本视图的 `@State` 里，菜单一关就忘，等于每次都要面对全量清单。
-    @Binding var selectedGroup: String
-
-    init(
-        sites: [Site],
-        selectedKey: String,
-        title: String,
-        ruleInput: DiscoverSiteRuleInput = DiscoverSiteRuleInput(),
-        tags: [String: [String]] = [:],
-        savedGroupOrder: [String] = [],
-        selectedGroup: Binding<String> = .constant(""),
-        onMoveGroup: ((String, Int) -> Void)? = nil,
-        onRenameCurrent: (() -> Void)? = nil,
-        onFindRequest: (() -> Void)? = nil,
-        onSelect: @escaping (String) -> Void
-    ) {
-        self.sites = sites
-        self.selectedKey = selectedKey
-        self.title = title
-        self.ruleInput = ruleInput
-        self.tags = tags
-        self.savedGroupOrder = savedGroupOrder
-        _selectedGroup = selectedGroup
-        self.onMoveGroup = onMoveGroup
-        self.onRenameCurrent = onRenameCurrent
-        self.onFindRequest = onFindRequest
-        self.onSelect = onSelect
-    }
-
-    private var groups: [String] {
-        DiscoverSiteList.groups(sites: sites, tags: tags, savedOrder: savedGroupOrder)
-    }
-
     private var rows: [DiscoverSiteRow] {
         DiscoverSiteList.rows(
             sites: sites,
             selectedKey: selectedKey,
-            names: ruleInput.names,
-            tags: tags,
-            selectedGroup: selectedGroup
+            names: ruleInput.names
         )
     }
 
@@ -348,14 +301,6 @@ struct DiscoverSiteSwitcher: View {
     /// 准备的入口（分组筛选同理 —— 先筛出这一组，再在清单里挑）。
     @ViewBuilder
     private var tools: some View {
-        if !groups.isEmpty {
-            groupMenu
-            // 「更多」只在**真有排序必要**时出现：两个分组及以下排序几乎没意义，白占一层子菜单
-            // （每层子菜单都是系统要预先建树的东西 —— 弹出代价与层数直接相关）。
-            if groups.count > 2, onMoveGroup != nil {
-                moreMenu
-            }
-        }
         if let onFindRequest {
             Button {
                 onFindRequest()
@@ -368,49 +313,6 @@ struct DiscoverSiteSwitcher: View {
                 onRenameCurrent()
             } label: {
                 Label("重命名当前站点…", systemImage: "pencil")
-            }
-        }
-    }
-
-    /// 分组筛选：一个子菜单，当前项打勾（标题里带着当前筛的是哪一组 —— 菜单里没别处能显示它）。
-    private var groupMenu: some View {
-        Menu(selectedGroup.isEmpty ? "分组：全部" : "分组：\(selectedGroup)") {
-            Button {
-                selectedGroup = ""
-            } label: {
-                if selectedGroup.isEmpty {
-                    Label("全部站点", systemImage: "checkmark")
-                } else {
-                    Text("全部站点")
-                }
-            }
-            ForEach(groups, id: \.self) { group in
-                Button {
-                    selectedGroup = group
-                } label: {
-                    if group == selectedGroup {
-                        Label(group, systemImage: "checkmark")
-                    } else {
-                        Text(group)
-                    }
-                }
-            }
-        }
-    }
-
-    /// 「更多」子菜单：**低频操作收在这里**（M28 首验之二十九）—— 分组排序原来常驻主菜单，
-    /// 每组两行会把主菜单撑长，而它是个设置类操作；收进二级之后主菜单只剩「分组筛选 + 清单」。
-    private var moreMenu: some View {
-        Menu("更多") {
-            ForEach(groups, id: \.self) { group in
-                Section(group) {
-                    Button("上移") {
-                        onMoveGroup?(group, -1)
-                    }
-                    Button("下移") {
-                        onMoveGroup?(group, 1)
-                    }
-                }
             }
         }
     }
@@ -438,7 +340,7 @@ struct DiscoverSiteSwitcher: View {
                 Label("还有 \(rows.count - menuRows.count) 个站点 —— 用「查找站点…」", systemImage: "ellipsis")
             }
         } header: {
-            Text(selectedGroup.isEmpty ? "站点" : "站点（\(selectedGroup)）")
+            Text("站点")
         }
     }
 

@@ -36,14 +36,6 @@ public struct HomeView: View {
     @State var renameKey = ""
     @State var renameText = ""
     @State var isRenamePresented = false
-    /// 站点菜单里当前筛的分组（空 = 不筛）。由本视图持有 —— **跨菜单开合记忆**（M28 首验之二十九），
-    /// 选过一次就只列那一组，菜单弹出更利索。
-    @State var siteGroupFilter = ""
-    /// 分组标签（`site key → 标签`）：站点菜单的「分组筛选 / 分组排序」要用。
-    ///
-    /// 抽标签要跑正则，不能放进每次渲染：只在这两处重算 —— `.task(id: model.siteRuleInput)`
-    /// （改名 / 换接口）与 `.onChange(of: model.siteCatalogRevision)`（站点清单变了）。
-    @State var siteTags: [String: [String]] = [:]
     /// 已加载内容对应的「站点清单版本」（`AppModel.siteCatalogRevision`）。
     ///
     /// 与 `selectedSiteKey` 一起构成「这份内容属于哪个接口」的判断：
@@ -122,14 +114,12 @@ public struct HomeView: View {
             }
             .task(id: model.siteRuleInput) {
                 // 分组标签（抽标签要跑正则）：输入变了（改名 / 换接口）就重抽。
-                refreshSiteTags()
             }
             .onChange(of: model.siteCatalogRevision) { _ in
                 // 接口换了（加载新配置 / 宿主刷新 / 宿主停止）：首页必须自己重来一遍。
                 // 不能指望 `.task`：TabView 里的首页是常驻视图，`.task` 在回到该 Tab 时不一定重跑，
                 // 而且它重跑时 `loadHome()` 也会因为已有分类直接返回（这正是「必须冷启动」的原因）。
                 // 这里用非结构化 `Task` 而不是 `.task`：离开首页 Tab 时这次重载不该被取消。
-                refreshSiteTags()
                 Task { await syncHomeWithInterface() }
             }
             .onChange(of: selectedSiteKey) { _ in
@@ -456,12 +446,6 @@ public struct HomeView: View {
             selectedKey: selectedSiteKey,
             title: siteTitle,
             ruleInput: model.siteRuleInput,
-            tags: siteTags,
-            savedGroupOrder: model.siteGroupOrder,
-            selectedGroup: $siteGroupFilter,
-            onMoveGroup: { group, direction in
-                model.moveSiteGroup(group, direction: direction)
-            },
             onRenameCurrent: {
                 beginSiteRename(selectedSite?.key ?? selectedSiteKey)
             },
@@ -509,11 +493,6 @@ public struct HomeView: View {
             return
         }
         model.renameSite(site, to: renameText)
-    }
-
-    /// 重抽分组标签送进菜单（抽标签要跑正则，见 `siteTags` 的说明）。
-    private func refreshSiteTags() {
-        siteTags = DiscoverSiteList.tags(sites: browsableSites, input: model.siteRuleInput)
     }
 
     private var emptyHint: String {

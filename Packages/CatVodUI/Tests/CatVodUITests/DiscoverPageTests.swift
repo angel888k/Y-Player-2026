@@ -198,15 +198,12 @@ struct DiscoverPageTests {
             title: "玩偶|4K",
             onSelect: { _ in }
         )
-        // 全量：分组标签 + 分组排序 + 改名 + 查找（菜单里那几条子项都会出现）。
+        // 全量：自定义名 + 改名 + 查找（分组相关菜单项已拆，见 `DiscoverSiteSwitcher` 文档）。
         _ = DiscoverSiteSwitcher(
             sites: [site],
             selectedKey: "wogg",
             title: "玩偶|4K",
             ruleInput: DiscoverSiteRuleInput(names: ["wogg": "[主力]玩偶"]),
-            tags: ["wogg": ["4K", "主力"]],
-            savedGroupOrder: ["4K"],
-            onMoveGroup: { _, _ in },
             onRenameCurrent: { },
             onFindRequest: { },
             onSelect: { _ in }
