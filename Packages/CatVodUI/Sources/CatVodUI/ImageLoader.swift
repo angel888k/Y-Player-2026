@@ -157,7 +157,7 @@ actor ImageMemoryCache {
     func image(
         for url: String,
         targetSize: CGSize,
-        fetch: @Sendable (String, CGSize) async throws -> PlatformImage
+        fetch: @escaping @Sendable (String, CGSize) async throws -> PlatformImage
     ) async throws -> PlatformImage {
         let size = Self.pixelSize(targetSize)
         let key = Self.cacheKey(url, size: size)
