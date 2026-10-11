@@ -39,7 +39,25 @@ extension VodDetailView {
                     .background(autoPlayLink)
                 }
             }
+            // **放大只属于横屏**：转回竖屏（用户自己转回来 / 系统转回来）就把「就地放大」收回去 ——
+            // 不收的话留在竖屏上的是一张只剩播放器的空页 + 一整套完整控制条
+            // （用户看到的「多出来的竖屏、上面还一堆按钮」）。
+            .onChange(of: proxy.size) { size in
+                guard size.height > size.width else {
+                    return
+                }
+                collapseInlineExpansion()
+            }
         }
+    }
+
+    /// 收回「就地放大」：只翻状态，**播放器一个字节都不动**（画面接着播）。
+    /// 三处都走它 —— ✕、转回竖屏、以后再加别的触发（别各写一份 `isInlineExpanded = false`）。
+    func collapseInlineExpansion() {
+        guard isInlineExpanded else {
+            return
+        }
+        isInlineExpanded = false
     }
 
     /// 精简视图顶部那块播放器：**16:9 黑场**里挂 `PlaybackView`（只画面 + 叠层控制条）。
@@ -174,7 +192,7 @@ extension VodDetailView {
     /// 没放大时 = 清掉这块画面（`clear` 由两条路各自给：直链清 `inlinePlayback`、站点清 `inlineSitePlayback`）。
     func closeInlinePlayback(clear: @escaping () -> Void) {
         if isInlineExpanded {
-            isInlineExpanded = false
+            collapseInlineExpansion()
             PlatformShims.requestPlaybackOrientation(landscape: false)
         } else {
             clear()
