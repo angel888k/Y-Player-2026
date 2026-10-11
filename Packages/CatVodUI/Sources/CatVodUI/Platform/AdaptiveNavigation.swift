@@ -224,6 +224,43 @@ public extension View {
     }
 }
 
+// MARK: - 侧抽屉（三分之一屏）
+
+/// 版本自适应的「侧抽屉」：给**选集**这类「看着画面挑一条」的弹层用。
+///
+/// | 平台/版本 | 实现 |
+/// | --- | --- |
+/// | iOS 16+ | 系统 sheet + `presentationDetents([.fraction(0.34)])` —— 占屏高约 1/3、可拖、带拉手；
+///   播放器上「抽屉只盖住下面一截、画面还看得见」正是用户要的效果（M28 首验之三十） |
+/// | iOS 15 | **没有**「非全屏弹层」的原生 API（`presentationDetents` 要 iOS 16）—— 按规范回落
+///   该版本原生的整页 sheet，不做跨版本仿制 |
+/// | macOS 13+ | 系统 sheet（macOS 的弹窗本来是居中卡片，不再另画） |
+///
+/// 说明：系统 sheet **只能从底部起、按高度档位停**，改不成「从右侧滑入」——那是自绘面板的活，
+/// 与本规范「原生优先」冲突。这里取系统允许的等价形态：高 = 屏高约 1/3。
+public struct AdaptiveSideSheetModifier: ViewModifier {
+    /// 抽屉高度占屏高的比例（用户口径「三分之一」；取 0.34 让拉手与圆角吃掉几像素后仍是满当当的 1/3）。
+    public static let heightFraction: CGFloat = 0.34
+
+    public func body(content: Content) -> some View {
+        if #available(iOS 16.0, macOS 13.0, *) {
+            content
+                .presentationDetents([.fraction(Self.heightFraction)])
+                .presentationDragIndicator(.visible)
+        } else {
+            content
+        }
+    }
+}
+
+public extension View {
+    /// 把 sheet 呈现成「侧抽屉」形态（iOS 16+ 约三分之一屏；iOS 15 回落整页，见
+    /// ``AdaptiveSideSheetModifier``）。
+    func adaptiveSideSheet() -> some View {
+        modifier(AdaptiveSideSheetModifier())
+    }
+}
+
 // MARK: - 全屏呈现
 
 public extension View {

@@ -438,8 +438,9 @@ public struct PlaybackView: View {
                     isEpisodeDrawerPresented = false
                     Task { await switchEpisode(to: index) }
                 }
-                // 与详情页的抽屉同一形态：半屏（iOS 15 回落整页）。
-                .adaptiveHalfSheet()
+                // 选集走「侧抽屉」形态：占屏高约 1/3（用户口径「三分之一屏」，
+                // iOS 15 无该原生 API，回落整页 —— 见 `adaptiveSideSheet`）。
+                .adaptiveSideSheet()
             }
         }
         .onChange(of: scenePhase) { phase in
