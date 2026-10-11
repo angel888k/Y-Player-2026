@@ -76,6 +76,8 @@ targets:
         UILaunchScreen:
           UIColorName: ""
         UIRequiredDeviceCapabilities: [arm64]
+        # 画中画与「后台继续出声」都要这一档（M26）：没有它系统不给 PiP，也不给后台音频。
+        UIBackgroundModes: [audio]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

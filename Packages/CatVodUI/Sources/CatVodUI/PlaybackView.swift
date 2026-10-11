@@ -399,6 +399,8 @@ public struct PlaybackView: View {
             isLocked = false
         }
         .task {
+            // 音频会话（M26）：`.playback` 才谈得上画中画与后台出声；离场在 `onDisappear` 还原。
+            PlaybackAudioSession.activate()
             // 「开始一次播放」的回传口（M06l）：换集/换台时上层用它把「跳过广告」的累计统计归零。
             onStart?()
             // 弹幕（M08c）：把「搜什么」交给上层 —— 播放页不认识接口配置，也不该认识。
@@ -408,6 +410,8 @@ public struct PlaybackView: View {
             await start()
         }
         .onDisappear {
+            // 与 `.task` 里的 `activate()` 配对：计数归零才还原会话。
+            PlaybackAudioSession.deactivate()
             eventTask?.cancel()
             eventTask = nil
             // 控制条的自动收起计时也别留着（离开页面后没人需要它）。
