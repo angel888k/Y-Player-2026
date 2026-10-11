@@ -22,6 +22,9 @@ final class LayerHostView: UIView {
 
     /// 挂层 + 明确尺寸（`size` 来自画面区的 `GeometryReader`）。
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
+        // 临时诊断（M27 首验之六之八）：把宿主底色刷成**品红**，用来判定「屏幕上那块小画面
+        // 到底是不是我们画的」—— 验证完就改回黑。品红铺满整屏、小画面浮在上面 ⇒ 小画面不是我们的层。
+        backgroundColor = .magenta
         // 跟着容器长（与下面 `sizeThatFits` 同一条理由）：容器换了尺寸，宿主自己跟上。
         autoresizingMask = [.flexibleWidth, .flexibleHeight]
         if attachedLayer !== layer {
@@ -133,6 +136,9 @@ final class LayerHostView: NSView {
     private var verifyTask: Task<Void, Never>?
 
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
+        // 临时诊断：同上（iOS 那一支的注释）—— 验证完改回黑。
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.magenta.cgColor
         autoresizingMask = [.width, .height]
         if attachedLayer !== layer {
             attachedLayer?.removeFromSuperlayer()

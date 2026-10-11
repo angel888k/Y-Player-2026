@@ -53,7 +53,10 @@ final class PlaybackPipController: NSObject, ObservableObject {
         guard let created else {
             return
         }
-        created.canStartPictureInPictureAutomaticallyFromInline = true
+        // 临时诊断（M27 首验之六之八）：先**关掉「自动起」**，用来判定屏幕上那块小画面
+        // 是不是系统画中画窗口在画（画中画窗口会一直浮在 App 上面、跟着同一路播放暂停）。
+        // 控制条上那颗按钮照样能手动起 —— 验证完再打开。
+        created.canStartPictureInPictureAutomaticallyFromInline = false
         observations = [
             created.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] controller, _ in
                 let possible = controller.isPictureInPicturePossible
