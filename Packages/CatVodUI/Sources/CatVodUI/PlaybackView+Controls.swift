@@ -237,26 +237,32 @@ extension PlaybackView {
         .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
     }
 
-    /// 进度那行：当前时间 · 滑杆 · 总时长。
+    /// 进度那行：当前时间 · 进度条 · 总时长。
+    ///
+    /// 进度条是自绘的 ``PlaybackSeekBar``（**点 / 拖都能跳**）—— 系统 `Slider` 在 iOS 上
+    /// 点轨道不跳、只能拖滑块（M28 首验之二十一用户报过）。
     private var progressRow: some View {
         HStack(spacing: 10) {
             Text(Self.timeText(latestPosition))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white)
-            Slider(
-                value: seekBinding,
-                in: 0 ... max(latestDuration, 1),
-                onEditingChanged: { editing in
-                    isScrubbing = editing
-                    guard !editing else { return }
-                    // 松手才 seek：一次拖动会产生几十个中间值，逐个 seek 会把内核打爆。
-                    let target = latestPosition
-                    Task { await engine?.seek(to: target) }
+            PlaybackSeekBar(
+                position: latestPosition,
+                duration: latestDuration,
+                onScrub: { value in
+                    // 点 / 拖中：只挪界面上的位置（内核报回的位置在 isScrubbing 期间不采纳）。
+                    isScrubbing = true
+                    latestPosition = value
+                },
+                onCommit: { value in
+                    isScrubbing = false
+                    latestPosition = value
+                    // 松手（含点完抬手）才 seek：一次拖动会产生几十个中间值，逐个 seek 会把内核打爆。
+                    Task { await engine?.seek(to: value) }
                     // 跟控制条交互过：自动收起的计时从头算（M03P10）。
                     scheduleControlsAutoHide()
                 }
             )
-            .tint(.white)
             Text(Self.timeText(latestDuration))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white)
@@ -335,14 +341,6 @@ extension PlaybackView {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isLocked ? "解锁" : "锁定画面")
-    }
-
-    /// 进度条绑定：拖动只改界面上的位置（松手才真 seek，见 ``progressRow``）。
-    var seekBinding: Binding<Double> {
-        Binding(
-            get: { latestPosition },
-            set: { newValue in latestPosition = newValue }
-        )
     }
 
     // MARK: - 参数徽标
