@@ -88,18 +88,6 @@ extension PlaybackView {
 
     // MARK: - 底排那几个文字按钮
 
-    /// 投屏（M27 首验之三，对齐参考顶排第二颗）—— **只有系统内核有公开 API 能做**
-    /// （`AVRoutePickerView`：系统音频路由 + AVPlayer 的外部播放；MPV / 自研 FFmpeg 没有公开的路，
-    /// 整颗不出现 —— 与画中画同一条规矩）。见 `Platform/PlaybackCast.swift`。
-    @ViewBuilder
-    var castButton: some View {
-        if engineKind == .system, PlaybackCast.isSupported {
-            PlaybackCastButton()
-                .frame(width: 30, height: 30)
-                .accessibilityLabel("投屏")
-        }
-    }
-
     /// 旋转（对齐参考顶排那颗）：把「横屏 ↔ 竖屏」翻一下。
     ///
     /// **只在有公开 API 的系统上出现**（iOS 16+）；iOS 15 / macOS 拿不到就不摆这颗
@@ -111,24 +99,6 @@ extension PlaybackView {
                 let landscape = PlatformShims.isPlaybackLandscape() ?? true
                 PlatformShims.requestPlaybackOrientation(landscape: !landscape)
             }
-        }
-    }
-
-    /// 画中画（M27，对齐参考顶排那颗）—— **只有系统内核有公开 API 能做**：画面是自建的
-    /// `AVPlayerLayer` 宿主，`AVPictureInPictureController` 从它起（见 `Platform/PlaybackPip.swift`）。
-    /// MPV / 自研 FFmpeg 要一条逐帧拷贝层，按拍板不做（M26 第六节）。
-    ///
-    /// 设备不支持、或画面层还没建起来时整颗不出现；「现在起不了」（加载中）时置灰 ——
-    /// 不摆点了没反应的开关。
-    @ViewBuilder
-    var pipButton: some View {
-        if engineKind == .system, systemSurface != nil, PlaybackPipController.isSupported {
-            let enabled = pipController.isActive || pipController.isPossible
-            barIcon(pipController.isActive ? "pip.exit" : "pip.enter", label: pipController.isActive ? "退出画中画" : "画中画") {
-                pipController.toggle()
-            }
-            .disabled(!enabled)
-            .opacity(enabled ? 1 : 0.35)
         }
     }
 

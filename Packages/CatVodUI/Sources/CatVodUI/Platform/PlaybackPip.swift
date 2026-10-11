@@ -15,16 +15,16 @@ import UIKit
 ///
 /// 三件事：
 /// - **挂 / 拆**：`attach(layer:)` 在系统内核建起来时叫一次，`detach()` 在换内核 / 离开播放页时叫；
-/// - **状态**：把「可不可能 / 是不是正在画中画」发布给播放页（顶排那颗按钮的可用态与图标跟着走）——
+/// - **状态**：把「可不可能 / 是不是正在画中画」发布给播放页（原顶排那颗按钮的可用态与图标跟着走；按钮已删）——
 ///   这两个属性都是 KVO 可观察的（Apple 官方的 PiP 自定义播放器样例就是盯它们）；
-/// - **自动起**：`canStartPictureInPictureAutomaticallyFromInline` 打开 —— 切后台 / 按 Home 时
-///   系统自己把 PiP 起出来（M26 第四批那套「后台出声 + 画中画」的体验由它接上）。
+/// - **自动起：关**（M28 口径「投屏 / 画中画不做」，2026-10-11 定死）—— 顶排那颗按钮也删了；
+///   后台继续出声不靠它（走 `PlaybackAudioSession` + `UIBackgroundModes: [audio]`）。
 ///   但**前台**自己起来的那些是误判（系统把「画面视图被拿掉」当成了「用户离开」——就地放大 / 转屏
 ///   都会碰到），一律停掉：不停的话 `AVPlayerLayer` 被搬进系统窗口，我们这边只剩一片黑
 ///   （M27 首验之六：用户看到的「黑着、画面缩在一角」）。
 ///
-/// 拿不到就说拿不到：设备不支持（`isPictureInPictureSupported()` 为假）时 ``isSupported`` 为假，
-/// 播放页那颗按钮整颗不出现（`docs/UI 规范.md` 第 5 条）。
+/// 拿不到就说拿不到：设备不支持（`isPictureInPictureSupported()` 为假）时 ``isSupported`` 为假
+/// （界面上那颗按钮已按 M28 口径删掉、自动起也关 —— 这条只是能力查询）。
 @MainActor
 final class PlaybackPipController: NSObject, ObservableObject {
     /// 这台设备 / 这个平台支不支持画中画。
@@ -53,7 +53,9 @@ final class PlaybackPipController: NSObject, ObservableObject {
         guard let created else {
             return
         }
-        created.canStartPictureInPictureAutomaticallyFromInline = true
+        // M28 口径「投屏 / 画中画不做」：自动起**不开**（顶排那颗按钮也已删）——
+        // 后台继续出声不靠它（音频会话那条照旧）。
+        created.canStartPictureInPictureAutomaticallyFromInline = false
         observations = [
             created.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] controller, _ in
                 let possible = controller.isPictureInPicturePossible
