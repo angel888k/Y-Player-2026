@@ -102,7 +102,8 @@ public struct VodDetailView: View {
             // 详情页是沉浸页：登记给本 Tab 的根页面，由它把底部 Tab 栏收起来（见 Platform/AdaptiveTabBar.swift）。
             .immersiveTabBarPage()
             // 全屏播放那一层（M26）：两种视图共用 —— 精简视图的就地播放器点 ⤢ 也走它。
-            .fullScreenCover(item: $fullScreenPlayback) { target in
+            // 走基础件：iOS 是 `fullScreenCover`，macOS 没有这个形态、回落系统 sheet。
+            .adaptiveFullScreenCover(item: $fullScreenPlayback) { target in
                 fullScreenDestination(for: target)
             }
             .refreshable {
@@ -172,10 +173,11 @@ public struct VodDetailView: View {
         if makeResource(for: target.episode) != nil {
             destination(for: target.episode, at: target.index, isFullScreen: true)
         } else {
-            NavigationView {
+            // 换地址 / 解析那几张页面自带工具栏与返回：包一层**版本自适应**的导航容器
+            // （iOS 16+/macOS 是 NavigationStack，iOS 15 是 NavigationView + .stack）。
+            AdaptiveNavigationContainer {
                 destination(for: target.episode, at: target.index)
             }
-            .navigationViewStyle(.stack)
         }
     }
 

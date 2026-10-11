@@ -25,12 +25,17 @@ struct EpisodeListDrawer: View {
         VStack(spacing: 0) {
             header
             Divider()
-            List {
-                ForEach(orderedIndices, id: \.self) { index in
-                    row(at: index)
+            // 胶囊行自己是完整的「一行」：用 `ScrollView + LazyVStack` 而不是 `List` ——
+            // 行间距 / 行底色全由这里定，也免得用上 macOS 没有的 list row 修饰符。
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(orderedIndices, id: \.self) { index in
+                        row(at: index)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .listStyle(.plain)
         }
     }
 
@@ -85,8 +90,5 @@ struct EpisodeListDrawer: View {
                 )
         }
         .buttonStyle(.plain)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-        .listRowBackground(Color.clear)
     }
 }

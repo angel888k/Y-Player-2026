@@ -206,3 +206,26 @@ public extension View {
         modifier(AdaptiveHalfSheetModifier())
     }
 }
+
+// MARK: - 全屏呈现
+
+public extension View {
+    /// 全屏呈现一层页面（M26 的全屏播放器用）。
+    ///
+    /// | 平台 | 实现 |
+    /// | --- | --- |
+    /// | iOS 14+ | `fullScreenCover`（该平台原生的全屏覆盖） |
+    /// | macOS 13+ | `sheet` —— **macOS 没有全屏 cover 这个形态**，回落该平台原生的呈现方式
+    ///   （不跨版本仿制，见文件头规则） |
+    @ViewBuilder
+    func adaptiveFullScreenCover<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        #if os(iOS)
+        fullScreenCover(item: item, content: content)
+        #else
+        sheet(item: item, content: content)
+        #endif
+    }
+}
