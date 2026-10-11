@@ -32,6 +32,9 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
     /// 增益的范围 / 夹紧见 ``AudioGain``（上限那份账在它那儿，这里不再写一遍）。
     private var currentVolume: Float = 1
     private var currentGain: Float = 1
+    /// 上一次真正应用过的画面区尺寸：同一个尺寸不重复重建 VO（转屏动画里尺寸可能连报几次，
+    /// 重建一次就闪一帧）。
+    private var appliedVideoAreaSize: CGSize?
 
     /// 画面层（M03P1 第 3 步的渲染路径）：**引擎要留着它**，除了建会话，还要在画面区变尺寸时
     /// 把新窗口尺寸转告 mpv（见 ``setVideoAreaSize(_:)``）。
@@ -143,6 +146,10 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
         guard let session, size.width > 0, size.height > 0 else {
             return
         }
+        guard appliedVideoAreaSize != size else {
+            return
+        }
+        appliedVideoAreaSize = size
         let scale = videoSurface?.layer.contentsScale ?? 2
         let pixelWidth = max(Int((size.width * scale).rounded()), 1)
         let pixelHeight = max(Int((size.height * scale).rounded()), 1)

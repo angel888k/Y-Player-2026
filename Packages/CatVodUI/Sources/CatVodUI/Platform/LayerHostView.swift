@@ -128,13 +128,10 @@ final class LayerHostView: UIView {
         CATransaction.setDisableActions(true)
         let size = hostedSize ?? bounds.size
         let target = CGRect(origin: .zero, size: size)
-        if attachedLayer.frame != target {
-            attachedLayer.frame = target
-            // 尺寸真的变了：**把层重新挂一次**（AVPlayerLayer 的渲染几何跟挂上去那一刻绑定，
-            // 只改 frame 不重挂，画面会一直按旧尺寸画 —— M27 首验之六之七）。
-            attachedLayer.removeFromSuperlayer()
-            layer.addSublayer(attachedLayer)
-        }
+        // 只改 frame，**不重挂**：重挂是为了试「AVPlayerLayer 的渲染几何卡住」那条猜想加的，
+        // 后来查明那段毛病出在别处（MPV 的 drawableSize / 窗口尺寸），而重挂会让两种内核
+        // 在起播和放大那一下各卡一帧（用户报「正常播放会卡顿一下」）。
+        attachedLayer.frame = target
         let scale = window?.screen.scale ?? UIScreen.main.scale
         attachedLayer.contentsScale = scale
         // **Metal 那一层还得自己报「画布」尺寸**（M27 首验之六之九，就是它把整件事拖了这么多轮）：
@@ -255,12 +252,8 @@ final class LayerHostView: NSView {
         CATransaction.setDisableActions(true)
         let size = hostedSize ?? bounds.size
         let target = CGRect(origin: .zero, size: size)
-        if attachedLayer.frame != target {
-            attachedLayer.frame = target
-            // 尺寸变了就重挂一次（理由见 iOS 那一支的注释）。
-            attachedLayer.removeFromSuperlayer()
-            layer?.addSublayer(attachedLayer)
-        }
+        // 只改 frame，不重挂（理由见 iOS 那一支的注释）。
+        attachedLayer.frame = target
         let scale = window?.backingScaleFactor ?? 2
         attachedLayer.contentsScale = scale
         // Metal 那一层要自己报画布尺寸（理由见 iOS 那一支的注释）。

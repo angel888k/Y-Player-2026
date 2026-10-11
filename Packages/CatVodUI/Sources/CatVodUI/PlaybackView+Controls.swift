@@ -89,18 +89,22 @@ extension PlaybackView {
     /// 窄版的间距（10：9 颗 30pt 图标 + 8 个间隔 + 两侧内边距 ≈ 378pt，留得住 390 / 402）。
     static let barCompactSpacing: CGFloat = 10
 
-    /// 顶排（M27 首验之三按参考图对齐）：关闭 · **投屏** · 旋转 · 画面比例 ——
-    /// 画中画 · 弹幕 · 倍速 · 锁定。
+    /// 顶排（M27 首验之三按参考图对齐；M27 首验之十一按用户口径**三个内核一套按钮**）：
+    /// 关闭 · 旋转 · 画面比例 —— 弹幕 · 倍速 · 锁定。
+    ///
+    /// **投屏 / 画中画 不摆**（用户口径：以 MPV 全屏那套为准，系统内核也是同一套按钮）：
+    /// 那两颗只有系统内核做得到（`AVRoutePickerView` / `AVPictureInPictureController`），
+    /// 摆上去会让「换个内核按钮就变样」——三个内核一套按钮比多两颗能力更重要。
+    /// 实现还留着（`PlaybackCast` / `PlaybackPip`）：画中画的**自动起**照旧工作（切后台时系统自己起），
+    /// 要接回来只差把这两行加回去。
     private func topIconRow(compact: Bool) -> some View {
         HStack(spacing: compact ? Self.barCompactSpacing : 24) {
             barIcon("xmark", label: "关闭播放") {
                 closePlayback()
             }
-            castButton
             rotateButton
             scaleMenu
             Spacer(minLength: 0)
-            pipButton
             danmakuMenu
             speedMenu
             lockButton
