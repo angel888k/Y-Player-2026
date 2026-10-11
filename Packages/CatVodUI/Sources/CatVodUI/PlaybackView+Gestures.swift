@@ -137,6 +137,7 @@ extension PlaybackView {
                 onDoubleTap: { location in
                     // 双击干什么由设置给（M28）；锁上之后不做（M03P21，上游 onDoubleTap 同款早退）。
                     let unlocked = Self.lockedGesturePolicy(isLocked: isLocked) == .all
+                    let held = currentHoldSeconds
                     guard unlocked, !shouldSwallowTap() else {
                         // 没做事的那些也留一条痕（「哪一段断了」全在日志里，排障不靠猜）。
                         let skipped: String = unlocked ? "（被长按尾巴吞掉）" : "（锁上不做）"
@@ -144,23 +145,26 @@ extension PlaybackView {
                             doubleTap: true,
                             location: location,
                             isCenter: Self.isCenterTap(startX: location?.x, width: size.width),
-                            action: skipped
+                            action: skipped,
+                            held: held
                         )
                         return
                     }
-                    handleTap(doubleTap: true, at: location, width: size.width)
+                    handleTap(doubleTap: true, at: location, width: size.width, held: held)
                 },
                 onSingleTap: { location in
+                    let held = currentHoldSeconds
                     guard !shouldSwallowTap() else {
                         PlaybackTrace.noteTap(
                             doubleTap: false,
                             location: location,
                             isCenter: Self.isCenterTap(startX: location?.x, width: size.width),
-                            action: "（被长按尾巴吞掉）"
+                            action: "（被长按尾巴吞掉）",
+                            held: held
                         )
                         return
                     }
-                    handleTap(doubleTap: false, at: location, width: size.width)
+                    handleTap(doubleTap: false, at: location, width: size.width, held: held)
                 }
             )
             // 长按加速与点按**同时**识别：不用 `exclusively`，那会把正常单击也一起赔进去；
@@ -255,6 +259,9 @@ extension PlaybackView {
             }
             .onEnded { value in
                 guard !isSpeedBoostHoldingTrusted(), !isZooming, !isLocked else {
+                    // 这次拖动被打断（捏合 / 锁 / 长按）：把这次的临时状态收掉 ——
+                    // 提示条现在是「常挂只翻透明度」，不清的话那句「亮度 50%」会一直挂在屏上。
+                    settleGesture()
                     return
                 }
                 // 纵甩（M03P23 起；M07d10 起直播页也吃它）：先判甩 —— 甩了就撤掉这次顺手做的
@@ -357,12 +364,18 @@ extension PlaybackView {
     /// 手上不按屏幕分区，规则就必须是同一份。
     ///
     /// `location`：点按的落点（iOS 16+ 由 `SpatialTapGesture` 给；iOS 15 那条路给 nil，
-    /// 按「中间」处理）。
-    func handleTap(doubleTap: Bool, at location: CGPoint?, width: CGFloat) {
+    /// 按「中间」处理）。`held` 只进日志（这次点按距长按起多久）。
+    func handleTap(doubleTap: Bool, at location: CGPoint?, width: CGFloat, held: TimeInterval? = nil) {
         let startX = location?.x
         let isCenter = Self.isCenterTap(startX: startX, width: width)
         let action = controlSettings.tapAction(doubleTap: doubleTap, isCenter: isCenter)
-        PlaybackTrace.noteTap(doubleTap: doubleTap, location: location, isCenter: isCenter, action: action.title)
+        PlaybackTrace.noteTap(
+            doubleTap: doubleTap,
+            location: location,
+            isCenter: isCenter,
+            action: action.title,
+            held: held
+        )
         switch action {
         case .toggleControls:
             toggleControlsVisibility()
@@ -553,6 +566,15 @@ extension PlaybackView {
         return now.timeIntervalSince(endedAt) < speedBoostSwallowSeconds ? .swallow : .allow
     }
 
+    /// 这次点按距「长按起」多久（秒）；没在长按状态给 nil。**只进日志** ——
+    /// 「吞 / 放」的判定输入就是它，排障时不用再猜用户按了多久。
+    var currentHoldSeconds: TimeInterval? {
+        guard isSpeedBoostHolding, let started = speedBoostStartedAt else {
+            return nil
+        }
+        return Date().timeIntervalSince(started)
+    }
+
     /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:holdStartedAt:endedAt:now:)``）。
     ///
     /// 三件事在任何分支里都要做对（M28 首验之五：日志里「每个单击前面都跟着一条长按起」）：
@@ -569,9 +591,17 @@ extension PlaybackView {
         )
         switch disposition {
         case .swallow:
-            endSpeedBoost(reason: "尾巴（真·长按）")
+            // 只有控制条**亮着**时才吞（吞的目的是别让它闪一下）；暗着的时候这一下照常执行 ——
+            // 用户按屏幕十有八九就是要把它叫出来（M28 首验之六：控制条暗着时怎么按都不出来，
+            // 是「点屏幕没反应」里最难受的一种）。
+            if isControlsVisible {
+                endSpeedBoost(reason: "尾巴（真·长按）")
+                speedBoostEndedAt = nil
+                return true
+            }
+            endSpeedBoost(reason: "尾巴（控制条暗着，放行）")
             speedBoostEndedAt = nil
-            return true
+            return false
         case .allow:
             if isSpeedBoostHolding {
                 endSpeedBoost(reason: "短促按住，按松手处理")
