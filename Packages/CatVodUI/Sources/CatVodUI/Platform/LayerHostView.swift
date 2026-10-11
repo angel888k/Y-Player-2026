@@ -53,6 +53,8 @@ final class LayerHostView: UIView {
             VideoHostTrace.noteLayerCheck(
                 attached: layer?.superlayer === self.layer,
                 frame: layer?.frame,
+                layerBounds: layer?.bounds,
+                identityTransform: layer?.transform.isIdentity,
                 windowFrame: window.map { convert(bounds, to: $0) },
                 windowSize: window?.bounds.size
             )
@@ -151,6 +153,8 @@ final class LayerHostView: NSView {
             VideoHostTrace.noteLayerCheck(
                 attached: layer?.superlayer === self.layer,
                 frame: layer?.frame,
+                layerBounds: layer?.bounds,
+                identityTransform: layer?.transform.isIdentity,
                 windowFrame: window?.contentView.map { convert(bounds, to: $0) },
                 windowSize: window?.contentView?.bounds.size
             )
