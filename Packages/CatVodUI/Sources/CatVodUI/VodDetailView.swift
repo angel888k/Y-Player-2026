@@ -61,6 +61,9 @@ public struct VodDetailView: View {
     /// 顺手翻横屏 —— **同一块画面放大**，不重建播放器（重建 = 黑一下 + 重新拉流 / 重解析）。
     /// 控制条右下角那颗 ⤢ 进、✕ 出（出 = 收回那块，接着播）。
     @State var isInlineExpanded = false
+    /// 上一次画面区**是不是横屏**（宽 > 高）：给「转回竖屏就收回放大」判方向用 ——
+    /// 只看「现在是竖屏」会误判：**放大自己就会先把容器变成整屏竖屏**（见 ``collapseIfRotatedBackToPortrait``）。
+    @State var compactLayoutWasLandscape = false
     /// 精简视图「剧集」列表的两个开关（对齐参考图右侧那两颗图标：展开文件名 / 正序倒序）。
     @State var isEpisodeListExpanded = false
     @State var isEpisodeListDescending = false

@@ -43,10 +43,7 @@ extension VodDetailView {
             // 不收的话留在竖屏上的是一张只剩播放器的空页 + 一整套完整控制条
             // （用户看到的「多出来的竖屏、上面还一堆按钮」）。
             .onChange(of: proxy.size) { size in
-                guard size.height > size.width else {
-                    return
-                }
-                collapseInlineExpansion()
+                collapseIfRotatedBackToPortrait(size)
             }
         }
     }
@@ -58,6 +55,21 @@ extension VodDetailView {
             return
         }
         isInlineExpanded = false
+    }
+
+    /// 画面区尺寸变了：**从横屏翻回竖屏**就把「就地放大」收回去。
+    ///
+    /// 为什么不能只看「现在是不是竖屏」（M27 首验之六之五，日志里踩过）：
+    /// **放大自己就会先把容器变成整屏竖屏**（402×226 → 402×874），那一步不是「转回来」——
+    /// 收了的话，刚点开的放大 31 毫秒就被撤掉，横屏上只剩一块槽位 + 一排导航按钮。
+    /// 只有「上一次是横屏（宽 > 高）、这一次是竖屏」才是真的转回来。
+    func collapseIfRotatedBackToPortrait(_ size: CGSize) {
+        let wasLandscape = compactLayoutWasLandscape
+        compactLayoutWasLandscape = size.width > size.height
+        guard isInlineExpanded, wasLandscape, size.height > size.width else {
+            return
+        }
+        collapseInlineExpansion()
     }
 
     /// 精简视图顶部那块播放器：**16:9 黑场**里挂 `PlaybackView`（只画面 + 叠层控制条）。
