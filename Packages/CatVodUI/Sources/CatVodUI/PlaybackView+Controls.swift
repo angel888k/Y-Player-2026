@@ -3,10 +3,14 @@ import SwiftUI
 
 /// 播放页的**叠层控制条**（M03P6 起；M26 按参考的全屏播放器重排；M27 起三个内核共用）。
 ///
-/// 排布对齐参考截图：
+/// 排布对齐参考截图（完整版）：
 /// - 顶排：关闭（✕）· 画面比例 —— 右侧：画中画 · 弹幕 · 倍速 · 锁定；
 /// - 底排：参数徽标（`HW HDR H265 4K 25FPS 5.6Mbps`，**只报读得到的**）+「当前时间 · 进度条 · 总时长」，
 ///   再一行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧文字按钮「播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集」。
+///
+/// **极简版**（M27 首验之二）：精简视图顶上那块在**竖屏**只摆参考里圈住的那几样 ——
+/// 参数徽标 / 进度 / 播放暂停 / 右下角那颗「全屏」；其余按钮去全屏那层（那边**始终**是完整版）。
+/// 横屏下那块槽位（宽度够）恢复完整版。
 ///
 /// 参考里还有投屏（DLNA / AirPlay）与画质（滤镜）两组我们**没有**的控件，照「不摆假开关」的规矩
 /// 不出现（投屏的结论见 M26 第七节）。各按钮自带能力判定：内核做不到的整颗不出现
@@ -23,21 +27,28 @@ import SwiftUI
 extension PlaybackView {
     /// 整条叠层：顶排图标 + 底排（锁上时只剩锁按钮）。
     ///
-    /// `width`：画面区的可用宽度 —— 窄（竖屏 iPhone，< ``barCompactWidth``）时整条换**图标版**：
-    /// 底排那排文字按钮（播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集）在 390pt 放不下，
+    /// `width`：画面区的可用宽度 —— 窄（竖屏 iPhone，< ``barCompactWidth``）时底排换**图标版**：
+    /// 那排文字按钮（播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集）在 390pt 放不下，
     /// 之前会被压成「播…」「…」（M27 首验录屏里就是它）—— 窄了换图标，动作与菜单内容一模一样。
-    func playerControls(width: CGFloat) -> some View {
+    ///
+    /// `minimal`：精简视图顶上那块传 true —— **竖屏**再收成极简版（徽标 / 进度 / 播放暂停 / 全屏，
+    /// 参考里圈住的就是这几样）；横屏（宽度够）回到完整版。全屏那层永远不传 true。
+    func playerControls(width: CGFloat, minimal: Bool = false) -> some View {
         let compact = width < Self.barCompactWidth
+        let minimalBar = minimal && compact
         return VStack(spacing: 10) {
             if isLocked {
                 HStack {
                     Spacer(minLength: 0)
                     lockButton
                 }
+            } else if minimalBar {
+                Spacer(minLength: 0)
+                bottomControls(compact: compact, minimal: true)
             } else {
                 topIconRow(compact: compact)
                 Spacer(minLength: 0)
-                bottomControls(compact: compact)
+                bottomControls(compact: compact, minimal: false)
             }
         }
         .padding(.horizontal, 14)
@@ -86,11 +97,7 @@ extension PlaybackView {
             }
             scaleMenu
             rotateButton
-            if onRequestFullScreen != nil {
-                barIcon("arrow.up.left.and.arrow.down.right", label: "全屏播放") {
-                    onRequestFullScreen?()
-                }
-            }
+            fullScreenButton
             Spacer(minLength: 0)
             pipButton
             danmakuMenu
@@ -100,13 +107,13 @@ extension PlaybackView {
     }
 
     /// 底排：参数徽标 + 进度 + 动作行。
-    private func bottomControls(compact: Bool) -> some View {
+    private func bottomControls(compact: Bool, minimal: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if !statBadges.isEmpty {
                 badgesRow
             }
             progressRow
-            transportRow(compact: compact)
+            transportRow(compact: compact, minimal: minimal)
         }
     }
 
@@ -150,244 +157,51 @@ extension PlaybackView {
     }
 
     /// 动作行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧菜单（播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集）。
-    private func transportRow(compact: Bool) -> some View {
+    ///
+    /// 极简版（`minimal`）：只有播放 / 暂停 + 右下角那颗「全屏」—— 参考里圈住的就是这两颗。
+    private func transportRow(compact: Bool, minimal: Bool) -> some View {
         HStack(spacing: compact ? Self.barCompactSpacing : 22) {
             barIcon(playerState.isPlaying ? "pause.fill" : "play.fill", label: playerState.isPlaying ? "暂停" : "播放") {
                 Task { await togglePlayback() }
             }
-            if let next = nextEpisodeIndex {
-                barIcon("forward.end.fill", label: "下一集") {
-                    Task { await switchEpisode(to: next) }
-                }
-            }
-            barIcon("forward.frame", label: "逐帧步进") {
-                Task { await engine?.stepFrame() }
-            }
-            Spacer(minLength: 0)
-            engineMenu(compact: compact)
-            subtitleMenu(compact: compact)
-            videoMenu(compact: compact)
-            audioMenu(compact: compact)
-            openingEndingMenu(compact: compact)
-            if playlist != nil {
-                barTextButton("选集", icon: "list.bullet", compact: compact) {
-                    isEpisodeDrawerPresented = true
-                }
-            }
-        }
-    }
-
-    // MARK: - 顶排那几个菜单
-
-    /// 画面比例：只列**当前内核真的支持**的档位（系统内核一档都不支持，这颗按钮就不出现）。
-    @ViewBuilder
-    private var scaleMenu: some View {
-        let modes = PlaybackScaleMode.supportedModes(by: engineKind)
-        if !modes.isEmpty {
-            Menu {
-                Picker("画面比例", selection: scaleBinding) {
-                    ForEach(modes, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
+            if minimal {
+                Spacer(minLength: 0)
+                fullScreenButton
+            } else {
+                if let next = nextEpisodeIndex {
+                    barIcon("forward.end.fill", label: "下一集") {
+                        Task { await switchEpisode(to: next) }
                     }
                 }
-            } label: {
-                barIconLabel("arrow.up.left.and.arrow.down.right")
-            }
-            .accessibilityLabel("画面比例")
-        }
-    }
-
-    /// 弹幕：开关 + 搜索 + 设置（参考图那颗「弹」）。
-    @ViewBuilder
-    private var danmakuMenu: some View {
-        if showsDanmakuSection {
-            Menu {
-                Toggle("显示弹幕", isOn: Binding(
-                    get: { danmakuDisplay.isVisible },
-                    set: { next in
-                        var copy = danmakuDisplay
-                        copy.isVisible = next
-                        onDanmakuDisplayChanged?(copy)
-                    }
-                ))
-                if danmakuSwitcher != nil {
-                    Button("搜索弹幕…") {
-                        isDanmakuPickerPresented = true
-                    }
+                barIcon("forward.frame", label: "逐帧步进") {
+                    Task { await engine?.stepFrame() }
                 }
-                Button("弹幕设置…") {
-                    isDanmakuSettingsPresented = true
-                }
-            } label: {
-                Text("弹")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-            }
-            .accessibilityLabel("弹幕")
-        }
-    }
-
-    /// 倍速：预设列表（改完当场生效，落盘在 `setSpeed` 里）。
-    @ViewBuilder
-    private var speedMenu: some View {
-        if engine != nil {
-            Menu {
-                Picker("倍速", selection: speedPickerBinding) {
-                    ForEach(SpeedSetting.presets, id: \.self) { preset in
-                        Text(SpeedSetting.format(preset)).tag(preset)
-                    }
-                }
-            } label: {
-                barIconLabel("timer")
-            }
-            .accessibilityLabel("倍速")
-        }
-    }
-
-    /// 倍速选择：只派活（`setSpeed` 里改内核 + 落盘），当前值不是预设时单纯不显示选中态。
-    private var speedPickerBinding: Binding<Float> {
-        Binding(
-            get: { speed },
-            set: { setSpeed($0, persist: true) }
-        )
-    }
-
-    // MARK: - 底排那几个文字按钮
-
-    /// 旋转（对齐参考顶排那颗）：把「横屏 ↔ 竖屏」翻一下。
-    ///
-    /// **只在有公开 API 的系统上出现**（iOS 16+）；iOS 15 / macOS 拿不到就不摆这颗
-    /// （UI 规范第 5 条：没有公开 API 的能力不做）。
-    @ViewBuilder
-    private var rotateButton: some View {
-        if PlatformShims.canRequestPlaybackOrientation {
-            barIcon("rotate.right", label: "旋转屏幕") {
-                let landscape = PlatformShims.isPlaybackLandscape() ?? true
-                PlatformShims.requestPlaybackOrientation(landscape: !landscape)
-            }
-        }
-    }
-
-    /// 画中画（M27，对齐参考顶排那颗）—— **只有系统内核有公开 API 能做**：画面是自建的
-    /// `AVPlayerLayer` 宿主，`AVPictureInPictureController` 从它起（见 `Platform/PlaybackPip.swift`）。
-    /// MPV / 自研 FFmpeg 要一条逐帧拷贝层，按拍板不做（M26 第六节）。
-    ///
-    /// 设备不支持、或画面层还没建起来时整颗不出现；「现在起不了」（加载中）时置灰 ——
-    /// 不摆点了没反应的开关。
-    @ViewBuilder
-    private var pipButton: some View {
-        if engineKind == .system, systemSurface != nil, PlaybackPipController.isSupported {
-            let enabled = pipController.isActive || pipController.isPossible
-            barIcon(pipController.isActive ? "pip.exit" : "pip.enter", label: pipController.isActive ? "退出画中画" : "画中画") {
-                pipController.toggle()
-            }
-            .disabled(!enabled)
-            .opacity(enabled ? 1 : 0.35)
-        }
-    }
-
-    /// 「播放器」：就地换内核（参考底排第一颗）。**只列现在真能用的**那一档以上 ——
-    /// 一个可用内核都没有时整颗按钮不出现（不摆假选项，也不自动降级）。
-    @ViewBuilder
-    private func engineMenu(compact: Bool) -> some View {
-        if availableEngineKinds.count > 1 {
-            barMenu("播放器", icon: "play.rectangle", compact: compact) {
-                Picker("播放器", selection: enginePickerBinding) {
-                    ForEach(availableEngineKinds, id: \.self) { kind in
-                        Text(kind.displayName).tag(kind)
+                Spacer(minLength: 0)
+                engineMenu(compact: compact)
+                subtitleMenu(compact: compact)
+                videoMenu(compact: compact)
+                audioMenu(compact: compact)
+                openingEndingMenu(compact: compact)
+                if playlist != nil {
+                    barTextButton("选集", icon: "list.bullet", compact: compact) {
+                        isEpisodeDrawerPresented = true
                     }
                 }
             }
         }
     }
 
-    /// 现在能用的内核（`isAvailable` 是「引擎实装 + 依赖可用」那条口径）。
-    var availableEngineKinds: [PlayerEngineKind] {
-        PlayerEngineKind.allCases.filter(\.isAvailable)
-    }
-
-    /// 选内核：换内核是**异步重载**（拆 + 建 + 续播），所以绑定只派活（真正的活在 `switchEngine(to:)`）。
-    private var enginePickerBinding: Binding<PlayerEngineKind> {
-        Binding(
-            get: { engineKind },
-            set: { kind in
-                Task { await switchEngine(to: kind) }
-            }
-        )
-    }
-
-    /// 字幕：轨列表 + 关闭（**内核报了字幕轨才出现** —— 不做「点不动的假菜单」）。
+    /// 右下角那颗「全屏」（参考同位置）：进全屏那层，并顺手把屏幕翻成横屏
+    /// （iOS 16+ 才有公开 API；翻不了就不翻 —— 全屏那层的按钮**始终**是完整的）。
+    /// 顶上那颗（完整版）也用它：横屏下已经是横屏，翻那一下是空操作。
     @ViewBuilder
-    private func subtitleMenu(compact: Bool) -> some View {
-        if !subtitleTracks.isEmpty {
-            barMenu("字幕", icon: "captions.bubble", compact: compact) {
-                Picker("字幕", selection: subtitleSelectionBinding) {
-                    Text("自动").tag(TrackSelection.auto)
-                    Text("关闭").tag(TrackSelection.disabled)
-                    ForEach(subtitleTracks) { track in
-                        Text(track.label ?? "字幕 \(track.id)").tag(TrackSelection.index(track.id))
-                    }
+    private var fullScreenButton: some View {
+        if let onRequestFullScreen {
+            barIcon("arrow.up.left.and.arrow.down.right", label: "全屏播放") {
+                if PlatformShims.isPlaybackLandscape() == false {
+                    PlatformShims.requestPlaybackOrientation(landscape: true)
                 }
-            }
-        }
-    }
-
-    /// 视轨（M26）：只在内核报了视轨时出现 —— MPV 会报（含多视频轨的片源），系统内核一般没有。
-    @ViewBuilder
-    private func videoMenu(compact: Bool) -> some View {
-        if !videoTracks.isEmpty {
-            barMenu("视轨", icon: "rectangle.on.rectangle", compact: compact) {
-                Picker("视轨", selection: videoSelectionBinding) {
-                    Text("自动").tag(TrackSelection.auto)
-                    ForEach(videoTracks) { track in
-                        Text(track.label ?? "视轨 \(track.id)").tag(TrackSelection.index(track.id))
-                    }
-                }
-            }
-        }
-    }
-
-    /// 音轨：同上，只在内核报了音轨时出现。
-    @ViewBuilder
-    private func audioMenu(compact: Bool) -> some View {
-        if !audioTracks.isEmpty {
-            barMenu("音轨", icon: "waveform", compact: compact) {
-                Picker("音轨", selection: audioSelectionBinding) {
-                    Text("自动").tag(TrackSelection.auto)
-                    ForEach(audioTracks) { track in
-                        Text(track.label ?? "音轨 \(track.id)").tag(TrackSelection.index(track.id))
-                    }
-                }
-            }
-        }
-    }
-
-    /// 片头片尾：标记 / 清除（没有进度记录或时长未知时不出现，与信息区那条同一口径）。
-    @ViewBuilder
-    private func openingEndingMenu(compact: Bool) -> some View {
-        if activeProgressContext != nil, latestDuration > 0 {
-            barMenu("片头片尾", icon: "bookmark", compact: compact) {
-                if openingMark > 0 {
-                    Button("清除片头") {
-                        clearOpening()
-                    }
-                } else {
-                    Button("标记片头") {
-                        markOpening()
-                    }
-                    .disabled(!PlaybackOpeningEndingRules.canSetOpening(position: latestPosition, duration: latestDuration))
-                }
-                if endingMark > 0 {
-                    Button("清除片尾") {
-                        clearEnding()
-                    }
-                } else {
-                    Button("标记片尾") {
-                        markEnding()
-                    }
-                    .disabled(!PlaybackOpeningEndingRules.canSetEnding(position: latestPosition, duration: latestDuration))
-                }
+                onRequestFullScreen()
             }
         }
     }
@@ -422,69 +236,6 @@ extension PlaybackView {
             get: { latestPosition },
             set: { newValue in latestPosition = newValue }
         )
-    }
-
-    // MARK: - 小件
-
-    /// 一颗图标按钮（白色、固定 30×30 —— 排布对齐参考里那排图标）。
-    private func barIcon(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            barIconLabel(systemName)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-    }
-
-    /// 图标本体（菜单的 label 也要用同一套尺寸 / 颜色）。
-    private func barIconLabel(_ systemName: String) -> some View {
-        Image(systemName: systemName)
-            .font(.title3)
-            .foregroundStyle(.white)
-            .frame(width: 30, height: 30)
-    }
-
-    /// 一个按钮（底排右侧）—— 宽版给文字、窄版给图标（动作一样）。
-    private func barTextButton(_ title: String, icon: String, compact: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            barMenuLabel(title, icon: icon, compact: compact)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-    }
-
-    /// 一个菜单（底排右侧）—— 宽版给文字、窄版给图标（菜单内容一样）。
-    private func barMenu<Content: View>(
-        _ title: String,
-        icon: String,
-        compact: Bool,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        Menu {
-            content()
-        } label: {
-            barMenuLabel(title, icon: icon, compact: compact)
-        }
-        .accessibilityLabel(title)
-    }
-
-    /// 菜单 / 按钮共用的 label：宽版文字、窄版图标（窄版靠 `accessibilityLabel` 说名字）。
-    @ViewBuilder
-    private func barMenuLabel(_ title: String, icon: String, compact: Bool) -> some View {
-        if compact {
-            barIconLabel(icon)
-        } else {
-            barTextLabel(title)
-        }
-    }
-
-    /// 宽版的文字 label（窄不下来先别硬撑 —— 该走图标版；这里只兜一层轻微缩放）。
-    private func barTextLabel(_ title: String) -> some View {
-        Text(title)
-            .font(.subheadline)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .foregroundStyle(.white)
-            .frame(height: 30)
     }
 
     // MARK: - 参数徽标

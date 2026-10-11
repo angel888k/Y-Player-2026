@@ -41,6 +41,9 @@ struct SitePlayEpisodeView: View {
     /// 画面区的下限高度（透传给它的 `PlaybackView`）：挂在详情页顶上那块定尺槽位时传 0
     /// （见 `PlaybackView/playerAreaMinHeight` 的说明）。
     var playerAreaMinHeight: CGFloat = 280
+    /// 极简控制条（透传给它的 `PlaybackView`）：只有精简视图顶上那块传 true
+    /// （见 `PlaybackView/minimalControls` 的说明）。
+    var minimalControls = false
 
     @State private var resource: MediaResource?
     /// 站点说「还要再解析一次」时存下 play 的结果，body 里转交给解析链（见 ``loadResource()``）。
@@ -82,6 +85,7 @@ struct SitePlayEpisodeView: View {
                     onClose: onClose,
                     onRequestFullScreen: onRequestFullScreen,
                     playerAreaMinHeight: playerAreaMinHeight,
+                    minimalControls: minimalControls,
                     progressContext: progressContext,
                     progressStore: model.progressStore,
                     danmaku: DanmakuRequest(name: title, episode: episode.displayName),

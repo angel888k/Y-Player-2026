@@ -88,8 +88,10 @@ extension VodDetailView {
                     inlineSitePlayback = nil
                     fullScreenPlayback = target
                 },
-                // 同上：这块也是定尺槽位（16:9），画面区不带下限。
-                playerAreaMinHeight: 0
+                // 同上：这块也是定尺槽位（16:9），画面区不带下限；
+                // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）。
+                playerAreaMinHeight: 0,
+                minimalControls: true
             )
         }
     }
@@ -106,8 +108,10 @@ extension VodDetailView {
                 fullScreenPlayback = target
             },
             // 槽位尺寸由外面的 16:9 说了算：去掉画面区的 280 下限（不清掉会把槽位顶高，
-            // 点播放的瞬间下面整页内容往下跳一截）。
-            playerAreaMinHeight: 0
+            // 点播放的瞬间下面整页内容往下跳一截）；
+            // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）。
+            playerAreaMinHeight: 0,
+            minimalControls: true
         )
     }
 

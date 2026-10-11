@@ -212,6 +212,7 @@ public struct PlaybackView: View {
         onClose: (() -> Void)? = nil,
         onRequestFullScreen: (() -> Void)? = nil,
         playerAreaMinHeight: CGFloat = 280,
+        minimalControls: Bool = false,
         onEngineChanged: ((PlayerEngineKind) -> Void)? = nil,
         progressContext: PlaybackProgressContext? = nil,
         progressStore: PlaybackProgressStore? = nil,
@@ -240,6 +241,7 @@ public struct PlaybackView: View {
         self.onClose = onClose
         self.onRequestFullScreen = onRequestFullScreen
         self.playerAreaMinHeight = playerAreaMinHeight
+        self.minimalControls = minimalControls
         self.onEngineChanged = onEngineChanged
         _engineKind = State(initialValue: settings.engine)
         _activeProgressContext = State(initialValue: progressContext)
@@ -282,6 +284,10 @@ public struct PlaybackView: View {
     /// 精简视图顶上那块是**定尺槽位**（16:9，尺寸由外面的 `aspectRatio` 说了算，iPhone 上只有 ~220pt）——
     /// 那里传 0：下限会把槽位顶高，点播放的瞬间下面的内容会往下跳一截（M26 首验之二）。
     let playerAreaMinHeight: CGFloat
+    /// **极简控制条**（M27 首验之二）：精简视图顶上那块**竖屏**只摆参考里圈住的那几样 ——
+    /// 参数徽标 / 进度 / 播放暂停 / 右下角全屏；其余按钮去全屏那层（那边始终是完整版）。
+    /// 横屏下这块槽位（宽度够）恢复完整版；全屏那层**从不**进极简版。
+    let minimalControls: Bool
     /// 就地换了内核时回传（M26）：上层把它记成默认，下次进来自动用新内核。
     let onEngineChanged: ((PlayerEngineKind) -> Void)?
     /// **当前生效的内核**：初值取设置里那一档，控制条上的「播放器」可以就地换（M26）。
@@ -495,7 +501,7 @@ public struct PlaybackView: View {
                     // 宽度要传进去：竖屏（~390pt）放不下底排那排文字按钮 —— 窄了换图标版
                     // （见 `playerControls(width:)`）。
                     if hasVideoSurface, isControlsVisible {
-                        playerControls(width: proxy.size.width)
+                        playerControls(width: proxy.size.width, minimal: minimalControls)
                             .transition(.opacity)
                     }
                     // 手势提示（进度预览 / 音量）：只显示、不拦触摸。
