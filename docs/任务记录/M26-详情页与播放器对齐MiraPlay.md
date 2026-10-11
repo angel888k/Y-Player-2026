@@ -55,13 +55,28 @@
 顺手删掉被新版式取代的旧区块（`headerSection` / `lineSection` / `episodesSection` / `progressSummary` —— 已无调用方）。
 新增 `VodDetailView+Compact.swift` 承载这一批（`VodDetailView` 类型体又贴到 450 行的 error 线）。
 
-## 五、验证点（真机）
+## 五、第四批：画中画 / 后台出声的**地基**（系统内核）
+
+参考的播放器顶排有「画中画」那颗图标。按 `docs/UI 规范.md` 第 5 条（**没有公开 API 的能力就不做**）：
+
+| 项 | 结论 |
+|---|---|
+| system 内核的 PiP | **有公开 API**：`AVKit.VideoPlayer` 底层就是 `AVPlayerViewController`，把音频会话设成 `.playback` + 开 `UIBackgroundModes: [audio]`，PiP 与后台出声由**系统**提供（系统播放器控件里就有那颗 PiP 按钮）。本次做的就是这个地基。 |
+| 自绘内核（MPV / FFmpeg）的 PiP | 公开 API 可行（`AVSampleBufferDisplayLayer` + `AVPictureInPictureController.ContentSource`），但要加一条逐帧拷贝层 —— **未做**（见下）。 |
+| 投屏 | DLNA 全是公开协议、可以自己做；AirPlay 只有 AVPlayer 那条路（切 system 内核就能投）。**未做**。 |
+| 旋转按钮 | iOS 16+ 有公开 API（`UIWindowScene.requestGeometryUpdate`）；**iOS 15 没有 → 那颗按钮在 iOS 15 上不出现**。**未做**。 |
+| 「播放器」（内核切换） | 全公开（重建内核 + 续上进度）。**未做**。 |
+| 「视轨」 | mpv 有公开的 `vid`；system 内核没有「选视频轨」的公开 API → 那条路不出现。**未做**。 |
+
+## 六、验证点（真机）
 
 - 详情页：① 头图往页面底色渐变、标题有投影；② 点简介展开 / 收起；③ 剧集是 16:9 两列网格
   （iPad 上 4~5 列）；④ 「更多」弹层是胶囊行 + 两个图标按钮；⑤ 点一集照旧能播。
 - 精简视图：① 顶部是播放器（没开播时是海报 + 播放按钮）；② 点播放 / 点剧集胶囊 → **就地开播**；
   ③ 片名右边 ⭐ 能收藏；④ 「线路」「剧集」都是胶囊（当前项主题色）；⑤ 「剧集」右侧两颗图标能展开 / 倒序；
   ⑥ 点控制条上的 ⤢ → 转全屏，✕ → 清掉顶部那块画面。
+- 画中画（system 内核）：播起来之后切后台 / 按 Home，系统播放器的 PiP 按钮能起画中画；
+  音频在后台继续出声（要 `xcodegen generate` 之后 Info.plist 才带 `UIBackgroundModes`）。
 - 播放器：（TMDB 视图）点播放 / 点剧集卡 → **直接进全屏**（无导航栏、无信息列表）；
   顶排 ✕ / 画面比例 / 弹幕 / 倍速 / 锁；底排徽标 + 时间 + 进度条 + 播放 / 下一集 / 逐帧 +
   「字幕 / 音轨 / 片头片尾 / 选集」；✕ 退回详情页。
