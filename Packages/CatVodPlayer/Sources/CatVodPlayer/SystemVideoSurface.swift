@@ -23,7 +23,7 @@ public final class SystemVideoSurface: @unchecked Sendable {
 
     /// 画面比例（M03P9 的档位表，M27 补上系统内核这一列）：与自研内核同一套 gravity 三态。
     ///
-    /// 16:9 / 4:3 映射不出来（``avVideoGravity`` 是 nil）—— 那两档这里**什么都不做**：
+    /// 比例档（4:3 / 5:4 / 16:9 / 21:9 / 2.39:1）映射不出来（``avVideoGravity`` 是 nil）—— 那些档这里**什么都不做**：
     /// 静默改成「适应」才是说谎；界面本来也不会对系统内核列它们
     /// （见 `PlaybackScaleMode.supportedModes(by:)`）。
     public func setScaleMode(_ mode: PlaybackScaleMode) {

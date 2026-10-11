@@ -27,13 +27,18 @@ struct PlaybackScaleModeTests {
         }
     }
 
-    @Test("档位文案：名字本身就是语义（参考实现的具体档位表没拿到，不猜）")
+    @Test("档位文案：对齐参考截图（M28 首验之十八），默认「适应屏幕」")
     func displayNames() {
-        #expect(PlaybackScaleMode.fit.displayName == "适应")
-        #expect(PlaybackScaleMode.ratio16x9.displayName == "16:9")
+        #expect(PlaybackScaleMode.fit.displayName == "适应屏幕")
+        #expect(PlaybackScaleMode.crop.displayName == "裁剪全屏")
+        #expect(PlaybackScaleMode.stretch.displayName == "拉伸全屏")
         #expect(PlaybackScaleMode.ratio4x3.displayName == "4:3")
-        #expect(PlaybackScaleMode.crop.displayName == "裁剪铺满")
-        #expect(PlaybackScaleMode.stretch.displayName == "拉伸铺满")
+        #expect(PlaybackScaleMode.ratio5x4.displayName == "5:4")
+        #expect(PlaybackScaleMode.ratio16x9.displayName == "16:9")
+        #expect(PlaybackScaleMode.ratio21x9.displayName == "21:9")
+        #expect(PlaybackScaleMode.ratio239.displayName == "2.39:1")
+        // 默认就是「适应屏幕」（fresh 记录 / 坏存档都落这一档）。
+        #expect(PlaybackScaleMode.decode(nil) == .fit)
     }
 
     @Test("mpv：每一档都把三条属性设一遍（不留上一档的残留）")
@@ -46,6 +51,9 @@ struct PlaybackScaleModeTests {
         }
         // 抽查几条关键值：16:9 只改比例；裁剪 = panscan 1 且仍保比例；拉伸 = keepaspect no。
         #expect(PlaybackScaleMode.ratio16x9.mpvCommands[0] == ["set", "video-aspect-override", "16:9"])
+        #expect(PlaybackScaleMode.ratio5x4.mpvCommands[0] == ["set", "video-aspect-override", "5:4"])
+        #expect(PlaybackScaleMode.ratio21x9.mpvCommands[0] == ["set", "video-aspect-override", "21:9"])
+        #expect(PlaybackScaleMode.ratio239.mpvCommands[0] == ["set", "video-aspect-override", "2.39:1"])
         #expect(PlaybackScaleMode.crop.mpvCommands[1] == ["set", "panscan", "1.0"])
         #expect(PlaybackScaleMode.crop.mpvCommands[2] == ["set", "keepaspect", "yes"])
         #expect(PlaybackScaleMode.stretch.mpvCommands[2] == ["set", "keepaspect", "no"])
@@ -59,6 +67,9 @@ struct PlaybackScaleModeTests {
         #expect(PlaybackScaleMode.stretch.avVideoGravity == .resize)
         #expect(PlaybackScaleMode.ratio16x9.avVideoGravity == nil)
         #expect(PlaybackScaleMode.ratio4x3.avVideoGravity == nil)
+        #expect(PlaybackScaleMode.ratio5x4.avVideoGravity == nil)
+        #expect(PlaybackScaleMode.ratio21x9.avVideoGravity == nil)
+        #expect(PlaybackScaleMode.ratio239.avVideoGravity == nil)
     }
 
     @Test("自研内核的画面层：设一档就落到 videoGravity；映射不出来的档位保持原样")

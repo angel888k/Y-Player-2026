@@ -398,7 +398,7 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
 /// 单独成扩展而不是写进引擎类体：它**不是**引擎的状态/行为，是「档位 → 属性」的映射。
 extension PlaybackScaleMode {
     /// 画面比例落到 mpv 的三条属性（M03P9，纯函数、有单测）：
-    /// - `video-aspect-override`：`no`（按容器）/ `16:9` / `4:3`；
+    /// - `video-aspect-override`：`no`（按容器）/ `4:3` / `5:4` / `16:9` / `21:9` / `2.39:1`；
     /// - `panscan`：`0`（不裁）/ `1.0`（裁剪铺满）；
     /// - `keepaspect`：`yes`（保比例）/ `no`（拉伸铺满）。
     ///
@@ -421,6 +421,24 @@ extension PlaybackScaleMode {
         case .ratio4x3:
             [
                 ["set", "video-aspect-override", "4:3"],
+                ["set", "panscan", "0"],
+                ["set", "keepaspect", "yes"],
+            ]
+        case .ratio5x4:
+            [
+                ["set", "video-aspect-override", "5:4"],
+                ["set", "panscan", "0"],
+                ["set", "keepaspect", "yes"],
+            ]
+        case .ratio21x9:
+            [
+                ["set", "video-aspect-override", "21:9"],
+                ["set", "panscan", "0"],
+                ["set", "keepaspect", "yes"],
+            ]
+        case .ratio239:
+            [
+                ["set", "video-aspect-override", "2.39:1"],
                 ["set", "panscan", "0"],
                 ["set", "keepaspect", "yes"],
             ]

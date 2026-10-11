@@ -20,9 +20,9 @@ public final class FFmpegVideoSurface: @unchecked Sendable {
 
     public init() { }
 
-    /// 画面比例（M03P9）：只有 `videoGravity` 三态。16:9 / 4:3 映射不出来（``avVideoGravity`` 是 nil）——
-    /// 那两档这里**什么都不做**：静默改成「适应」才是说谎；界面本来也不会对自研内核列它们
-    /// （见 `PlaybackScaleMode.supportedModes(by:)`）。
+    /// 画面比例（M03P9）：只有 `videoGravity` 三态。比例档（4:3 / 5:4 / 16:9 / 21:9 / 2.39:1）
+    /// 映射不出来（``avVideoGravity`` 是 nil）—— 那些档这里**什么都不做**：静默改成「适应屏幕」
+    /// 才是说谎；界面本来也不会对自研内核列它们（见 `PlaybackScaleMode.supportedModes(by:)`）。
     public func setScaleMode(_ mode: PlaybackScaleMode) {
         guard let gravity = mode.avVideoGravity else {
             return
@@ -39,7 +39,7 @@ extension PlaybackScaleMode {
         case .fit: .resizeAspect
         case .crop: .resizeAspectFill
         case .stretch: .resize
-        case .ratio16x9, .ratio4x3: nil
+        case .ratio4x3, .ratio5x4, .ratio16x9, .ratio21x9, .ratio239: nil
         }
     }
 }
