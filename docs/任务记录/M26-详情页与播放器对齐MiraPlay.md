@@ -62,7 +62,7 @@
 | 项 | 结论 |
 |---|---|
 | system 内核的 PiP | **有公开 API**：`AVKit.VideoPlayer` 底层就是 `AVPlayerViewController`，把音频会话设成 `.playback` + 开 `UIBackgroundModes: [audio]`，PiP 与后台出声由**系统**提供（系统播放器控件里就有那颗 PiP 按钮）。本次做的就是这个地基。 |
-| 自绘内核（MPV / FFmpeg）的 PiP | 公开 API 可行（`AVSampleBufferDisplayLayer` + `AVPictureInPictureController.ContentSource`），但要加一条逐帧拷贝层 —— **未做**（见下）。 |
+| 自绘内核（MPV / FFmpeg）的 PiP | 公开 API 可行（`AVSampleBufferDisplayLayer` + `AVPictureInPictureController.ContentSource`），但要加一条逐帧拷贝层 —— **不做**（2026-10-11 用户拍板：**自研 FFmpeg 内核不再往功能上投**，后续整块换成别的播放器；见第六节）。 |
 | 投屏 | DLNA 全是公开协议、可以自己做；AirPlay 只有 AVPlayer 那条路（切 system 内核就能投）。**未做**。 |
 | 旋转按钮 | iOS 16+ 有公开 API（`UIWindowScene.requestGeometryUpdate`）；**iOS 15 没有 → 那颗按钮在 iOS 15 上不出现**。**未做**。 |
 | 「播放器」（内核切换） | 全公开（重建内核 + 续上进度）。**已做**（见文末）。 |
@@ -81,9 +81,17 @@
   （`PlaybackView.swift` 又贴到 `file_length` 800 的线）。
 
 **还没做**：投屏（DLNA / AirPlay）、顶排「旋转」（只 iOS 16+ 有公开 API）、「视轨」（mpv 有公开 `vid`，
-system 内核没有公开等价物）、自绘内核的画中画（帧拷贝层）。
+system 内核没有公开等价物）。**自绘内核的画中画不做** —— 用户拍板：自研 FFmpeg 内核不再投功能，
+后续整块换成别的播放器（见下）。
 
-## 六、验证点（真机）
+## 六、播放内核的走向（2026-10-11 用户拍板）
+
+- **自研 FFmpeg 内核：不再往它上面投新功能**（画中画、视轨这些都不做）；后续**整块换成别的播放器**。
+  现有的三个内核（system / MPV / 自研 FFmpeg）照旧能选能播，只是新能力往 system 与 MPV 上加。
+- 由此，M26 里与「自绘内核」相关的尾巴（帧拷贝层 PiP）直接划掉；底线仍是 UI 规范第 5 条：
+  能力只在**有公开 API** 的内核上出现。
+
+## 七、验证点（真机）
 
 - 详情页：① 头图往页面底色渐变、标题有投影；② 点简介展开 / 收起；③ 剧集是 16:9 两列网格
   （iPad 上 4~5 列）；④ 「更多」弹层是胶囊行 + 两个图标按钮；⑤ 点一集照旧能播。
