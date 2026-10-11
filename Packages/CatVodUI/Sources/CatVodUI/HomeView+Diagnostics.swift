@@ -5,7 +5,7 @@ import SwiftUI
 // SwiftLint `type_body_length` 的 error 线（450），诊断件不该占它的额度。
 
 /// 诊断用：`scrollTouchObserver` 的「挂 / 不挂」开关（`ViewModifier` 形式，条件为假时不改任何东西）。
-private struct ScrollTouchObserverModifier: ViewModifier {
+struct ScrollTouchObserverModifier: ViewModifier {
     let isEnabled: Bool
     let onTouchDown: () -> Void
     let onDragChanged: (CGSize) -> Void
@@ -25,7 +25,7 @@ private struct ScrollTouchObserverModifier: ViewModifier {
 }
 
 /// 诊断用：`.refreshable` 的「挂 / 不挂」开关。
-private struct RefreshableModifier: ViewModifier {
+struct RefreshableModifier: ViewModifier {
     let isEnabled: Bool
     let action: () async -> Void
 
