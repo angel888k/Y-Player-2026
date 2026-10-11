@@ -38,14 +38,50 @@ extension VodDetailView {
     }
 
     /// 精简视图顶部那块播放器：**16:9 黑场**里挂 `PlaybackView`（只画面 + 叠层控制条）。
+    ///
+    /// 三种形态：直链集就地播 → 站点换地址的集（type=3 / 4）也就地播（换地址在
+    /// `SitePlayEpisodeView` 里做，转圈与失败原因由它如实显示）→ 还没开播时摆海报 + 播放按钮。
     @ViewBuilder
     var compactPlayer: some View {
         if let target = inlinePlayback {
             inlinePlayer(for: target)
+                .id(target.index)
+                .aspectRatio(Self.compactPlayerAspect, contentMode: .fit)
+                .background(Color.black)
+        } else if let target = inlineSitePlayback {
+            inlineSitePlayer(for: target)
+                .id(target.index)
                 .aspectRatio(Self.compactPlayerAspect, contentMode: .fit)
                 .background(Color.black)
         } else {
             compactPlayerPlaceholder
+        }
+    }
+
+    /// 站点换地址那种（type=3 CatSpider / type=4）：整块交给 ``SitePlayEpisodeView`` ——
+    /// 它自己「换地址 → 直链就播 / 说要解析就转解析链 / 失败给原因」，我们只负责把它挂在顶上。
+    @ViewBuilder
+    func inlineSitePlayer(for target: PlaybackTarget) -> some View {
+        if let site {
+            SitePlayEpisodeView(
+                model: model,
+                site: site,
+                episode: target.episode,
+                title: vod?.vodName ?? "",
+                lineName: currentLine?.name ?? "",
+                episodeIndex: target.index,
+                progressKey: progressKey,
+                playlist: episodePlaylist(currentIndex: target.index),
+                lineSwitcher: lineSwitcher(currentIndex: target.index),
+                isFavorite: isFavorite,
+                onToggleFavorite: { Task { await toggleFavorite() } },
+                isFullScreen: true,
+                onClose: { inlineSitePlayback = nil },
+                onRequestFullScreen: {
+                    inlineSitePlayback = nil
+                    fullScreenPlayback = target
+                }
+            )
         }
     }
 
@@ -90,12 +126,40 @@ extension VodDetailView {
     /// 播放器那块画面的比例：16:9（与参考那张「视频在上、详情在下」一致）。
     static let compactPlayerAspect: CGFloat = 16.0 / 9.0
 
-    /// 从「该播的那一集」（有观看记录就是那一集）就地开播；直链不了的那几种仍走推页（点剧集胶囊）。
+    /// 从「该播的那一集」（有观看记录就是那一集）就地开播。
     func startInlinePlaybackFromSlot() {
-        guard let slot = playSlot, makeResource(for: slot.episode) != nil else {
+        guard let slot = playSlot else {
             return
         }
-        inlinePlayback = PlaybackTarget(index: slot.index, episode: slot.episode)
+        startInlinePlayback(at: slot.index)
+    }
+
+    /// 点一集就地播：直链走 ``inlinePlayback``，站点换地址的（type=3 / 4）走 ``inlineSitePlayback``。
+    func startInlinePlayback(at index: Int) {
+        guard episodes.indices.contains(index) else {
+            return
+        }
+        let target = PlaybackTarget(index: index, episode: episodes[index])
+        if makeResource(for: episodes[index]) != nil {
+            inlineSitePlayback = nil
+            inlinePlayback = target
+        } else {
+            inlinePlayback = nil
+            inlineSitePlayback = target
+        }
+    }
+
+    /// 能不能**就地播**：直链，或 type=3 / type=4 那种「站点换地址」的。
+    /// 要过解析链（自带页面与网嗅）与不支持的仍走推页 —— 那两条路不是「换一个地址」能说完的。
+    func canPlayInline(at index: Int) -> Bool {
+        let episode = episodes[index]
+        if makeResource(for: episode) != nil {
+            return true
+        }
+        guard let site else {
+            return false
+        }
+        return isSpiderPlayable(site) || requiresSitePlay(site, episode: episode)
     }
 
     /// 片名 + 收藏（参考图里就是片名右边一颗星）。
@@ -196,12 +260,12 @@ extension VodDetailView {
         return isEpisodeListDescending ? Array(indices.reversed()) : indices
     }
 
-    /// 一颗剧集胶囊：直链集**点了就地开播**；换地址 / 解析 / 不支持的那几种照旧推页。
+    /// 一颗剧集胶囊：**点了就地开播**（直链与站点换地址的都算）；要过解析链 / 不支持的照旧推页。
     @ViewBuilder
     func compactEpisodeChip(_ index: Int) -> some View {
-        if makeResource(for: episodes[index]) != nil {
+        if canPlayInline(at: index) {
             Button {
-                inlinePlayback = PlaybackTarget(index: index, episode: episodes[index])
+                startInlinePlayback(at: index)
             } label: {
                 compactEpisodeChipLabel(index)
             }

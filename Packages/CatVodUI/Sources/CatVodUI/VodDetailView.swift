@@ -53,7 +53,10 @@ public struct VodDetailView: View {
     /// TMDB 视图下点播放 / 点剧集卡要进的那一集：**走全屏**（参考口径「emby 视图下点击播放直接全屏」）。
     @State var fullScreenPlayback: PlaybackTarget?
     /// 精简视图顶部那块**就地播放**的落点（参考的 Normal 页：视频在上、详情在下）；nil = 还没开播。
+    /// 直链集走这个；type=3 / type=4 那种「站点换地址」的走 ``inlineSitePlayback``。
     @State var inlinePlayback: PlaybackTarget?
+    /// 同样挂在顶上、但要先向站点 / 宿主换地址的那种（`SitePlayEpisodeView` 自己换）。
+    @State var inlineSitePlayback: PlaybackTarget?
     /// 精简视图「剧集」列表的两个开关（对齐参考图右侧那两颗图标：展开文件名 / 正序倒序）。
     @State var isEpisodeListExpanded = false
     @State var isEpisodeListDescending = false

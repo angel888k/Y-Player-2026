@@ -32,6 +32,12 @@ struct SitePlayEpisodeView: View {
     /// 收藏状态与开关（M03P22）：详情页包好传进来（它才有完整的收藏元数据），这里只转发。
     let isFavorite: Bool
     let onToggleFavorite: (() -> Void)?
+    /// 全屏模式（M26）：精简视图把它挂在**详情页顶部那块**里 —— 只留画面 + 控制条。
+    var isFullScreen = false
+    /// 关掉「这一层播放」（就地播放时由详情页清状态；推页 / 全屏不给，✕ 就退回 `dismiss`）。
+    var onClose: (() -> Void)?
+    /// 转到全屏（就地播放时才给）：控制条上那颗 ⤢。
+    var onRequestFullScreen: (() -> Void)?
 
     @State private var resource: MediaResource?
     /// 站点说「还要再解析一次」时存下 play 的结果，body 里转交给解析链（见 ``loadResource()``）。
@@ -69,6 +75,9 @@ struct SitePlayEpisodeView: View {
                     resource: resource,
                     title: episode.displayName,
                     settings: model.playbackSettings,
+                    isFullScreen: isFullScreen,
+                    onClose: onClose,
+                    onRequestFullScreen: onRequestFullScreen,
                     progressContext: progressContext,
                     progressStore: model.progressStore,
                     danmaku: DanmakuRequest(name: title, episode: episode.displayName),
