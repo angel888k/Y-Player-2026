@@ -10,6 +10,8 @@ import os
 ///     xcrun simctl spawn booted log show --last 5m --predicate 'subsystem == "com.YPlayer.cat"' --style compact
 ///
 /// 插值一律标 `.public`：os_log 默认把值打码成 `<private>`，不标就等于白打。
+/// **级别一律用 `.notice`（不是 `.debug`）**：debug 级默认**不落盘**，`log show` 根本查不到 ——
+/// 首验之二就栽在这里（引擎那几条 `Df` 是 default 级，不是 debug；照抄它的级别会白打一遍）。
 enum VideoHostTrace {
     static let logger = Logger(subsystem: "com.YPlayer.cat", category: "video-host")
 
@@ -18,7 +20,7 @@ enum VideoHostTrace {
         let requested = size.debugDescription
         let host = frame.debugDescription
         let layer = layerFrame?.debugDescription ?? "无"
-        logger.debug("画面宿主：画面区 \(requested, privacy: .public)／宿主 \(host, privacy: .public)／层 \(layer, privacy: .public)")
+        logger.notice("画面宿主：画面区 \(requested, privacy: .public)／宿主 \(host, privacy: .public)／层 \(layer, privacy: .public)")
     }
 
     /// 过一秒复查：**层还在宿主里吗、frame 还是我们设的那个吗**。
@@ -28,6 +30,6 @@ enum VideoHostTrace {
     /// 我们就只剩一片黑），那跟尺寸一点关系都没有。这两项一列，两种可能就分得清。
     static func noteLayerCheck(attached: Bool, frame: CGRect?) {
         let layer = frame?.debugDescription ?? "无"
-        logger.debug("画面宿主复查：层在宿主里 \(attached ? "是" : "不是", privacy: .public)／层 frame \(layer, privacy: .public)")
+        logger.notice("画面宿主复查：层在宿主里 \(attached ? "是" : "不是", privacy: .public)／层 frame \(layer, privacy: .public)")
     }
 }
