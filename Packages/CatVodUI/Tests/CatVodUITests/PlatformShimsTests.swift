@@ -28,5 +28,6 @@ struct PlatformShimsTests {
         _ = Text("sheet").adaptiveHalfSheet()
         _ = Text("tabbar").adaptiveTabBarHidden(true)
         _ = Text("immersive").immersiveTabBarPage()
+        _ = Text("scroll").scrollTouchObserver(onTouchDown: { }, onDragChanged: { _ in }, onTouchEnded: { })
     }
 }

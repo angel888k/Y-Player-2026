@@ -103,3 +103,137 @@ public extension View {
         modifier(ImmersiveTabBarPageModifier())
     }
 }
+
+// MARK: - 发现页收放的触摸信源（挂外层 UIScrollView 自己的 pan）
+
+#if os(iOS)
+import UIKit
+
+/// 把**外层 `UIScrollView` 自己的 pan** 当触摸信源：`.began` = 触屏、`.changed` = 位移、`.ended` = 松手。
+///
+/// 为什么不用 `simultaneousGesture` 旁听（M02P16 原做法：零时长长按 + 零距离拖动）：那两路在 **iOS 16** 上
+/// 会把滚动**吃掉** —— 手势一成功，滚动视图的 pan 就被取消，列表纹丝不动
+/// （2026-10-11 iPhone 12 / iOS 16.5.1 实测：「上滑能收栏，但列表不动」；iOS 26 模拟器上没这毛病）。
+///
+/// 现在只是给**滚动视图已有的那个 pan** 加一个动作（`addTarget`）：不新增识别器、不改识别条件，
+/// 所以既不可能抢滚动、也不可能被滚动取消。惯性滑动期间 pan 已结束、没有信号 ——
+/// 与「松手后保持收起」的口径正好一致。
+struct ScrollTouchObserver: UIViewRepresentable {
+    let onTouchDown: () -> Void
+    let onDragChanged: (CGSize) -> Void
+    let onTouchEnded: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(config: self)
+    }
+
+    func makeUIView(context: Context) -> AttachProbe {
+        let probe = AttachProbe()
+        probe.isUserInteractionEnabled = false
+        probe.coordinator = context.coordinator
+        return probe
+    }
+
+    func updateUIView(_ probe: AttachProbe, context: Context) {
+        context.coordinator.config = self
+        context.coordinator.attach(from: probe)
+    }
+
+    /// 只为拿 `didMoveToWindow`（自己不带任何交互、也不占地方）。
+    final class AttachProbe: UIView {
+        var coordinator: Coordinator?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            coordinator?.windowDidChange(for: self)
+        }
+    }
+
+    /// 信源的挂 / 摘与分发：挂在**外层滚动视图的 pan** 上，不新增识别器。
+    @MainActor
+    final class Coordinator: NSObject {
+        var config: ScrollTouchObserver
+        private weak var scrollView: UIScrollView?
+
+        init(config: ScrollTouchObserver) {
+            self.config = config
+        }
+
+        /// 上窗（可能被挪过地方）：重新找一次外层滚动视图；**离窗就摘掉**。
+        ///
+        /// 摘挂刻意不用 `deinit`：Swift 6 里 `deinit` 是 nonisolated，碰不了这里的主线程状态；
+        /// 「视图离窗」覆盖了所有真实生命周期，而且比 `deinit` 更早。
+        func windowDidChange(for probe: AttachProbe) {
+            guard probe.window != nil else {
+                detach()
+                return
+            }
+            attach(from: probe)
+        }
+
+        /// 找到最近的外层滚动视图并把信源接上；换了一个就换挂。
+        func attach(from probe: AttachProbe) {
+            guard let scroll = Self.enclosingScrollView(of: probe) else { return }
+            guard scroll !== scrollView else { return }
+            detach()
+            scroll.panGestureRecognizer.addTarget(self, action: #selector(handlePan(_:)))
+            scrollView = scroll
+        }
+
+        private func detach() {
+            scrollView?.panGestureRecognizer.removeTarget(self, action: #selector(handlePan(_:)))
+            scrollView = nil
+        }
+
+        @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+            switch pan.state {
+            case .began:
+                config.onTouchDown()
+            case .changed:
+                config.onDragChanged(pan.translation(in: pan.view))
+            case .ended, .cancelled, .failed:
+                config.onTouchEnded()
+            default:
+                break
+            }
+        }
+
+        private static func enclosingScrollView(of view: UIView) -> UIScrollView? {
+            var current: UIView? = view
+            while let candidate = current {
+                if let scroll = candidate as? UIScrollView {
+                    return scroll
+                }
+                current = candidate.superview
+            }
+            return nil
+        }
+    }
+}
+#endif
+
+extension View {
+    /// 旁听「列表区」的触摸（触屏 / 位移 / 松手）—— 发现页 Tab 栏收放的信号源（M02P16）。
+    ///
+    /// ⚠️ 挂在 `ScrollView` 的**内容**上，别挂在 `ScrollView` 自己身上：实现靠沿父视图找外层
+    /// `UIScrollView`，挂在滚动视图外面就找不着了。
+    /// macOS 没有可收的底部 Tab 栏，这里明着是空操作（与 ``adaptiveTabBarHidden(_:)`` 同一态度）。
+    @ViewBuilder
+    func scrollTouchObserver(
+        onTouchDown: @escaping () -> Void,
+        onDragChanged: @escaping (CGSize) -> Void,
+        onTouchEnded: @escaping () -> Void
+    ) -> some View {
+        #if os(iOS)
+        background(
+            ScrollTouchObserver(
+                onTouchDown: onTouchDown,
+                onDragChanged: onDragChanged,
+                onTouchEnded: onTouchEnded
+            )
+        )
+        #else
+        self
+        #endif
+    }
+}

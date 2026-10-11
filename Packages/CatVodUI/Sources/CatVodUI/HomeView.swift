@@ -167,28 +167,25 @@ public struct HomeView: View {
                 }
                 contentBody
             }
-        }
-        // 「手指碰到屏幕」和「向上滑」是两个不同信号，各挂一个**旁听**手势：
-        // 前者用零时长长按（成功即触屏），后者用零距离拖动（读位移方向）。
-        // 都走 `simultaneousGesture`：滚动本身一行没改，它们只旁听 —— 换成 `.gesture` 会抢走滚动。
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0, maximumDistance: .infinity)
-                .onEnded { _ in
+            // 触摸信号走**外层滚动视图自己的 pan**（见 `scrollTouchObserver`）：
+            // 「手指碰上屏幕」「往上滑」「松手」三路都由它报，滚动一行没改。
+            // 原来那两个「旁听」`simultaneousGesture` 在 iOS 16 上会把滚动吃掉 ——
+            // 上滑能收栏、列表却纹丝不动（2026-10-11 iPhone 12 实测后换掉，见 M02P16 第六节）。
+            .scrollTouchObserver(
+                onTouchDown: {
                     tabBar.touchDown()
-                }
-        )
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
+                },
+                onDragChanged: { translation in
                     tabBar.dragChanged(
-                        translationX: value.translation.width,
-                        translationY: value.translation.height
+                        translationX: translation.width,
+                        translationY: translation.height
                     )
-                }
-                .onEnded { _ in
+                },
+                onTouchEnded: {
                     tabBar.touchEnded()
                 }
-        )
+            )
+        }
     }
 
     @ViewBuilder private var contentBody: some View {
