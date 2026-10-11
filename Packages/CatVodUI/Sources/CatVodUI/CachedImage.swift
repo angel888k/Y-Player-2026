@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// 带内存缓存的海报图（替换 `AsyncImage`；为什么换见 ``ImageLoader``）。
 ///
@@ -42,10 +41,8 @@ struct CachedImage: View {
         }
     }
 
-    private func imageView(_ image: UIImage) -> some View {
-        Image(uiImage: image)
-            .resizable()
-            .aspectRatio(contentMode: contentMode)
+    private func imageView(_ image: PlatformImage) -> some View {
+        PlatformImageView(image: image, contentMode: contentMode)
     }
 
     private func load(_ displaySize: CGSize) async {

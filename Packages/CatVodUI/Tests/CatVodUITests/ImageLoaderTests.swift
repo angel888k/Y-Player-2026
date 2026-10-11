@@ -1,7 +1,7 @@
 import Foundation
 @testable import CatVodUI
+import SwiftUI
 import Testing
-import UIKit
 
 /// 桩 `URLProtocol`：拦下请求返回一张可解码的图，并**数请求次数**（缓存语义靠它验）。
 final class StubImageProtocol: URLProtocol {
@@ -35,14 +35,10 @@ final class StubImageProtocol: URLProtocol {
 
     override func stopLoading() { }
 
-    /// 一张 8x8 的 PNG（`UIGraphicsImageRenderer` 生成；尺寸小、解码快，适合单测）。
+    /// 一张 64x64 的 PNG（平台件生成；尺寸够大到「下采样」真的发生）。
     static let pngData: Data = {
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8))
-        let image = renderer.image { context in
-            UIColor.red.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
-        }
-        return image.pngData() ?? Data()
+        let image = platformTestImage(size: CGSize(width: 64, height: 64), color: .systemRed)
+        return image.flatMap(platformPNGData) ?? Data()
     }()
 }
 

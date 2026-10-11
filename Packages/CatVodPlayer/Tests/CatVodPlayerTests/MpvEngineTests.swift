@@ -133,8 +133,18 @@ final class FakeMpvSession: MpvSession, @unchecked Sendable {
 
 /// 建一个用假会话的引擎（工厂每次都给同一个假会话，便于断言累积的调用）。
 ///
-/// `videoSurface` 默认给一层**新的**（2 倍 scale：`contentsScale` 的默认值，也是单测里的既有口径）——
-/// 画面区尺寸那条线要读它算像素尺寸。与真机同一条约束：layer 只在主线程动、引擎侧只读。
+/// `surfaceScale`/`videoSurface` 的账要**定死**：`CAMetalLayer.contentsScale` 的默认值随环境
+/// 而变（CI / 不同设备不一样），不定死的话「874x402 点 @2x = 1748x804」这种断言会跟环境跑。
+/// 与真机同一条约束：layer 只在主线程动、引擎侧只读。
+@MainActor
+private func makeVideoSurface(scale: CGFloat? = nil) -> MpvVideoSurface {
+    let surface = MpvVideoSurface()
+    if let scale {
+        surface.layer.contentsScale = scale
+    }
+    return surface
+}
+
 private func makeEngine(
     decoderMode: DecoderMode = .hardware,
     initializeFailure: String? = nil,
@@ -462,12 +472,17 @@ struct MpvEngineTests {
         #expect(session.commands.filter { $0 == ["set", "vo", "null"] }.count == 1)
     }
 
+    @MainActor
     @Test("画面区尺寸：mpv 自己认下新尺寸时不重建 VO（省掉那一顿）")
     func videoAreaSizeSkipsRebuildWhenMpvNotices() async throws {
         // `osd-dimensions` 已经是目标尺寸（874x402 点 @2x = 1748x804）：引擎该直接收工。
-        let (engine, session) = makeEngine(propertyStrings: [
-            "osd-dimensions": #"{"w":1748,"h":804,"par":1.0}"#,
-        ])
+        // scale **定死**：`contentsScale` 的默认值随环境变（CI 与真机不一样），
+        // 不钉死的话「1748x804」这条断言就会变成环境依赖。
+        let surface = makeVideoSurface(scale: 2)
+        let (engine, session) = makeEngine(
+            propertyStrings: ["osd-dimensions": #"{"w":1748,"h":804,"par":1.0}"#],
+            videoSurface: surface
+        )
         try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
 
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))

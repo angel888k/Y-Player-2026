@@ -1,8 +1,5 @@
 import CoreGraphics
 import Foundation
-import ImageIO
-import SwiftUI
-import UIKit
 
 /// 图片加载器：**内存缓存 + HTTP 磁盘缓存 + 同 URL 去重 + 尺寸下采样**。
 ///
@@ -11,7 +8,7 @@ import UIKit
 /// 几个大图就能把滑动拖成幻灯片。发现页、列表、直播、详情都吃这个亏。
 ///
 /// 职责划分：
-/// - ``ImageMemoryCache``（actor）：解码后的 `UIImage`（已按目标尺寸下采样）+ 在途请求去重。
+/// - ``ImageMemoryCache``（actor）：解码后的图片（`PlatformImage`，已按目标尺寸下采样）+ 在途请求去重。
 ///   同一张图被几处同时要（分区横滑 + 纵向网格会重叠）时**只发一次网络请求**，其余等结果；
 /// - ``ImageDiskCache``：`URLCache` 做 HTTP 层缓存，图缓存在 Caches 目录、按服务器的
 ///   `Cache-Control` 决定新鲜度；超容量由 `URLCache` 自己清理 —— 与「设置 → 缓存管理」
@@ -76,7 +73,9 @@ public final class ImageLoader: @unchecked Sendable {
     ///   - url: 图片地址；空串 / 非法地址给 ``ImageLoadError/invalidURL``；
     ///   - targetSize: 目标显示尺寸（**像素**：点 × 屏 scale）—— 解码就按它缩，
     ///     别再让主线程碰原始尺寸的大图。比例会保持（ImageIO 的 thumbnail 语义）。
-    public func image(for url: String, targetSize: CGSize) async throws -> UIImage {
+    /// 只给模块内的 ``CachedImage`` 用：返回的是 `PlatformImage`（internal 的平台别名），
+    /// 不对外暴露 —— 公开一个 internal 类型会让外部调用方拿到编不过的类型。
+    func image(for url: String, targetSize: CGSize) async throws -> PlatformImage {
         guard let requestURL = URL(string: url) else {
             throw ImageLoadError.invalidURL
         }
@@ -85,29 +84,11 @@ public final class ImageLoader: @unchecked Sendable {
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 throw ImageLoadError.badStatus(http.statusCode)
             }
-            return try Self.downsample(data, to: size)
+            guard let image = platformDownsample(data, to: size) else {
+                throw ImageLoadError.decodeFailed
+            }
+            return image
         }
-    }
-
-    /// 把原始数据下采样到目标尺寸（ImageIO 在后台线程做缩略图解码，不整图展开）。
-    ///
-    /// 数据不是图片（HTML 错误页、防盗链占位）时给 ``ImageLoadError/decodeFailed``。
-    static func downsample(_ data: Data, to size: CGSize) throws -> UIImage {
-        let maxPixel = max(size.width, size.height)
-        guard maxPixel > 1,
-              let source = CGImageSourceCreateWithData(data as CFData, nil)
-        else {
-            throw ImageLoadError.decodeFailed
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            throw ImageLoadError.decodeFailed
-        }
-        return UIImage(cgImage: cgImage)
     }
 }
 
@@ -128,7 +109,7 @@ public enum ImageLoadError: Error, Equatable {
 /// 缓存键 = 「URL + 目标尺寸」：同一张图在网格（112pt 宽）与详情页（半屏宽）各自按自己的
 /// 尺寸解码，互不顶掉；而**在途合并**只按 URL —— 同一张图同时被几处要时只发一次请求。
 actor ImageMemoryCache {
-    private let cache = NSCache<NSString, UIImage>()
+    private let cache = NSCache<NSString, PlatformImage>()
     /// 在途请求的登记簿：同一个 URL 只跑一个 `Task`，后来的等它；等的人全走了就取消（见 ``sharedTask``）。
     private var result: [String: InFlight] = [:]
     /// 缓存命中 / 未命中计数（单测用：证「第二次不再走网络」）。
@@ -138,7 +119,7 @@ actor ImageMemoryCache {
     /// 在途请求登记：`Task` 包装一下才进字典（`Task<T, Error>` 自己不是 `Sendable`；
     /// 这里只读它的 `.value`，包一层 `@unchecked` 是安全的）。
     private struct InFlight {
-        let task: Task<UIImage, Error>
+        let task: Task<PlatformImage, Error>
         /// 还在等这个 URL 的人（含发起者）。归零 = 没人要了，取消。
         var waiters: Int
     }
@@ -159,7 +140,11 @@ actor ImageMemoryCache {
         result = [:]
     }
 
-    func image(for url: String, targetSize: CGSize, fetch: @Sendable (String, CGSize) async throws -> UIImage) async throws -> UIImage {
+    func image(
+        for url: String,
+        targetSize: CGSize,
+        fetch: @Sendable (String, CGSize) async throws -> PlatformImage
+    ) async throws -> PlatformImage {
         let size = Self.pixelSize(targetSize)
         let key = Self.cacheKey(url, size: size)
         if let cached = cache.object(forKey: key as NSString) {
@@ -192,7 +177,7 @@ actor ImageMemoryCache {
     }
 
     /// 同步查内存缓存（不走 actor）：命中就当场给图 —— `CachedImage` 的快速路径。
-    nonisolated func cachedImage(for url: String, targetSize: CGSize) -> UIImage? {
+    nonisolated func cachedImage(for url: String, targetSize: CGSize) -> PlatformImage? {
         cache.object(forKey: Self.cacheKey(url, size: targetSize) as NSString)
     }
 
@@ -204,8 +189,8 @@ actor ImageMemoryCache {
         url: String,
         key: String,
         size: CGSize,
-        fetch: @Sendable (String, CGSize) async throws -> UIImage
-    ) -> Task<UIImage, Error> {
+        fetch: @Sendable (String, CGSize) async throws -> PlatformImage
+    ) -> Task<PlatformImage, Error> {
         if var entry = result[url] {
             entry.waiters += 1
             result[url] = entry
@@ -215,7 +200,7 @@ actor ImageMemoryCache {
         // `Task.detached`：**在途任务不继承发起者的取消** —— 发起者可能只是滚动回收的一个卡片，
         // 还有别人在等这份结果（谁都不等时由 ``leave(url:)`` 明确取消，不动别人）。
         // 闭包里不能引用 `task` 自己（Swift 拒绝「声明前捕获」），要认领登记就用它的 `ObjectIdentifier`。
-        let task = Task<UIImage, Error>.detached {
+        let task = Task<PlatformImage, Error>.detached {
             do {
                 let image = try await fetch(url, size)
                 await cache.store(image, key: key, url: url)
@@ -245,9 +230,9 @@ actor ImageMemoryCache {
     }
 
     /// 下载成功：写内存缓存并撤销登记。
-    private func store(_ image: UIImage, key: String, url: String) {
+    private func store(_ image: PlatformImage, key: String, url: String) {
         // cost 按像素算：NSCache 的超限回收就会优先扔大图。
-        let cost = Int(image.size.width * image.size.height * 4)
+        let cost = Int(image.platformSize.width * image.platformSize.height * 4)
         cache.setObject(image, forKey: key as NSString, cost: cost)
         result[url] = nil
     }
