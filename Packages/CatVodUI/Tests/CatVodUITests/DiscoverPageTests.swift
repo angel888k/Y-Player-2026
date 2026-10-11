@@ -207,7 +207,7 @@ struct DiscoverPageTests {
             tags: ["wogg": ["4K", "主力"]],
             savedGroupOrder: ["4K"],
             onMoveGroup: { _, _ in },
-            onRenameRequest: { _ in },
+            onRenameCurrent: { },
             onFindRequest: { },
             onSelect: { _ in }
         )

@@ -458,8 +458,8 @@ public struct HomeView: View {
             onMoveGroup: { group, direction in
                 model.moveSiteGroup(group, direction: direction)
             },
-            onRenameRequest: { key in
-                beginSiteRename(key)
+            onRenameCurrent: {
+                beginSiteRename(selectedSite?.key ?? selectedSiteKey)
             },
             onFindRequest: {
                 isSiteFinderPresented = true

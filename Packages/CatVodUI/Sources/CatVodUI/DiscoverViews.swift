@@ -270,8 +270,12 @@ struct DiscoverSiteSwitcher: View {
     var savedGroupOrder: [String] = []
     /// 分组上移 / 下移（回传分组名与方向，由上层算新顺序并落盘）。
     var onMoveGroup: ((String, Int) -> Void)?
-    /// 请求改名（菜单里放不下输入框：回传站点 key，由上层弹 `.alert`）。
-    var onRenameRequest: ((String) -> Void)?
+    /// 请求改名（菜单里放不下输入框：由上层弹 `.alert`）。
+    ///
+    /// **只对当前站点**（M28 首验之二十九）：原来是一层「重命名站点 → 全量站点」子菜单 ——
+    /// 嵌套子菜单里再挂几十行，菜单弹出前建树的代价就上来了。改名是低频入口，
+    /// 收成一颗「重命名当前站点…」，要改谁先切到谁（切站点本来也是一次点击）。
+    var onRenameCurrent: (() -> Void)?
     /// 打开「查找站点」弹层（同上，菜单里放不下输入框）。
     var onFindRequest: (() -> Void)?
     let onSelect: (String) -> Void
@@ -329,14 +333,11 @@ struct DiscoverSiteSwitcher: View {
                 Label("查找站点…", systemImage: "magnifyingglass")
             }
         }
-        if let onRenameRequest {
-            Menu("重命名站点") {
-                // 同样收口：改名是低频入口，子菜单里只放前 20 个（站点再多走「查找站点…」找 key）。
-                ForEach(sites.prefix(Self.menuRowLimit)) { site in
-                    Button(DiscoverSiteList.title(for: site, names: ruleInput.names)) {
-                        onRenameRequest(site.key)
-                    }
-                }
+        if let onRenameCurrent {
+            Button {
+                onRenameCurrent()
+            } label: {
+                Label("重命名当前站点…", systemImage: "pencil")
             }
         }
     }
@@ -412,7 +413,7 @@ struct DiscoverSiteSwitcher: View {
     }
 
     /// 主菜单里最多列多少个站点（超过走「查找站点…」）。
-    static let menuRowLimit = 20
+    static let menuRowLimit = 12
 
     /// 主菜单实际列出的行：前 `menuRowLimit` 个 + **当前站点**（若被截在外面就补上，不重复）。
     private var menuRows: [DiscoverSiteRow] {
