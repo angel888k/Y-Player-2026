@@ -97,18 +97,30 @@ extension PlaybackView {
         isFullScreen && onRequestFullScreen == nil
     }
 
+    /// 状态行两侧（时钟 / 电量）各留的位宽（M28 首验之十五）：**等宽才谈得上「标题居中」** ——
+    /// 电量读不到时（模拟器）右侧不塌成 0，标题照样落在正中间。
+    static let statusSideWidth: CGFloat = 88
+
     /// 状态行（用户参考图）：左时钟 · 中标题 · 右电量 —— 排布与系统状态栏同款。
     /// 时钟一秒一跳（`TimelineView`）；电量变化慢，跟着这条一起挂在那儿，不单独轮询。
+    ///
+    /// 布局两份账（M28 首验之十五）：两侧各 `.frame(minWidth: statusSideWidth)` 对齐到外侧、
+    /// 标题在剩下的正中间（不然电量一缺，标题就整体偏右 —— 用户截图就是这个形态）；
+    /// 时钟那截自己再带 10pt 左内边距（用户口径：再往右挪一点），且**留位之内**算，
+    /// 不然居中又要被这 10pt 带偏。
     var playbackStatusBar: some View {
         HStack(spacing: 12) {
             clockLabel
-            Spacer(minLength: 16)
+                .padding(.leading, 10)
+                .frame(minWidth: Self.statusSideWidth, alignment: .leading)
+            Spacer(minLength: 12)
             Text(activeTitle)
                 .font(.subheadline)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 16)
+            Spacer(minLength: 12)
             batteryLabel
+                .frame(minWidth: Self.statusSideWidth, alignment: .trailing)
         }
         .foregroundStyle(.white)
     }
