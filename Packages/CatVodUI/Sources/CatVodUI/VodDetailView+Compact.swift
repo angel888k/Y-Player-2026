@@ -52,11 +52,15 @@ extension VodDetailView {
     /// 铺满整屏并忽略安全区 —— **同一块内容**（同一个 `PlaybackView`，引擎照旧在跑）跟着变大，
     /// 不重建播放器（重建要黑一下、还要重新拉流 / 重解析，用户看到的就是「旧状态又来了」）。
     var compactPlayer: some View {
-        Color.black
-            .aspectRatio(isInlineExpanded ? nil : Self.compactPlayerAspect, contentMode: .fit)
+        // 两个值都写明类型：三元塞进长表达式里会让类型检查器罢工（首验踩过
+        // `failed to produce diagnostic`），显式一点最稳。
+        let aspect: CGFloat? = isInlineExpanded ? nil : Self.compactPlayerAspect
+        let regions: SafeAreaRegions = isInlineExpanded ? .all : []
+        return Color.black
+            .aspectRatio(aspect, contentMode: .fit)
             .overlay { compactPlayerContent }
             .clipped()
-            .ignoresSafeArea(isInlineExpanded ? .all : [], edges: .all)
+            .ignoresSafeArea(regions, edges: .all)
     }
 
     /// 槽位里的内容（尺寸跟着上面的黑底走）。
@@ -92,7 +96,7 @@ extension VodDetailView {
                 onToggleFavorite: { Task { await toggleFavorite() } },
                 isFullScreen: true,
                 onClose: { closeInlinePlayback { inlineSitePlayback = nil } },
-                onRequestFullScreen: isInlineExpanded ? nil : expandInlinePlayback,
+                onRequestFullScreen: expandFullScreenAction,
                 // 同上：这块也是定尺槽位（16:9），画面区不带下限；
                 // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）；
                 // 放大成全屏后回到完整版（那边要 ✕ 才能收回来）。
@@ -109,7 +113,7 @@ extension VodDetailView {
             at: target.index,
             isFullScreen: true,
             onClose: { closeInlinePlayback { inlinePlayback = nil } },
-            onRequestFullScreen: isInlineExpanded ? nil : expandInlinePlayback,
+            onRequestFullScreen: expandFullScreenAction,
             // 槽位尺寸由外面的 16:9 说了算：去掉画面区的 280 下限（不清掉会把槽位顶高，
             // 点播放的瞬间下面整页内容往下跳一截）；
             // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）；
@@ -145,6 +149,18 @@ extension VodDetailView {
     /// 播放器一个字节都不重建。翻横屏那颗在控制条上（`fullScreenButton` 里顺手做）。
     func expandInlinePlayback() {
         isInlineExpanded = true
+    }
+
+    /// 「转全屏」的回传：**已经放大（就是全屏）时给 nil** —— 控制条那颗 ⤢ 也就不出现（不摆没用的开关）。
+    ///
+    /// 为什么单拉一个显式类型的计算属性：`isInlineExpanded ? nil : expandInlinePlayback` 这种
+    /// 「三元 + 方法引用」塞进 `PlaybackView` / `SitePlayEpisodeView` 的超长参数表，会把类型检查器
+    /// 逼到 `failed to produce diagnostic for expression`（Mac 首验就是这么红的）。
+    var expandFullScreenAction: (() -> Void)? {
+        guard !isInlineExpanded else {
+            return nil
+        }
+        return expandInlinePlayback
     }
 
     /// ✕ 的两种意思（M27 首验之四）：放大状态下 = 收回那块（**接着播** + 翻回竖屏）；
