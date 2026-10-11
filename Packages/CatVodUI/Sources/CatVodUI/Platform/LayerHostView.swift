@@ -137,8 +137,9 @@ final class LayerHostView: NSView {
 
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
         // 临时诊断：同上（iOS 那一支的注释）—— 验证完改回黑。
+        // 注意 `self.`：这里的形参就叫 `layer`，不写 `self` 是拿形参当可选链用。
         wantsLayer = true
-        layer?.backgroundColor = NSColor.magenta.cgColor
+        self.layer?.backgroundColor = NSColor.magenta.cgColor
         autoresizingMask = [.width, .height]
         if attachedLayer !== layer {
             attachedLayer?.removeFromSuperlayer()
