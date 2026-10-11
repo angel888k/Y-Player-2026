@@ -190,7 +190,8 @@ struct ScrollTouchObserver: UIViewRepresentable {
             case .began:
                 config.onTouchDown()
             case .changed:
-                config.onDragChanged(pan.translation(in: pan.view))
+                let moved = pan.translation(in: pan.view)
+                config.onDragChanged(CGSize(width: moved.x, height: moved.y))
             case .ended, .cancelled, .failed:
                 config.onTouchEnded()
             default:
