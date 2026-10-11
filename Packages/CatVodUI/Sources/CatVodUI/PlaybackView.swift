@@ -551,7 +551,7 @@ public struct PlaybackView: View {
                 // 布局变了（转屏 / 就地放大 + 转横屏 / 分屏）：手势多半已经被系统取消
                 // （`onEnded` 不会来）—— 把长按加速收掉，别让它挂着一直 2x（M27 首验之六）。
                 .onChange(of: proxy.size) { _ in
-                    endSpeedBoost()
+                    endSpeedBoost(reason: "布局变了（转屏 / 放大）")
                 }
                 // 画面区尺寸变了：**mpv 得被告知**（它不会自己发现 —— `--wid` 嵌的是那一层，
                 // 层变大变小它不知道，会一直按创建时的尺寸出画；M27 首验之六之十）。

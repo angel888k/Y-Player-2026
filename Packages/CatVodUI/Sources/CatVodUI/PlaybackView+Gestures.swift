@@ -52,8 +52,20 @@ extension PlaybackView {
     static let seekSecondsPerScreen: Double = 120
     static let verticalPointsForFullRange: Double = 200
 
-    /// 长按多久算「长按」：0.5 秒（与系统一致）。
-    static let speedBoostHoldSeconds: Double = 0.5
+    /// 长按多久算「长按」。
+    ///
+    /// **0.8 秒**（M28 首验之五从 0.5 改上来）：用户带回的日志里，自然的「单击」按到 0.6–0.7 秒
+    /// 是常事（按得实一点、或在瞄准点哪儿），0.5 秒这条线把它们全吃成长按 —— 表现就是
+    /// 「点屏幕没反应 + 每次都冒 `2.0x`」。0.8 秒是「按得实一点的单击」与「真想在快进一段」
+    /// 之间的分界（日志里那一轮的手指停留都落在 0.6 秒上下）。
+    static let speedBoostHoldSeconds: Double = 0.8
+    /// 「这次按住该不该吞掉松手后补发的那一下」的按住时长线（秒，按**量出来的**算）。
+    ///
+    /// 量出来的时长 = 实际按住 + 约 0.3 秒（点按要等双击窗口过去才解析）—— 所以 1.3 秒这条线
+    /// 约等于「实际按住 1 秒以上」。**真的按住 ≥ 1 秒**才算「想临时加速」，那一下补发的点按吞掉
+    /// （否则一松手控制条闪一下）；0.8–1.0 秒这种「按得实一点的单击」**不吞** ——
+    /// 该显隐控制条就显隐控制条（M28 首验之五：吞掉正是用户报「点屏幕没反应」的直接原因）。
+    static let speedBoostSwallowHoldSeconds: TimeInterval = 1.3
     /// 按住期间允许的抖动（超过这个距离就不算长按，交给拖动那条）。
     static let speedBoostMaxDistance: CGFloat = 10
     /// 松手后多久内补发的点按要吞掉（同一次触摸的尾巴）。
@@ -63,9 +75,12 @@ extension PlaybackView {
     /// 为什么要有这条（M27 首验之六）：SwiftUI 的手势被取消时（转屏 / 视图重建 / 控制条显隐这些
     /// 布局变化都会）`onEnded` **不发**，`isSpeedBoostHolding` 就一直挂着 ——
     /// 用户看到的是「一直按长按倍速在播」+ 提示一直亮「2.0x」，而且之后**每一次点按都被吞**
-    /// （「点一下变 2x，再点没反应」）。留一个窗口把它兜住：
-    /// 正常的长按松手，补发的那次点按在 0.3 秒内就到（双击优先那套要等第二下），1.5 秒绰绰有余。
-    static let speedBoostTrustSeconds: TimeInterval = 1.5
+    /// （「点一下变 2x，再点没反应」）。留一个窗口把它兜住。
+    ///
+    /// **3.5 秒**（M28 首验之五从 1.5 提上来）：真·长按可以按很久（用户日志里就有 1.6 秒的），
+    /// 1.5 秒那条线会把「按了 1.6 秒再松手」错当成挂死 —— 尾巴点按就会去改控制条（正是「吞尾巴」
+    /// 这条规则本来要避免的那一下）。这条窗只兜「压根没有点按来」的极端情况，所以放宽。
+    static let speedBoostTrustSeconds: TimeInterval = 3.5
 
     /// 双指缩放的上限（上游 `Math.clamp(scale, 1.0f, 5.0f)` 里的那个 5）。
     static let zoomMaximum: CGFloat = 5
@@ -447,7 +462,9 @@ extension PlaybackView {
 
     /// 松手：回到**用户那份**倍速（他把速度设成 1.5x 时按一下不该变成 1.0x）；
     /// 本来就没加速（不在播 / 没内核）就只是把长按状态收掉。
-    func endSpeedBoost() {
+    ///
+    /// `reason` 只进日志 —— 排障时要能分清是「松手」「自愈」还是「布局变了」。
+    func endSpeedBoost(reason: String = "松手") {
         guard isSpeedBoostHolding else {
             return
         }
@@ -455,7 +472,7 @@ extension PlaybackView {
         speedBoostStartedAt = nil
         speedBoostEndedAt = Date()
         gestureHint = ""
-        PlaybackTrace.noteBoost("收（松手或自愈）")
+        PlaybackTrace.noteBoost("收（\(reason)）")
         if isSpeedBoosting {
             isSpeedBoosting = false
             setSpeed(speed, persist: false)
@@ -464,52 +481,54 @@ extension PlaybackView {
         refreshControlsForState()
     }
 
-    /// 长按这次触摸是不是还「当真」：手势被系统取消时 `onEnded` 不来，`isSpeedBoostHolding`
-    /// 会一直挂着（提示常亮 `2.0x`，而且它会把之后的**拖动**也整条挡掉）。
+    /// 长按这次触摸是不是还「当真」——给**拖动**那条守卫用：手势被系统取消时 `onEnded` 不来，
+    /// `isSpeedBoostHolding` 会一直挂着（提示常亮 `2.0x`，而且它会把之后的整条拖动都挡掉）。
     ///
-    /// 尺子与点按那条**共用**（``tapDisposition``）：超过 ``speedBoostTrustSeconds`` 就当那次长按
-    /// 已被系统吞掉 —— 收掉加速，放行这一次手势（自愈）。
-    /// 不会误伤正经的「按住加速」：按住不动时拖动本来就不触发（要 24pt 位移）。
+    /// 这条线与点按那条**故意不同**（M28 首验之五）：
+    /// - 点按那条（``tapDisposition``）：点按只在松手后才来 —— **手指一定已经起来了**，
+    ///   所以只在「真·长按的尾巴」时吞一下（信任窗放到 3.5 秒，免得把真实的 1.6 秒按住当挂死）；
+    /// - 拖动这条：拖动是**新起的一个动作**（要 24pt 位移），拿 ``speedBoostSwallowHoldSeconds``
+    ///   当线就够 —— 超过它就该认为那次长按已经没了：收加速、放行这次拖动。
+    ///   线再放宽的话，一次被取消的长按会把后面的拖动白挡好几秒。
+    ///
+    /// 不会误伤正经的「按住加速」：按住不动时拖动本来就不触发。
     func isSpeedBoostHoldingTrusted() -> Bool {
         guard isSpeedBoostHolding else {
             return false
         }
-        switch Self.tapDisposition(
-            isHolding: true,
-            holdStartedAt: speedBoostStartedAt,
-            endedAt: speedBoostEndedAt,
-            now: Date()
-        ) {
-        case .swallow:
-            return true
-        case .allow:
-            return false
-        case .endStaleBoost:
-            endSpeedBoost()
+        guard let started = speedBoostStartedAt,
+              Date().timeIntervalSince(started) < Self.speedBoostSwallowHoldSeconds
+        else {
+            endSpeedBoost(reason: "自愈（拖动时发现挂太久）")
             // 自愈这一下之后紧接着的连点不该被「刚松手」吞掉（与 `shouldSwallowTap()` 同一处理）。
             speedBoostEndedAt = nil
             return false
         }
+        return true
     }
 
     /// 点按该当何论。
     enum TapDisposition: Equatable {
-        /// 同一次触摸的尾巴：吞掉。
+        /// 真·长按（≥ ``speedBoostSwallowHoldSeconds``）的尾巴：吞掉。
         case swallow
-        /// 正常点按：放行。
+        /// 正常点按（含「按得实一点的单击」）：放行。
         case allow
         /// 「还按着」挂太久了 = 那次长按被系统吞了：先收掉加速（恢复倍速），再放行这一下。
         case endStaleBoost
     }
 
-    /// 这次点按归哪一类（**纯函数**，有单测）：长按这次触摸还没结束（`simultaneousGesture` 不挡点按）、
-    /// 或刚松手那一下补发的，都要吞。
+    /// 这次点按归哪一类（**纯函数**，有单测）。
     ///
-    /// 为什么要吞：SwiftUI 的 `TapGesture` 没有「按多久算点按」的上限，长按松手后会补一次单击 ——
-    /// 不吞的话「按住加速 → 松手」会把控制条闪一下（那是单击的副作用）。
+    /// 三条规则：
+    /// - 只吞**真·长按的尾巴**（按了 ≥ ``speedBoostSwallowHoldSeconds``）—— 为的是不让
+    ///   「按住加速 → 松手」把控制条闪一下；
+    /// - 按得短的那一档（``speedBoostHoldSeconds`` … ``speedBoostSwallowHoldSeconds``）照常放行：
+    ///   用户报「点屏幕没反应」就是它们被吞掉的（M28 首验之五）；
+    /// - 「还按着」只信 ``speedBoostTrustSeconds``：手势被系统取消时 `onEnded` 不发，
+    ///   不兜住就是「一直 2x + 点什么都不动」。
     ///
-    /// 为什么「还按着」只信 ``speedBoostTrustSeconds``：见那个常量的说明 ——
-    /// 手势被系统取消时 `onEnded` 不发，不兜住就是「一直 2x + 点什么都不动」。
+    /// 两种来信都认：`isHolding`（尾巴点按先到，松手还没被识别）与 `endedAt`（松手先被识别）——
+    /// 顺序不固定（日志实测两个方向都出现过），所以两条路都要拿「按住时长」量一遍。
     static func tapDisposition(
         isHolding: Bool,
         holdStartedAt: Date?,
@@ -522,16 +541,25 @@ extension PlaybackView {
             else {
                 return .endStaleBoost
             }
-            return .swallow
+            return now.timeIntervalSince(holdStartedAt) >= speedBoostSwallowHoldSeconds ? .swallow : .allow
         }
         guard let endedAt else {
+            return .allow
+        }
+        // 松手先到：按住时长 = `endedAt - holdStartedAt`（拿不到起点就退回老规矩：只认时间窗）。
+        if let holdStartedAt, endedAt.timeIntervalSince(holdStartedAt) < speedBoostSwallowHoldSeconds {
             return .allow
         }
         return now.timeIntervalSince(endedAt) < speedBoostSwallowSeconds ? .swallow : .allow
     }
 
-    /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:holdStartedAt:endedAt:now:)``；
-    /// 「挂太久」那一类顺手把加速收掉，别让界面一直卡在 2x）。
+    /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:holdStartedAt:endedAt:now:)``）。
+    ///
+    /// 三件事在任何分支里都要做对（M28 首验之五：日志里「每个单击前面都跟着一条长按起」）：
+    /// 1. **点按只在松手后才来** —— 走到这儿时手指已经起来了：还挂着「按着」就顺手收掉加速
+    ///    （提示立刻消失、速度回原样），不必等那条并不可靠的 `onEnded`；
+    /// 2. 收掉之后把 `speedBoostEndedAt` 清掉 —— 那一下就是尾巴本身，别再让它吞掉下一个真点按；
+    /// 3. 「挂太久」（≥ ``speedBoostTrustSeconds``）那一类照旧自愈。
     func shouldSwallowTap() -> Bool {
         let disposition = Self.tapDisposition(
             isHolding: isSpeedBoostHolding,
@@ -541,14 +569,17 @@ extension PlaybackView {
         )
         switch disposition {
         case .swallow:
+            endSpeedBoost(reason: "尾巴（真·长按）")
+            speedBoostEndedAt = nil
             return true
         case .allow:
+            if isSpeedBoostHolding {
+                endSpeedBoost(reason: "短促按住，按松手处理")
+            }
             speedBoostEndedAt = nil
             return false
         case .endStaleBoost:
-            endSpeedBoost()
-            // 收加速会写一个「刚松手」的时刻 —— 这里再清掉：这一下是用户要的点按，
-            // 紧接着的连点不该被那句「刚松手」吞掉。
+            endSpeedBoost(reason: "自愈（挂太久）")
             speedBoostEndedAt = nil
             return false
         }

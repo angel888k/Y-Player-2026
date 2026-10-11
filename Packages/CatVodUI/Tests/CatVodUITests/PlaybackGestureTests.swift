@@ -63,28 +63,53 @@ struct PlaybackGestureTests {
         #expect(!PlaybackView.canStartSpeedBoost(isPlaying: true, isBoosting: true))
     }
 
-    @Test("长按倍速：上游默认 2.0x；按住时刻与两个窗口是本项目的常量")
+    @Test("长按倍速：四条时间线是本项目的常量（M28 首验之五把长按阈值从 0.5 提到 0.8）")
     func boostConstants() {
         #expect(SpeedSetting.longPress == 2.0)
-        #expect(PlaybackView.speedBoostHoldSeconds == 0.5)
+        // 0.5 秒那条线会把「按得实一点的单击」（日志实测 0.6–0.7 秒）吃成长按 —— 提上来。
+        #expect(PlaybackView.speedBoostHoldSeconds == 0.8)
+        #expect(PlaybackView.speedBoostSwallowHoldSeconds == 1.3)
         #expect(PlaybackView.speedBoostSwallowSeconds == 0.5)
-        #expect(PlaybackView.speedBoostTrustSeconds == 1.5)
-        // 「还按着」的窗口得比「刚松手」那条宽：它兜的是「onEnded 根本没来」那种（转屏 / 视图重建）。
+        // 3.5：真·长按可以按很久 —— 这条窗只兜「压根没有点按来」的挂死（1.5 会把 1.6 秒的真实按住当挂死）。
+        #expect(PlaybackView.speedBoostTrustSeconds == 3.5)
+        // 四条线从小到大：起加速 < 愿意吞尾巴 < 信任窗；信任窗也比「刚松手」那条宽。
+        #expect(PlaybackView.speedBoostHoldSeconds < PlaybackView.speedBoostSwallowHoldSeconds)
+        #expect(PlaybackView.speedBoostSwallowHoldSeconds < PlaybackView.speedBoostTrustSeconds)
         #expect(PlaybackView.speedBoostTrustSeconds > PlaybackView.speedBoostSwallowSeconds)
     }
 
-    @Test("点按的三种下场：吞尾巴 / 放行 / 「还按着」挂太久就当长按已被系统吞掉（M27 首验之六）")
+    @Test("点按的分档（M28 首验之五）：真·长按的尾巴才吞、按得实一点的单击放行、挂太久自愈")
     func tapDisposition() {
         let now = Date()
+        // 按了 1.4 秒（≥ 吞尾巴线）还在「按着」：长按的尾巴，吞。
         #expect(PlaybackView.tapDisposition(
-            isHolding: true, holdStartedAt: now.addingTimeInterval(-0.2), endedAt: nil, now: now
+            isHolding: true, holdStartedAt: now.addingTimeInterval(-1.4), endedAt: nil, now: now
         ) == .swallow)
+        // 按了 0.9 秒（长按起了，但只是按得实一点）：放行 —— 用户报的「点屏幕没反应」就是这一档被吞。
+        #expect(PlaybackView.tapDisposition(
+            isHolding: true, holdStartedAt: now.addingTimeInterval(-0.9), endedAt: nil, now: now
+        ) == .allow)
+        // 「还按着」挂太久（≥ 信任窗）：自愈（先收加速再放行）。
         #expect(PlaybackView.tapDisposition(
             isHolding: true, holdStartedAt: now.addingTimeInterval(-30), endedAt: nil, now: now
         ) == .endStaleBoost)
         #expect(PlaybackView.tapDisposition(
             isHolding: true, holdStartedAt: nil, endedAt: nil, now: now
         ) == .endStaleBoost)
+        // 松手先被识别、尾巴点按随后到（日志里两个方向都出现过）：按 1.1 秒放行、按 2 秒吞。
+        #expect(PlaybackView.tapDisposition(
+            isHolding: false,
+            holdStartedAt: now.addingTimeInterval(-1.3),
+            endedAt: now.addingTimeInterval(-0.2),
+            now: now
+        ) == .allow)
+        #expect(PlaybackView.tapDisposition(
+            isHolding: false,
+            holdStartedAt: now.addingTimeInterval(-2.2),
+            endedAt: now.addingTimeInterval(-0.2),
+            now: now
+        ) == .swallow)
+        // 拿不到起点时退回老规矩：只认「刚松手」那个时间窗；窗口外放行。
         #expect(PlaybackView.tapDisposition(
             isHolding: false, holdStartedAt: nil, endedAt: now.addingTimeInterval(-0.2), now: now
         ) == .swallow)
