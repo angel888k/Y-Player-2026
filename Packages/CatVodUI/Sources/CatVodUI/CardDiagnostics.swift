@@ -67,7 +67,10 @@ private struct CardDiagnosticsKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    /// 要有 **setter**：`.environment(_:_:)` 要的是可写键路径（与 `cachedImageLoader` 同一个写法，
+    /// 少了 setter 编译器报「cannot convert KeyPath to WritableKeyPath」）。
     var cardDiagnostics: CardDiagnostics {
-        self[CardDiagnosticsKey.self]
+        get { self[CardDiagnosticsKey.self] }
+        set { self[CardDiagnosticsKey.self] = newValue }
     }
 }
