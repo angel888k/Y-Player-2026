@@ -325,20 +325,10 @@ struct DiscoverSiteSwitcher: View {
         )
     }
 
-    /// 诊断开关（M28 首验之二十九）：置 true 时菜单切成**最小形态**（两颗固定项、无站点清单、
-    /// 无子菜单）—— 用来分辨「弹出那一下」的剩余滞涩是**系统菜单本身的底噪**，还是我们内容太多。
-    /// 判定完就应改回 false（它只为排查存在，不为功能存在）。
-    static let diagnosticMinimalMenu = false
-
     var body: some View {
         Menu {
-            if Self.diagnosticMinimalMenu {
-                Button("站点 A") { onSelect("a") }
-                Button("站点 B") { onSelect("b") }
-            } else {
-                tools
-                siteList
-            }
+            tools
+            siteList
         } label: {
             HStack(spacing: 6) {
                 DiscoverSiteSwitchGlyph()
@@ -360,7 +350,9 @@ struct DiscoverSiteSwitcher: View {
     private var tools: some View {
         if !groups.isEmpty {
             groupMenu
-            if groups.count > 1, onMoveGroup != nil {
+            // 「更多」只在**真有排序必要**时出现：两个分组及以下排序几乎没意义，白占一层子菜单
+            // （每层子菜单都是系统要预先建树的东西 —— 弹出代价与层数直接相关）。
+            if groups.count > 2, onMoveGroup != nil {
                 moreMenu
             }
         }
@@ -451,7 +443,10 @@ struct DiscoverSiteSwitcher: View {
     }
 
     /// 主菜单里最多列多少个站点（超过走「查找站点…」）。
-    static let menuRowLimit = 12
+    ///
+    /// 定 8 是**上机量出来的**：菜单里每多一行，弹出的那一下就更沉一点；8 行 + 当前站点
+    /// （最多 9 行）在模拟器上已贴到「系统菜单本身的底噪」附近（同尺寸的最小菜单也一样手感）。
+    static let menuRowLimit = 8
 
     /// 主菜单实际列出的行：前 `menuRowLimit` 个 + **当前站点**（若被截在外面就补上，不重复）。
     private var menuRows: [DiscoverSiteRow] {
