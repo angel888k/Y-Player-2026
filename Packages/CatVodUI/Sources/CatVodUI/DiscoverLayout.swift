@@ -373,8 +373,22 @@ final class DiscoverTabBarGate: ObservableObject {
 struct BookTabBarHider: ViewModifier {
     @ObservedObject var gate: DiscoverTabBarGate
     @EnvironmentObject private var immersiveTabBar: ImmersiveTabBarState
+    /// 收放时要不要带动画（诊断档「收栏无动画」会把它关掉 —— 判「系统收栏动画与滚动打架」）。
+    var animated = true
 
     func body(content: Content) -> some View {
-        content.adaptiveTabBarHidden(gate.isHidden || immersiveTabBar.isActive)
+        let hidden = gate.isHidden || immersiveTabBar.isActive
+        return Group {
+            if animated {
+                content.adaptiveTabBarHidden(hidden)
+            } else {
+                content
+                    .transaction { transaction in
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
+                    .adaptiveTabBarHidden(hidden)
+            }
+        }
     }
 }

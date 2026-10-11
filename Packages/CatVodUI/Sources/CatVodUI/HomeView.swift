@@ -267,6 +267,9 @@ public struct HomeView: View {
                             translationX: translation.width,
                             translationY: translation.height
                         )
+                        // 每帧一次的节拍（帧探针用它算帧间隔）。`tick()` 只做两个成员变量的
+                        // 读写、不碰任何 SwiftUI 状态 —— 可以放心开着（帧账要它）。
+                        frameProbe.tick()
                     },
                     onTouchEnded: {
                         tabBarGate.touchEnded()

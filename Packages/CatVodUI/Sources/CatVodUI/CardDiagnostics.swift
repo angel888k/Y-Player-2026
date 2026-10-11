@@ -24,6 +24,8 @@ final class CardDiagnostics: ObservableObject {
         case noObserver
         /// 去掉 `refreshable`（下拉刷新）。
         case noRefresh
+        /// 收 Tab 栏**不带动画**（`withAnimation(nil)`）—— 判「系统收栏动画与滚动打架」。
+        case noTabBarAnimation
 
         var id: String { rawValue }
 
@@ -35,6 +37,7 @@ final class CardDiagnostics: ObservableObject {
             case .control: "极简对照"
             case .noObserver: "去监听器"
             case .noRefresh: "去下拉刷新"
+            case .noTabBarAnimation: "收栏无动画"
             }
         }
     }
@@ -59,6 +62,7 @@ final class CardDiagnostics: ObservableObject {
         case .control: "4"
         case .noObserver: "5"
         case .noRefresh: "6"
+        case .noTabBarAnimation: "7"
         }
     }
 
