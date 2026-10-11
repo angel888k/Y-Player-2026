@@ -314,6 +314,15 @@ struct DiscoverTabBarVisibility: Equatable {
         isTouching = false
     }
 
+    /// 这次算不算「向上滑列表」。
+    ///
+    /// - `translationY < -hideThreshold`：手指向上移（`y` 向下为正）＝ 在往下翻内容；
+    /// - `|translationY| > |translationX|`：以竖直为主，横滑轮播不算（规则 4）。
+    static func isUpwardScroll(translationX: CGFloat, translationY: CGFloat) -> Bool {
+        translationY < -hideThreshold && abs(translationY) > abs(translationX)
+    }
+}
+
 // MARK: - 收放的「门」与「累计器」（M28 首验之二十九）
 
 /// 底部 Tab 栏收放的**盒子**：只在 `isHidden` 真的翻转时才广播。
@@ -367,14 +376,5 @@ struct BookTabBarHider: ViewModifier {
 
     func body(content: Content) -> some View {
         content.adaptiveTabBarHidden(gate.isHidden || immersiveTabBar.isActive)
-    }
-}
-
-    /// 这次算不算「向上滑列表」。
-    ///
-    /// - `translationY < -hideThreshold`：手指向上移（`y` 向下为正）＝ 在往下翻内容；
-    /// - `|translationY| > |translationX|`：以竖直为主，横滑轮播不算（规则 4）。
-    static func isUpwardScroll(translationX: CGFloat, translationY: CGFloat) -> Bool {
-        translationY < -hideThreshold && abs(translationY) > abs(translationX)
     }
 }
