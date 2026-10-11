@@ -21,6 +21,7 @@
 | 搜索栏（导航栏内嵌形态，参考录屏的搜索页） | `.toolbar` + `.principal` + `.topBarTrailing` | 同左 | 默认放置 + `.primaryAction`（macOS 无 `.principal`） | `adaptiveSearchBar(text:prompt:trailing:)` |
 | 导航标题样式 | `.inline` 小标题（发现页版式） | 同左 | 原样（macOS 无该形态） | `adaptiveInlineNavigationTitle()` |
 | 底部 Tab 栏按需隐藏 | **不支持**（iOS 15 无该原生 API，见 M02P16） | `.toolbar(.hidden, for: .tabBar)` | 不适用（macOS 的 `TabView` 不是底部标签栏） | `adaptiveTabBarHidden(_:)` |
+| 列表触摸的「旁听」信源（触发上一行的收放） | 同 iOS 16+（但栏本身不收，见上一行） | **给 `UIScrollView` 自己的 pan 加动作**（`addTarget`）—— 不挂自己的手势：iOS 16 上「旁听」手势会把滚动吃掉（M02P16 第六节） | 空操作（没有可收的栏） | `scrollTouchObserver(...)` |
 
 后续会按需补充（仍遵循同一原则）：`NavigationSplitView`（iPad/Mac 双栏，iOS 16+/macOS 13+）、
 `presentationDetents`（iOS 16+ 半屏弹层）、`@Observable`（iOS 17+；iOS 15/16 用 `ObservableObject`）、
