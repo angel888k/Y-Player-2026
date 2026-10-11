@@ -179,7 +179,7 @@ struct TMDBMatchSheet: View {
         } label: {
             HStack(alignment: .top, spacing: 12) {
                 CachedImage(
-                    url: model.tmdbConfig.imageURL(item.posterPath),
+                    url: model.tmdbConfig.imageURL(item.posterPath)?.absoluteString ?? "",
                     targetSize: CGSize(width: 46, height: 69)
                 )
                 .frame(width: 46, height: 69)
