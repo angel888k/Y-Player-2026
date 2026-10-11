@@ -32,7 +32,7 @@ public extension AppModel {
     /// 1. 配置还没加载完（`.idle` / `.loading`）；
     /// 2. 配置已加载、站点清单还没出来 —— JS 源的宿主正在启动（`hostStatus.isBusy`），
     ///    这一段最长也最显眼：状态已是 `loaded`，站点却要等 Node 宿主起来才有。
-    static func isRestoringSavedSource(
+    nonisolated static func isRestoringSavedSource(
         configURL: String,
         state: LoadState,
         hostIsBusy: Bool,
