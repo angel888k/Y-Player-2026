@@ -25,6 +25,28 @@ public extension AppModel {
         hostSites.isEmpty ? (state.loadedSource?.config.visibleSites ?? []) : hostSites
     }
 
+    /// 站点清单是否还在「恢复中」（冷启动自动加载的窗口）——界面据此显示「站点加载中…」
+    /// 而不是空态文案（M28 首验之三十一）。
+    ///
+    /// 覆盖两段窗口（都是**真在等**的窗口；失败与「本来就没有站点」都不算）：
+    /// 1. 配置还没加载完（`.idle` / `.loading`）；
+    /// 2. 配置已加载、站点清单还没出来 —— JS 源的宿主正在启动（`hostStatus.isBusy`），
+    ///    这一段最长也最显眼：状态已是 `loaded`，站点却要等 Node 宿主起来才有。
+    static func isRestoringSavedSource(
+        configURL: String,
+        state: LoadState,
+        hostIsBusy: Bool,
+        sitesIsEmpty: Bool
+    ) -> Bool {
+        guard sitesIsEmpty, !configURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        if state.isIdle || state.isLoading {
+            return true
+        }
+        return hostIsBusy
+    }
+
     /// 配置告警（含站点不可用原因、离线回退提示）。
     var warnings: [String] {
         state.loadedSource?.warnings ?? []

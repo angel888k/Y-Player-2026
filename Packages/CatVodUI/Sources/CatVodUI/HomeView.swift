@@ -182,24 +182,13 @@ public struct HomeView: View {
         }
     }
 
-    /// 冷启动恢复中的判定（纯函数，有单测）：保存过接口地址、这次进程还没加载过配置
-    /// （`.idle`）—— 也就是 `RootView` 的 `.task` 还没把 `loadSavedSourceIfNeeded()` 跑完
-    /// 的那一小段窗口。把「转圈 + 站点加载中」限定在这个窗口里：
-    /// 加载失败（`.failed`）走原因文案、没存过地址走原来的空态提示，都不能被这句盖住。
-    static func isRestoringSavedSource(
-        configURL: String,
-        stateIsIdle: Bool,
-        sitesIsEmpty: Bool
-    ) -> Bool {
-        sitesIsEmpty
-            && stateIsIdle
-            && !configURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
+    /// 冷启动恢复中（判定在 ``AppModel/isRestoringSavedSource(configURL:state:hostIsBusy:sitesIsEmpty:)``，
+    /// 有单测）：保存过接口、配置或宿主还在起步、站点清单还没出来。
     private var isRestoringSavedSource: Bool {
-        Self.isRestoringSavedSource(
+        AppModel.isRestoringSavedSource(
             configURL: model.configURL,
-            stateIsIdle: model.state.isIdle,
+            state: model.state,
+            hostIsBusy: model.hostStatus.isBusy,
             sitesIsEmpty: browsableSites.isEmpty
         )
     }
@@ -524,6 +513,11 @@ public struct HomeView: View {
             // 接口加载失败（含冷启动自动恢复失败）：直接说原因，
             // 不要显示「请先在接口管理里加载配置」——用户明明已经配置过接口。
             return "接口加载失败：\(reason)"
+        }
+        if isRestoringSavedSource {
+            // 配置 / 宿主还在起步（M28 首验之三十一）：站点清单马上就来，
+            // 别让用户以为要先去设置里点加载。
+            return "站点加载中…"
         }
         if model.allSites.isEmpty {
             // 多仓配置（`urls`）：站点本来就是空的 —— 说清「要自己挑一条子配置」，
