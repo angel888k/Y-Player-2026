@@ -124,11 +124,12 @@ extension PlaybackView {
                     let unlocked = Self.lockedGesturePolicy(isLocked: isLocked) == .all
                     guard unlocked, !shouldSwallowTap() else {
                         // 没做事的那些也留一条痕（「哪一段断了」全在日志里，排障不靠猜）。
+                        let skipped: String = unlocked ? "（被长按尾巴吞掉）" : "（锁上不做）"
                         PlaybackTrace.noteTap(
                             doubleTap: true,
                             location: location,
                             isCenter: Self.isCenterTap(startX: location?.x, width: size.width),
-                            action: unlocked ? "（被长按尾巴吞掉）" : "（锁上不做）"
+                            action: skipped
                         )
                         return
                     }
