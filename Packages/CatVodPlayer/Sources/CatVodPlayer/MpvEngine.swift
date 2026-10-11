@@ -139,17 +139,24 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
     /// 窗口创建那一刻的尺寸出画（画面小一块、钉在层的左上角；层 / 宿主 / 窗口三处的数值全是对的）。
     /// `window-size` 是 mpv 认的那个旋钮；随手把 mpv 自己认的 `osd-dimensions` 记一条 ——
     /// 出了事一眼就能看出它到底按多大在画。
-    public func setVideoAreaSize(_ size: CGSize) {
+    public func setVideoAreaSize(_ size: CGSize) async {
         guard let session, size.width > 0, size.height > 0 else {
             return
         }
         let scale = videoSurface?.layer.contentsScale ?? 2
         let pixelWidth = max(Int((size.width * scale).rounded()), 1)
         let pixelHeight = max(Int((size.height * scale).rounded()), 1)
-        _ = session.command(["set", "window-size", "\(pixelWidth)x\(pixelHeight)"])
-        let dimensions = session.propertyString("osd-dimensions") ?? "无"
         let area = "\(pixelWidth)x\(pixelHeight)（点 \(Int(size.width))x\(Int(size.height))）"
-        MpvTrace.logger.notice("画面区 \(area, privacy: .public) 已转给 mpv；osd-dimensions = \(dimensions, privacy: .public)")
+        // 第一招 `window-size`：mpv 对嵌入式窗口**不吃**（日志实测：发过之后 `osd-dimensions`
+        // 纹丝不动，还是窗口创建时的 1206x678）。
+        // 第二招 —— **重建视频输出**：`vo` 置空再设回来，mpv 会把 VO 整个重建，
+        // 重建时会重新读窗口大小（不改播放位置、不重新拉流；空窗只存在一帧，正在转屏时看不出来）。
+        session.command(["set", "vo", "null"])
+        session.command(["set", "vo", "gpu-next"])
+        // 重建是 mpv 自己线程里的事，等它一下再读，读到的才是重建后的数。
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        let dimensions = session.propertyString("osd-dimensions") ?? "无"
+        MpvTrace.logger.notice("画面区 \(area, privacy: .public) 已重建 VO；osd-dimensions = \(dimensions, privacy: .public)")
     }
 
     /// 音量：mpv 的 `volume` 属性是 0–100（100 = 原声），这里把 0...1 换算过去。
