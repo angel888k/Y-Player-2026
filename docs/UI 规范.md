@@ -29,7 +29,7 @@
 | 搜索栏（导航栏内嵌形态，参考录屏的搜索页） | `.toolbar` + `.principal` + `.topBarTrailing` | 同左 | 默认放置 + `.primaryAction`（macOS 无 `.principal`） | `adaptiveSearchBar(text:prompt:trailing:)` |
 | 导航标题样式 | `.inline` 小标题（发现页版式） | 同左 | 原样（macOS 无该形态） | `adaptiveInlineNavigationTitle()` |
 | 底部 Tab 栏按需隐藏 | **不支持**（iOS 15 无该原生 API，见 M02P16） | `.toolbar(.hidden, for: .tabBar)` | 不适用（macOS 的 `TabView` 不是底部标签栏） | `adaptiveTabBarHidden(_:)` |
-| 画中画 / 后台继续出声（M26 起；M27 换成自建 PiP） | 系统内核：`AVPictureInPictureController(playerLayer:)`（公开 API，层是自建的 `AVPlayerLayer`）+ 音频会话；自绘内核（MPV / FFmpeg）：**未做**（要帧拷贝层，公开 API 可行） | 同 iOS 15 | 空壳（不做，产品目标在 iOS） | `PlaybackPipController` + `PlaybackAudioSession`（`AVAudioSession` 设 `.playback`）+ `UIBackgroundModes: [audio]` |
+| 画中画 / 后台继续出声（M26 起；M27 换成自建 PiP） | **M28 口径：画中画不做**（按钮与自动起撤了）；原本系统内核那条是 `AVPictureInPictureController(playerLayer:)`（公开 API，层是自建的 `AVPlayerLayer`）+ 音频会话；自绘内核（MPV / FFmpeg）：**不做**（要帧拷贝层） | 同 iOS 15 | 空壳（不做，产品目标在 iOS） | `PlaybackPipController` + `PlaybackAudioSession`（`AVAudioSession` 设 `.playback`）+ `UIBackgroundModes: [audio]` |
 | 列表触摸的「旁听」信源（触发上一行的收放） | 同 iOS 16+（但栏本身不收，见上一行） | **给 `UIScrollView` 自己的 pan 加动作**（`addTarget`）—— 不挂自己的手势：iOS 16 上「旁听」手势会把滚动吃掉（M02P16 第六节） | 空操作（没有可收的栏） | `scrollTouchObserver(...)` |
 
 后续会按需补充（仍遵循同一原则）：`NavigationSplitView`（iPad/Mac 双栏，iOS 16+/macOS 13+）、
