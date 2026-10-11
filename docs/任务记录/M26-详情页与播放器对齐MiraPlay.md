@@ -65,8 +65,23 @@
 | 自绘内核（MPV / FFmpeg）的 PiP | 公开 API 可行（`AVSampleBufferDisplayLayer` + `AVPictureInPictureController.ContentSource`），但要加一条逐帧拷贝层 —— **未做**（见下）。 |
 | 投屏 | DLNA 全是公开协议、可以自己做；AirPlay 只有 AVPlayer 那条路（切 system 内核就能投）。**未做**。 |
 | 旋转按钮 | iOS 16+ 有公开 API（`UIWindowScene.requestGeometryUpdate`）；**iOS 15 没有 → 那颗按钮在 iOS 15 上不出现**。**未做**。 |
-| 「播放器」（内核切换） | 全公开（重建内核 + 续上进度）。**未做**。 |
+| 「播放器」（内核切换） | 全公开（重建内核 + 续上进度）。**已做**（见文末）。 |
 | 「视轨」 | mpv 有公开的 `vid`；system 内核没有「选视频轨」的公开 API → 那条路不出现。**未做**。 |
+
+### 第五批（已做）：「播放器」—— 就地换内核
+
+- 底排第一颗「播放器」（参考同位置）：菜单只列**现在真能用的**内核（`PlayerEngineKind/isAvailable`），
+  一个可用档都没有时整颗不出现（不摆假选项）；
+- 选中后**先落位置 → 拆旧内核 → 从同一位置接着播**（`PlaybackView+Engine.swift` 的 `switchEngine(to:)`；
+  倍速 / 画面比例 / 音量增益 / 轨道在 `start()` 里按界面态重套），并把选择回传 `AppModel.preferredEngine`
+  记成默认（与设置页那次选择同一条路）；
+- `PlaybackView` 多一个 `@State engineKind`（初值取设置），`settings.engine` 的读点全部改走它；
+- `PlayerEngine` 协议补 `finishEvents() async`：旧内核连同它的 `consume` 任务要能干净退场
+  （三个内核本来就各自有这个方法，只是没上协议）；`+Engine` 拆出去还顺手带走 `retryPlayback()`
+  （`PlaybackView.swift` 又贴到 `file_length` 800 的线）。
+
+**还没做**：投屏（DLNA / AirPlay）、顶排「旋转」（只 iOS 16+ 有公开 API）、「视轨」（mpv 有公开 `vid`，
+system 内核没有公开等价物）、自绘内核的画中画（帧拷贝层）。
 
 ## 六、验证点（真机）
 
@@ -79,4 +94,6 @@
   音频在后台继续出声（要 `xcodegen generate` 之后 Info.plist 才带 `UIBackgroundModes`）。
 - 播放器：（TMDB 视图）点播放 / 点剧集卡 → **直接进全屏**（无导航栏、无信息列表）；
   顶排 ✕ / 画面比例 / 弹幕 / 倍速 / 锁；底排徽标 + 时间 + 进度条 + 播放 / 下一集 / 逐帧 +
-  「字幕 / 音轨 / 片头片尾 / 选集」；✕ 退回详情页。
+  「播放器 / 字幕 / 音轨 / 片头片尾 / 选集」；✕ 退回详情页。
+- 就地换内核：控制条「播放器」里选另一档 → **从当前位置接着播**（画面层换掉、进度不丢），
+  回详情页再进这一集时默认就是刚选的那一档。
