@@ -57,6 +57,7 @@ extension PlaybackView {
                 closePlayback()
             }
             scaleMenu
+            rotateButton
             if onRequestFullScreen != nil {
                 barIcon("arrow.up.left.and.arrow.down.right", label: "全屏播放") {
                     onRequestFullScreen?()
@@ -136,6 +137,7 @@ extension PlaybackView {
             Spacer(minLength: 0)
             engineMenu
             subtitleMenu
+            videoMenu
             audioMenu
             openingEndingMenu
             if playlist != nil {
@@ -224,6 +226,20 @@ extension PlaybackView {
 
     // MARK: - 底排那几个文字按钮
 
+    /// 旋转（对齐参考顶排那颗）：把「横屏 ↔ 竖屏」翻一下。
+    ///
+    /// **只在有公开 API 的系统上出现**（iOS 16+）；iOS 15 / macOS 拿不到就不摆这颗
+    /// （UI 规范第 5 条：没有公开 API 的能力不做）。
+    @ViewBuilder
+    private var rotateButton: some View {
+        if PlatformShims.canRequestPlaybackOrientation {
+            barIcon("rotate.right", label: "旋转屏幕") {
+                let landscape = PlatformShims.isPlaybackLandscape() ?? true
+                PlatformShims.requestPlaybackOrientation(landscape: !landscape)
+            }
+        }
+    }
+
     /// 「播放器」：就地换内核（参考底排第一颗）。**只列现在真能用的**那一档以上 ——
     /// 一个可用内核都没有时整颗按钮不出现（不摆假选项，也不自动降级）。
     @ViewBuilder
@@ -264,6 +280,21 @@ extension PlaybackView {
                     Text("关闭").tag(TrackSelection.disabled)
                     ForEach(subtitleTracks) { track in
                         Text(track.label ?? "字幕 \(track.id)").tag(TrackSelection.index(track.id))
+                    }
+                }
+            }
+        }
+    }
+
+    /// 视轨（M26）：只在内核报了视轨时出现 —— MPV 会报（含多视频轨的片源），系统内核一般没有。
+    @ViewBuilder
+    private var videoMenu: some View {
+        if !videoTracks.isEmpty {
+            barMenu("视轨") {
+                Picker("视轨", selection: videoSelectionBinding) {
+                    Text("自动").tag(TrackSelection.auto)
+                    ForEach(videoTracks) { track in
+                        Text(track.label ?? "视轨 \(track.id)").tag(TrackSelection.index(track.id))
                     }
                 }
             }

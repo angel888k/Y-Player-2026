@@ -51,14 +51,65 @@ public enum PlatformShims {
         #endif
     }
 
-    #if os(iOS)
-    /// 前台那个窗口场景的屏幕（`UIScreen.main` 从 iOS 16 起被弃用，别用它）。
+    /// 能不能请求屏幕方向（播放页那颗「旋转」，M26）。
+    ///
+    /// **只有 iOS 16+ 有公开 API**（`UIWindowScene.requestGeometryUpdate`）——
+    /// iOS 15 与 macOS 拿不到：拿不到的系统上**这颗按钮就不出现**（UI 规范第 5 条：
+    /// 没有公开 API 的能力不做，也不用私有 API 去凑）。
+    public static var canRequestPlaybackOrientation: Bool {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            return true
+        }
+        return false
+        #else
+        return false
+        #endif
+    }
+
+    /// 现在是不是横屏；拿不到（macOS / 没有前台场景）给 `nil`。
     @MainActor
-    private static var activeScreen: UIScreen? {
+    public static func isPlaybackLandscape() -> Bool? {
+        #if os(iOS)
+        guard let scene = activeWindowScene else {
+            return nil
+        }
+        return scene.interfaceOrientation.isLandscape
+        #else
+        return nil
+        #endif
+    }
+
+    /// 请求转到横屏 / 竖屏；返回 `false` = 这个系统没有公开 API / 拿不到场景，调用方不做事。
+    @MainActor
+    @discardableResult
+    public static func requestPlaybackOrientation(landscape: Bool) -> Bool {
+        #if os(iOS)
+        guard #available(iOS 16.0, *), let scene = activeWindowScene else {
+            return false
+        }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: landscape ? .landscapeRight : .portrait))
+        // iOS 16 起系统会重新问一遍 `supportedInterfaceOrientations` —— SwiftUI 这边就这一个公开钩子。
+        scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    #if os(iOS)
+    /// 前台那个窗口场景（`UIScreen.main` 从 iOS 16 起被弃用，别用它）。
+    @MainActor
+    private static var activeWindowScene: UIWindowScene? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }?
-            .screen
+            .first { $0.activationState == .foregroundActive }
+    }
+
+    /// 前台那个窗口场景的屏幕。
+    @MainActor
+    private static var activeScreen: UIScreen? {
+        activeWindowScene?.screen
     }
     #endif
 
