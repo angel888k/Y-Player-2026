@@ -70,4 +70,19 @@ struct PlaybackBackdropTests {
             #expect(heights.top + heights.bottom <= height)
         }
     }
+
+    @Test("全屏状态行的电量图标：25% 一档、充电带 bolt（纯函数，M28 首验之十四）")
+    func batterySymbol() {
+        #expect(PlaybackView.batterySymbol(level: 0.1, charging: false) == "battery.0")
+        #expect(PlaybackView.batterySymbol(level: 0.3, charging: false) == "battery.25")
+        #expect(PlaybackView.batterySymbol(level: 0.53, charging: false) == "battery.50")
+        #expect(PlaybackView.batterySymbol(level: 0.8, charging: false) == "battery.75")
+        #expect(PlaybackView.batterySymbol(level: 1.0, charging: false) == "battery.100")
+        #expect(PlaybackView.batterySymbol(level: 0.53, charging: true) == "battery.100.bolt")
+    }
+
+    @Test("全屏状态行的时钟：走系统设置，给得出非空文本（纯函数）")
+    func clockText() {
+        #expect(!PlaybackView.clockText(Date()).isEmpty)
+    }
 }

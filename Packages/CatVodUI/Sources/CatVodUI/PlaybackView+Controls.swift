@@ -4,6 +4,7 @@ import SwiftUI
 /// 播放页的**叠层控制条**（M03P6 起；M26 按参考的全屏播放器重排；M27 起三个内核共用）。
 ///
 /// 排布对齐参考截图（完整版）：
+/// - 顶排**之上**：状态行（左时钟 · 中标题 · 右电量）—— 只给真·全屏（M28 首验之十四）；
 /// - 顶排：关闭（✕）· 投屏 · 旋转 · 画面比例 —— 右侧：画中画 · 弹幕 · 倍速 · 锁定；
 /// - 底排：参数徽标（`HW HDR H265 4K 25FPS 5.6Mbps`，**只报读得到的**）+「当前时间 · 进度条 · 总时长」，
 ///   再一行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧文字按钮「播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集」。
@@ -37,6 +38,9 @@ extension PlaybackView {
         let compact = width < Self.barCompactWidth
         let minimalBar = minimal && compact
         return VStack(spacing: 10) {
+            if showsPlaybackStatusBar {
+                playbackStatusBar
+            }
             if isLocked {
                 HStack {
                     Spacer(minLength: 0)
@@ -82,6 +86,72 @@ extension PlaybackView {
     /// 两个系数之和是 0.9 —— 任何高度下两条加起来都放得下（不顶出画面外）。
     static func backdropGradientHeights(forHeight height: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
         (min(110, height * 0.35), min(180, height * 0.55))
+    }
+
+    // MARK: - 全屏顶上的状态行（M28 首验之十四）
+
+    /// 状态行摆不摆：只给**真·全屏** —— 「全屏那一层」与「精简视图就地放大后的那块」（同一份控制条）。
+    /// 判据是 `onRequestFullScreen == nil`：就地那块**没放大**时带着「转全屏」回传
+    /// （放大后 `expandFullScreenAction` 给 nil，见 `VodDetailView+Compact.swift`）—— 那时才是全屏。
+    var showsPlaybackStatusBar: Bool {
+        isFullScreen && onRequestFullScreen == nil
+    }
+
+    /// 状态行（用户参考图）：左时钟 · 中标题 · 右电量 —— 排布与系统状态栏同款。
+    /// 时钟一秒一跳（`TimelineView`）；电量变化慢，跟着这条一起挂在那儿，不单独轮询。
+    var playbackStatusBar: some View {
+        HStack(spacing: 12) {
+            clockLabel
+            Spacer(minLength: 16)
+            Text(activeTitle)
+                .font(.subheadline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 16)
+            batteryLabel
+        }
+        .foregroundStyle(.white)
+    }
+
+    /// 时钟（一秒一跳）：闭包里只碰非隔离的纯函数 —— 别把 `TimelineView` 的闭包牵进主 actor 的账。
+    private var clockLabel: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text(Self.clockText(context.date))
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+        }
+    }
+
+    /// 电量（仿系统状态栏）：「53% + 电池图标」；**读不到就整截不画**（模拟器 / iOS 之外 —— 不写假话）。
+    @ViewBuilder
+    private var batteryLabel: some View {
+        if let battery = PlatformShims.batteryStatus() {
+            HStack(spacing: 4) {
+                Text("\(Int((battery.level * 100).rounded()))%")
+                    .font(.subheadline.monospacedDigit())
+                Image(systemName: Self.batterySymbol(level: battery.level, charging: battery.charging))
+            }
+        }
+    }
+
+    /// 时钟文本（**纯函数**，有单测）：跟系统设置走（24 小时制「18:06」，12 小时制带 AM/PM）。
+    /// `nonisolated`：`TimelineView` 的闭包是同步非隔离上下文，主 actor 的静态成员在那里调不得。
+    nonisolated static func clockText(_ date: Date) -> String {
+        date.formatted(date: .omitted, time: .shortened)
+    }
+
+    /// 电量图标的 SF Symbol（**纯函数**，有单测）：25% 一档；充着电带 bolt。
+    nonisolated static func batterySymbol(level: Double, charging: Bool) -> String {
+        if charging {
+            return "battery.100.bolt"
+        }
+        switch level {
+        case ..<0.2: return "battery.0"
+        case ..<0.45: return "battery.25"
+        case ..<0.7: return "battery.50"
+        case ..<0.95: return "battery.75"
+        default: return "battery.100"
+        }
     }
 
     /// 控制条窄到放不下文字按钮的宽度线。

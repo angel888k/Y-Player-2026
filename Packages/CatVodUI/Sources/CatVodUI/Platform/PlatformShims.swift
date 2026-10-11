@@ -51,6 +51,29 @@ public enum PlatformShims {
         #endif
     }
 
+    /// 电量（0...1）与充没充电；读不到给 nil（模拟器不报 / iOS 之外的平台）。
+    ///
+    /// 谁在用：全屏播放控制条顶上的状态行（时钟 / 标题 / 电量，M28 首验之十四）——
+    /// 读不到就**整截不画**（不写假话，与「拿不到的数据不显示」同一条规矩）。
+    @MainActor
+    public static func batteryStatus() -> (level: Double, charging: Bool)? {
+        #if os(iOS)
+        let device = UIDevice.current
+        if !device.isBatteryMonitoringEnabled {
+            // 打开监控才读得到电量（幂等；每次写一遍没必要）。
+            device.isBatteryMonitoringEnabled = true
+        }
+        let level = Double(device.batteryLevel)
+        guard level >= 0 else {
+            return nil
+        }
+        let charging = device.batteryState == .charging || device.batteryState == .full
+        return (level, charging)
+        #else
+        return nil
+        #endif
+    }
+
     /// 能不能请求屏幕方向（播放页那颗「旋转」，M26）。
     ///
     /// **只有 iOS 16+ 有公开 API**（`UIWindowScene.requestGeometryUpdate`）——
