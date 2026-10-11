@@ -13,7 +13,9 @@ struct SystemStatsMappingTests {
     func fourCCText() {
         #expect(SystemStatsMapping.fourCCText(0x6161_6320) == "aac")
         #expect(SystemStatsMapping.fourCCText(0x6876_6331) == "hvc1")
-        // 全 0 的四字码（没有媒体时）给空串，不给一串 NUL。
+        // 补位是 NUL 也一样（`aac` + NUL 的写法）
+        #expect(SystemStatsMapping.fourCCText(0x6161_6300) == "aac")
+        // 全 0 的四字码（没有媒体时）给空串，不给一串看不见的 NUL。
         #expect(SystemStatsMapping.fourCCText(0).isEmpty)
     }
 

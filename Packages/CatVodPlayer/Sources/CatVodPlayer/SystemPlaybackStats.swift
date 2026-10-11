@@ -139,7 +139,12 @@ extension AVPlayerEngine: PlaybackStatsProviding {
 /// （`hevc` / `h264` / `aac`…）；色域 / 传输函数那份映射在 `LibavVideoDecoder` 里（复用它，
 /// 不两处各写一份）。认不出来的一律给 nil —— 界面按「没读到」处理。
 enum SystemStatsMapping {
-    /// 四字码（`FourCharCode`）→ 去掉补空格的文本（`avc1` / `hvc1` / `aac ` → `aac`）。
+    /// 四字码（`FourCharCode`）→ 去掉补位的文本（`avc1` / `hvc1` / `aac ` → `aac`）。
+    ///
+    /// 补位有两种：四字码短于四个字符时**补空格**（`aac `）；而 `0` 是「没有四字码」
+    /// （没有媒体 / 还没解析出来）—— 它的四个字节都是 NUL，NUL 是合法 ASCII，直接
+    /// `String(bytes:)` 会得到一串不可见的 NUL 而不是空串（首验的用例就钉在这上面）。
+    /// 两种补位一起划掉，剩空就给空串 —— 调用方按「没读到」处理。
     static func fourCCText(_ code: FourCharCode) -> String {
         let bytes = [
             UInt8((code >> 24) & 0xFF),
@@ -150,7 +155,8 @@ enum SystemStatsMapping {
         guard let text = String(bytes: bytes, encoding: .ascii) else {
             return ""
         }
-        return text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let padding = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\0"))
+        return text.trimmingCharacters(in: padding).lowercased()
     }
 
     /// 视频编码四字码 → 编码名（与 mpv 的 `video-format` 同一套词）。
