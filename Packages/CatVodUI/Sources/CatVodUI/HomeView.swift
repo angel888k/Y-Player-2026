@@ -50,7 +50,13 @@ public struct HomeView: View {
     @State var sections: [DiscoverSection] = []
     @State var isLoadingSections = false
     /// 底部 Tab 栏的收放（规格与判定见 ``DiscoverTabBarVisibility``）。
-    @State private var tabBar = DiscoverTabBarVisibility()
+    ///
+    /// **为什么换掉原来的 `@State`**（M28 首验之二十九）：`@State` 一改就重建 `HomeView.body`，
+    /// 而滚动监听器的回调**每帧**都要摸它 —— 一屏 `NavigationLink` 结构每帧重造，模拟器上直接
+    /// 掉到 2~6 帧/拖动（上机隔离实验：去掉监听器立刻顺）。现在状态在 ``DiscoverTabBarGate``
+    /// 里，**只在 `isHidden` 真的翻转时**才广播，且 `HomeView.body` 不再读它 —— 收放由
+    /// ``BookTabBarHider`` 子视图自己观察（动画也只重建那一层）。
+    @StateObject private var tabBarGate = DiscoverTabBarGate()
     /// 本 Tab 的沉浸页登记簿（详情 / 播放压上来时也要收栏）；登记方见 ``ImmersiveTabBarPageModifier``。
     @EnvironmentObject private var immersiveTabBar: ImmersiveTabBarState
     /// 滚动帧探针（只在模拟器上生效）：拖动期间记帧、松手出一条日志 —— 「还卡」要有帧账才谈得上修。
@@ -159,10 +165,12 @@ public struct HomeView: View {
             } message: {
                 Text("填成原名（或清空）即为恢复；分组标签按新名字重抽。")
             }
-            .adaptiveTabBarHidden(tabBar.isHidden || immersiveTabBar.isActive)
+            // 收放由 ``BookTabBarHider`` 子视图读 ``DiscoverTabBarGate`` / 沉浸登记簿后应用：
+            // `HomeView.body` 不再读它们 —— 收放变化只重建那一层，不重建整页（见 ``tabBarGate``）。
+            .modifier(BookTabBarHider(gate: tabBarGate))
             .onDisappear {
                 // 离开发现页把 Tab 栏放回来：它是导航出去的路，不能带着收起状态离开。
-                tabBar.reveal()
+                tabBarGate.reveal()
             }
     }
 
@@ -247,17 +255,19 @@ public struct HomeView: View {
                 ScrollTouchObserverModifier(
                     isEnabled: observed,
                     onTouchDown: {
-                        tabBar.touchDown()
+                        tabBarGate.touchDown()
                         frameProbe.begin()
                     },
                     onDragChanged: { translation in
-                        tabBar.dragChanged(
+                        // 监听器给的 translation 是**从手势开始累计**的位移（不是逐帧增量），
+                        // 直接进判定即可 —— 逐帧小位移不用累加。
+                        tabBarGate.dragChanged(
                             translationX: translation.width,
                             translationY: translation.height
                         )
                     },
                     onTouchEnded: {
-                        tabBar.touchEnded()
+                        tabBarGate.touchEnded()
                         frameProbe.end()
                     }
                 )
@@ -268,42 +278,6 @@ public struct HomeView: View {
         .modifier(RefreshableModifier(isEnabled: refreshable) {
             await refreshHome()
         })
-    }
-
-    /// 诊断用：`scrollTouchObserver` 的「挂 / 不挂」开关（`ViewModifier` 形式，条件为假时不改任何东西）。
-    private struct ScrollTouchObserverModifier: ViewModifier {
-        let isEnabled: Bool
-        let onTouchDown: () -> Void
-        let onDragChanged: (CGSize) -> Void
-        let onTouchEnded: () -> Void
-
-        func body(content: Content) -> some View {
-            if isEnabled {
-                content.scrollTouchObserver(
-                    onTouchDown: onTouchDown,
-                    onDragChanged: onDragChanged,
-                    onTouchEnded: onTouchEnded
-                )
-            } else {
-                content
-            }
-        }
-    }
-
-    /// 诊断用：`.refreshable` 的「挂 / 不挂」开关。
-    private struct RefreshableModifier: ViewModifier {
-        let isEnabled: Bool
-        let action: () async -> Void
-
-        func body(content: Content) -> some View {
-            if isEnabled {
-                content.refreshable {
-                    await action()
-                }
-            } else {
-                content
-            }
-        }
     }
 
     @ViewBuilder private var contentBody: some View {

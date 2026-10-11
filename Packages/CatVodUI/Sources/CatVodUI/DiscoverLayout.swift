@@ -311,6 +311,62 @@ struct DiscoverTabBarVisibility: Equatable {
         isTouching = false
     }
 
+// MARK: - 收放的「门」与「累计器」（M28 首验之二十九）
+
+/// 底部 Tab 栏收放的**盒子**：只在 `isHidden` 真的翻转时才广播。
+///
+/// 为什么要它：原来 `HomeView` 用一个 `@State DiscoverTabBarVisibility`，而滚动监听器**每帧**
+/// 都要摸它 —— `@State` 一改就重建整页（一屏 `NavigationLink` 每帧重造），模拟器上直接掉到
+/// 2~6 帧/拖动。现在状态在这里，**只在可见性真的变时**发一次通知，且读取点搬去
+/// ``BookTabBarHider`` 子视图：整页不再因为「滑动收栏」而重建。
+final class DiscoverTabBarGate: ObservableObject {
+    @Published private(set) var isHidden = false
+
+    /// 判定状态（纯值类型，规格与判定见 ``DiscoverTabBarVisibility``）。
+    private var state = DiscoverTabBarVisibility()
+
+    func touchDown() {
+        state.touchDown()
+        publishIfChanged()
+    }
+
+    func dragChanged(translationX: CGFloat, translationY: CGFloat) {
+        state.dragChanged(translationX: translationX, translationY: translationY)
+        publishIfChanged()
+    }
+
+    func touchEnded() {
+        state.touchEnded()
+        publishIfChanged()
+    }
+
+    /// 离开发现页时强制展开。
+    func reveal() {
+        state.reveal()
+        publishIfChanged()
+    }
+
+    private func publishIfChanged() {
+        guard isHidden != state.isHidden else {
+            return
+        }
+        isHidden = state.isHidden
+    }
+}
+
+/// 只读 ``DiscoverTabBarGate`` / 沉浸登记簿、据此收放 Tab 栏的**包装视图**。
+///
+/// 存在的理由：`HomeView.body` 一旦读这些状态，收放变化就要重建整页；收在这里之后，
+/// 重建只发生在这一层（内容原样转发）。
+struct BookTabBarHider: ViewModifier {
+    @ObservedObject var gate: DiscoverTabBarGate
+    @EnvironmentObject private var immersiveTabBar: ImmersiveTabBarState
+
+    func body(content: Content) -> some View {
+        content.adaptiveTabBarHidden(gate.isHidden || immersiveTabBar.isActive)
+    }
+}
+
     /// 这次算不算「向上滑列表」。
     ///
     /// - `translationY < -hideThreshold`：手指向上移（`y` 向下为正）＝ 在往下翻内容；
