@@ -40,6 +40,10 @@ struct SystemStatsMappingTests {
 
 /// 格式描述 → 原始键：真造一个 `CMVideoFormatDescription`（带色域 / 传输函数扩展），
 /// 不碰媒体文件 —— 这一条钉的是「扩展字典读得对、颜色走的是自研内核那份映射」。
+///
+/// `@MainActor`：`videoFormatRawValues` 是 `AVPlayerEngine`（@MainActor）的静态成员 ——
+/// 与 `SystemPlayerTracksTests` 同一理由（首验就栽在这里：非隔离上下文调主 actor 静态方法）。
+@MainActor
 @Suite("系统内核：格式描述 → 播放信息原始键")
 struct SystemStatsFormatDescriptionTests {
     private func makeFormat(
@@ -113,7 +117,7 @@ struct SystemPlaybackStatsEndToEndTests {
     @Test("画面 / 编码 / 帧率 / 容器 / 音频都对得上；读不到的项不写假值")
     func readsTinyMP4() async throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("yp-system-stats-\#(UUID().uuidString).mp4")
+            .appendingPathComponent("yp-system-stats-\(UUID().uuidString).mp4")
         try await TinyMP4Fixture.write(to: url, width: 320, height: 240, fps: 30, frames: 30, audioSeconds: 1)
         defer { try? FileManager.default.removeItem(at: url) }
 

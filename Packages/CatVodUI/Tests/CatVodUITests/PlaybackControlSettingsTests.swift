@@ -120,27 +120,44 @@ struct PlaybackControlSettingsTests {
     @Test("震动刻度闸：第一次不震、同刻度不震、跨一格震、来回也震")
     func hapticTickGate() {
         var gate = PlaybackHapticTickGate()
-        #expect(!gate.shouldTick(50))
-        #expect(!gate.shouldTick(50))
-        #expect(gate.shouldTick(51))
-        #expect(!gate.shouldTick(51))
-        #expect(gate.shouldTick(50))
+        // 先把每次判定收进局部量再断言：`#expect` 会把表达式包进闭包，里面调 mutating 方法编不过
+        // （M28 首验红在这里）。
+        let first = gate.shouldTick(50)
+        let same = gate.shouldTick(50)
+        let up = gate.shouldTick(51)
+        let sameAgain = gate.shouldTick(51)
+        let back = gate.shouldTick(50)
         // 大跨度也算一次（拖动很快时不必补震中间那些格）
-        #expect(gate.shouldTick(80))
+        let jump = gate.shouldTick(80)
+        #expect(!first)
+        #expect(!same)
+        #expect(up)
+        #expect(!sameAgain)
+        #expect(back)
+        #expect(jump)
     }
 
     @Test("三条刻度闸互不影响（亮度 / 音量 / 进度各记各的）")
     func hapticGatesAreIndependent() {
         var gates = PlaybackHapticGates()
-        #expect(!gates.shouldTickBrightness(0.30))
-        #expect(!gates.shouldTickVolume(1.00))
-        #expect(!gates.shouldTickSeek(10))
-        #expect(gates.shouldTickBrightness(0.31))
-        #expect(gates.shouldTickVolume(0.99))
-        #expect(gates.shouldTickSeek(11))
-        // 另外两条不该被带响
-        #expect(!gates.shouldTickBrightness(0.31))
-        #expect(!gates.shouldTickSeek(11))
+        // 三条闸交错驱动（判定结果先收进局部量，理由同上一条）。
+        let brightnessFirst = gates.shouldTickBrightness(0.30)
+        let volumeFirst = gates.shouldTickVolume(1.00)
+        let seekFirst = gates.shouldTickSeek(10)
+        let brightnessSecond = gates.shouldTickBrightness(0.31)
+        let volumeSecond = gates.shouldTickVolume(0.99)
+        let seekSecond = gates.shouldTickSeek(11)
+        // 原地不动的那两条不该被别的闸带响
+        let brightnessAgain = gates.shouldTickBrightness(0.31)
+        let seekAgain = gates.shouldTickSeek(11)
+        #expect(!brightnessFirst)
+        #expect(!volumeFirst)
+        #expect(!seekFirst)
+        #expect(brightnessSecond)
+        #expect(volumeSecond)
+        #expect(seekSecond)
+        #expect(!brightnessAgain)
+        #expect(!seekAgain)
     }
 }
 
