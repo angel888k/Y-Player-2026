@@ -35,8 +35,11 @@
 | 底排 | 参数徽标 + 时间 · 进度条 · 总时长；播放 / 暂停 · 下一集；「播放器 字幕 视轨 片头片尾 选集」 | 参数徽标（`HW HDR H265 4K 25FPS 5.6Mbps`，**由 `PlaybackStats` 现算**：硬/软解、HDR、编码、分辨率、帧率、码率，读不到的项不占位）+ 时间 / 进度条 / 总时长；播放 / 暂停 · 下一集 · 逐帧；文字按钮「字幕 / 音轨 / 片头片尾 / 选集」（都是短列表菜单） |
 | 背景 | 图标直接压在画面上 | 上下两条渐变压暗（不糊整屏） |
 
-**参考里有、我们没做的**（照「不摆假开关」的规矩不出现）：投屏（DLNA / AirPlay）、画中画、
-「播放器」（内核切换 —— 我们在设置里换）、「视轨」（没有视频轨选择）、画质（滤镜）。
+**参考里有、我们没做的**（照「不摆假开关」的规矩不出现）：投屏（DLNA / AirPlay）、画质（滤镜）。
+
+**后来补上的**（当时没有，后面的批次做了）：「播放器」内核切换（第五批）、「视轨」（第六批）、
+「画中画」（**M27 起，只有系统内核**：画面换成自建 `AVPlayerLayer` 宿主之后用
+`AVPictureInPictureController(playerLayer:)` 自己起 —— 见 `M27-系统内核自建宿主.md`）。
 
 ## 四、第三批：精简视图（对齐参考的 Normal 页）
 
@@ -78,7 +81,7 @@
 
 | 项 | 结论 |
 |---|---|
-| system 内核的 PiP | **有公开 API**：`AVKit.VideoPlayer` 底层就是 `AVPlayerViewController`，把音频会话设成 `.playback` + 开 `UIBackgroundModes: [audio]`，PiP 与后台出声由**系统**提供（系统播放器控件里就有那颗 PiP 按钮）。本次做的就是这个地基。 |
+| system 内核的 PiP | **有公开 API**：`AVKit.VideoPlayer` 底层就是 `AVPlayerViewController`，把音频会话设成 `.playback` + 开 `UIBackgroundModes: [audio]`，PiP 与后台出声由**系统**提供（系统播放器控件里就有那颗 PiP 按钮）。本次做的就是这个地基。**（M27 起换成自建宿主的 PiP —— `AVPictureInPictureController(playerLayer:)`，见 `M27-系统内核自建宿主.md`；音频会话与后台模式这层地基不变。）** |
 | 自绘内核（MPV / FFmpeg）的 PiP | 公开 API 可行（`AVSampleBufferDisplayLayer` + `AVPictureInPictureController.ContentSource`），但要加一条逐帧拷贝层 —— **不做**（2026-10-11 用户拍板：**自研 FFmpeg 内核不再往功能上投**，后续整块换成别的播放器；见第六节）。 |
 | 投屏 | DLNA 全是公开协议、可以自己做；AirPlay 只有 AVPlayer 那条路（切 system 内核就能投）。**未做**。 |
 | 旋转按钮 | iOS 16+ 有公开 API（`UIWindowScene.requestGeometryUpdate`）；**iOS 15 没有 → 那颗按钮在 iOS 15 上不出现**。**已做**（见第六批）。 |
