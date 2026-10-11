@@ -7,8 +7,8 @@ import SwiftUI
 /// 版式对齐用户提供的两张参考图（`发现页横向显示.jpg` / `发现页纵向显示.jpg`）：
 /// **横向展示**＝按分类分区、每区一行横滑（图 1）；**纵向展示**＝分类 + 筛选 + 3 列网格（图 2）。
 /// 两种模式的对应关系与历史坑见 ``HomeLayout`` 的注释 —— 注意别按名字猜。
-/// 左上角是**站点切换**（「切换」字形 + 当前站点名，点开贴左的站点面板；⚠️ 站点名里的
-/// 「☁️」是上游名字自带的表情，不是按钮图标），右上角是搜索（刷新按用户口径改成列表下拉，M28 首验之二十）；下面依次是横向滚动的分类条、
+/// 左上角是**站点切换**（「切换」字形 + 当前站点名，点开是**系统原生菜单** —— M28 首验之二十四；
+/// ⚠️ 站点名里的「☁️」是上游名字自带的表情，不是按钮图标），右上角是搜索（刷新按用户口径改成列表下拉，M28 首验之二十）；下面依次是横向滚动的分类条、
 /// 逐行筛选胶囊，内容是 3 列海报网格（封面右上角带更新角标、片名居中一行），
 /// 滚动到底部**自动接着加载**下一页（参考版式里没有分页按钮）。
 /// 分类条 / 筛选胶囊 / 网格同处**一个滚动区**：上滑时连在一起滚出屏幕（整屏滑动）。
@@ -30,8 +30,17 @@ public struct HomeView: View {
     @State var errorText = ""
     /// 上一次翻页拿到了空列表：上游没给 `pagecount` 时靠它停住「上拉加载」。
     @State var reachedEnd = false
-    /// 站点切换面板是否展开（参考视频：点左上角的「切换」按钮弹出）。
-    @State var isSitePanelPresented = false
+    /// 「查找站点」弹层（站点菜单里的入口）是否展开。
+    @State var isSiteFinderPresented = false
+    /// 改名弹窗的状态（站点 key + 输入框内容）：菜单里放不下输入框，改由这里弹 `.alert`。
+    @State var renameKey = ""
+    @State var renameText = ""
+    @State var isRenamePresented = false
+    /// 分组标签（`site key → 标签`）：站点菜单的「分组筛选 / 分组排序」要用。
+    ///
+    /// 抽标签要跑正则，不能放进每次渲染：只在这两处重算 —— `.task(id: model.siteRuleInput)`
+    /// （改名 / 换接口）与 `.onChange(of: model.siteCatalogRevision)`（站点清单变了）。
+    @State var siteTags: [String: [String]] = [:]
     /// 已加载内容对应的「站点清单版本」（`AppModel.siteCatalogRevision`）。
     ///
     /// 与 `selectedSiteKey` 一起构成「这份内容属于哪个接口」的判断：
@@ -88,46 +97,64 @@ public struct HomeView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .top) {
-            content
-            if isSitePanelPresented {
-                sitePanelOverlay
-                    .transition(.opacity)
+        content
+            .navigationTitle("发现")
+            .adaptiveInlineNavigationTitle()
+            .adaptiveToolbar {
+                siteSwitcherButton
+            } trailing: {
+                trailingButtons
             }
-        }
-        .navigationTitle("发现")
-        .adaptiveInlineNavigationTitle()
-        .adaptiveToolbar {
-            siteSwitcherButton
-        } trailing: {
-            trailingButtons
-        }
-        .task {
-            await syncHomeWithInterface()
-        }
-        .onChange(of: model.siteCatalogRevision) { _ in
-            // 接口换了（加载新配置 / 宿主刷新 / 宿主停止）：首页必须自己重来一遍。
-            // 不能指望 `.task`：TabView 里的首页是常驻视图，`.task` 在回到该 Tab 时不一定重跑，
-            // 而且它重跑时 `loadHome()` 也会因为已有分类直接返回（这正是「必须冷启动」的原因）。
-            // 这里用非结构化 `Task` 而不是 `.task`：离开首页 Tab 时这次重载不该被取消。
-            Task { await syncHomeWithInterface() }
-        }
-        .onChange(of: selectedSiteKey) { _ in
-            // 站点换了：旧站点的分类/筛选/列表全部作废（否则会出现「站点已换、内容还是旧的」）。
-            // 顺手落盘：冷启动 / 去别的 Tab 回来时据此还原（见 `syncHomeWithInterface`）。
-            model.discoverSiteKey = selectedSiteKey
-            invalidateContent()
-            Task { await loadHome(force: true) }
-        }
-        .sheet(item: $webEntry) { entry in
-            // 配置中心这类「网页条目」：App 内打开（见 `WebEntryRules` / `WebPageSheet`）。
-            WebPageSheet(entry: entry)
-        }
-        .adaptiveTabBarHidden(tabBar.isHidden || immersiveTabBar.isActive)
-        .onDisappear {
-            // 离开发现页把 Tab 栏放回来：它是导航出去的路，不能带着收起状态离开。
-            tabBar.reveal()
-        }
+            .task {
+                await syncHomeWithInterface()
+            }
+            .task(id: model.siteRuleInput) {
+                // 分组标签（抽标签要跑正则）：输入变了（改名 / 换接口）就重抽。
+                refreshSiteTags()
+            }
+            .onChange(of: model.siteCatalogRevision) { _ in
+                // 接口换了（加载新配置 / 宿主刷新 / 宿主停止）：首页必须自己重来一遍。
+                // 不能指望 `.task`：TabView 里的首页是常驻视图，`.task` 在回到该 Tab 时不一定重跑，
+                // 而且它重跑时 `loadHome()` 也会因为已有分类直接返回（这正是「必须冷启动」的原因）。
+                // 这里用非结构化 `Task` 而不是 `.task`：离开首页 Tab 时这次重载不该被取消。
+                refreshSiteTags()
+                Task { await syncHomeWithInterface() }
+            }
+            .onChange(of: selectedSiteKey) { _ in
+                // 站点换了：旧站点的分类/筛选/列表全部作废（否则会出现「站点已换、内容还是旧的」）。
+                // 顺手落盘：冷启动 / 去别的 Tab 回来时据此还原（见 `syncHomeWithInterface`）。
+                model.discoverSiteKey = selectedSiteKey
+                invalidateContent()
+                Task { await loadHome(force: true) }
+            }
+            .sheet(item: $webEntry) { entry in
+                // 配置中心这类「网页条目」：App 内打开（见 `WebEntryRules` / `WebPageSheet`）。
+                WebPageSheet(entry: entry)
+            }
+            .sheet(isPresented: $isSiteFinderPresented) {
+                DiscoverSiteFinder(
+                    sites: browsableSites,
+                    selectedKey: selectedSiteKey,
+                    ruleInput: model.siteRuleInput
+                ) { key in
+                    // 与菜单里同一个口径：加载交给 `.onChange(of: selectedSiteKey)` 统一发起。
+                    selectedSiteKey = key
+                }
+            }
+            .alert("重命名站点", isPresented: $isRenamePresented) {
+                TextField("显示名", text: $renameText)
+                Button("保存") {
+                    commitSiteRename()
+                }
+                Button("取消", role: .cancel) { }
+            } message: {
+                Text("填成原名（或清空）即为恢复；分组标签按新名字重抽。")
+            }
+            .adaptiveTabBarHidden(tabBar.isHidden || immersiveTabBar.isActive)
+            .onDisappear {
+                // 离开发现页把 Tab 栏放回来：它是导航出去的路，不能带着收起状态离开。
+                tabBar.reveal()
+            }
     }
 
     // MARK: - 主体
@@ -378,23 +405,31 @@ public struct HomeView: View {
 
     // MARK: - 工具栏
 
-    /// 左上角：站点切换入口 —— 「切换」字形 + 当前站点名（参考录屏的形态）。
+    /// 左上角：站点切换 —— 「切换」字形 + 当前站点名（参考录屏的形态），点开是**系统菜单**。
     ///
     /// 录屏里这个位置**没有下拉箭头**：图标本身（两个开关）就表示「点这里换站点」。
+    /// 按钮与菜单内容一起收在 ``DiscoverSiteSwitcher``（M28 首验之二十四：自绘悬浮面板换成原生 `Menu`）。
     private var siteSwitcherButton: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isSitePanelPresented.toggle()
+        DiscoverSiteSwitcher(
+            sites: browsableSites,
+            selectedKey: selectedSiteKey,
+            title: siteTitle,
+            ruleInput: model.siteRuleInput,
+            tags: siteTags,
+            savedGroupOrder: model.siteGroupOrder,
+            onMoveGroup: { group, direction in
+                model.moveSiteGroup(group, direction: direction)
+            },
+            onRenameRequest: { key in
+                beginSiteRename(key)
+            },
+            onFindRequest: {
+                isSiteFinderPresented = true
             }
-        } label: {
-            HStack(spacing: 6) {
-                DiscoverSiteSwitchGlyph()
-                Text(siteTitle)
-                    .lineLimit(1)
-            }
-            .font(.body.weight(.semibold))
+        ) { key in
+            // 加载交给 `.onChange(of: selectedSiteKey)` 统一发起，避免同一次切换发两次请求。
+            selectedSiteKey = key
         }
-        .disabled(browsableSites.isEmpty)
     }
 
     /// 右上角：搜索。
@@ -413,51 +448,30 @@ public struct HomeView: View {
         .disabled(browsableSites.isEmpty)
     }
 
-    // MARK: - 站点切换面板
+    // MARK: - 站点菜单的弹层与标签
 
-    /// 站点面板：贴左的悬浮卡片 + 一层**透明**点击层。
-    ///
-    /// 录屏里面板外的内容没有变暗，所以这里用透明点击层而不是黑色遮罩：
-    /// 点面板外收起，点面板本体不会穿透（面板在 `ZStack` 里排在点击层之后）。
-    private var sitePanelOverlay: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .topLeading) {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .ignoresSafeArea()
-                    .onTapGesture { dismissSitePanel() }
-                DiscoverSitePanel(
-                    sites: browsableSites,
-                    selectedKey: selectedSiteKey,
-                    ruleInput: model.siteRuleInput,
-                    savedGroupOrder: model.siteGroupOrder,
-                    onMoveGroup: { group, direction in
-                        model.moveSiteGroup(group, direction: direction)
-                    },
-                    onRename: { key, name in
-                        if let site = browsableSites.first(where: { $0.key == key }) {
-                            model.renameSite(site, to: name)
-                        }
-                    }
-                ) { key in
-                    dismissSitePanel()
-                    // 加载交给 `.onChange(of: selectedSiteKey)` 统一发起，避免同一次切换发两次请求。
-                    selectedSiteKey = key
-                }
-                .frame(
-                    width: proxy.size.width * DiscoverSitePanel.widthFraction,
-                    height: proxy.size.height * DiscoverSitePanel.heightFraction
-                )
-                .padding(.leading, 12)
-                .padding(.top, 6)
-            }
+    /// 打开改名弹窗：输入框预填**当前生效名**（上游 `getEditableName` 同款）。
+    private func beginSiteRename(_ key: String) {
+        guard let site = browsableSites.first(where: { $0.key == key }) else {
+            return
         }
+        let custom = model.siteRuleInput.names[key] ?? ""
+        renameKey = key
+        renameText = custom.isEmpty ? DiscoverSiteList.title(for: site) : custom
+        isRenamePresented = true
     }
 
-    private func dismissSitePanel() {
-        withAnimation(.easeInOut(duration: 0.15)) {
-            isSitePanelPresented = false
+    /// 保存改名（空串 / 原名 = 恢复原名，判定在 `SiteNameRules.customNameForStorage`）。
+    private func commitSiteRename() {
+        guard let site = browsableSites.first(where: { $0.key == renameKey }) else {
+            return
         }
+        model.renameSite(site, to: renameText)
+    }
+
+    /// 重抽分组标签送进菜单（抽标签要跑正则，见 `siteTags` 的说明）。
+    private func refreshSiteTags() {
+        siteTags = DiscoverSiteList.tags(sites: browsableSites, input: model.siteRuleInput)
     }
 
     private var emptyHint: String {

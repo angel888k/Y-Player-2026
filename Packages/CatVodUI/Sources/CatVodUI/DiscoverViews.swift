@@ -1,7 +1,7 @@
 import CatVodCore
 import SwiftUI
 
-// 发现页的界面件（对齐参考录屏）：分类条 / 筛选条 / 筛选胶囊 / 海报卡 / 站点切换面板。
+// 发现页的界面件（对齐参考录屏）：分类条 / 筛选条 / 筛选胶囊 / 海报卡 / 站点切换菜单与查找弹层。
 //
 // 这里只放「纯展示单元」：数据加载与状态在 `HomeView` / `HomeView+Data.swift`，
 // 判定逻辑在 `DiscoverLayout.swift`，这样每个件都能在单测里直接构造。
@@ -226,45 +226,46 @@ struct DiscoverSiteSwitchGlyph: View {
     }
 }
 
-/// 站点切换面板：参考录屏里点左上角「切换」图标弹出。
+/// 站点切换入口（发现页左上角）：**系统原生菜单**（M28 首验之二十四）。
 ///
-/// 版式按录屏对齐：**贴着左边的悬浮卡片**（不是居中弹窗，面板外也没有变暗层），
-/// 每行一个站点名、当前站点右侧打勾，行与行之间一条细线；站点多时面板内部滚动。
-/// 站点名原样显示 —— 上游给的就是 `名称|标记` 这种整串名字，不做二次改写。
-struct DiscoverSitePanel: View {
+/// 为什么不再自绘悬浮面板：`docs/UI 规范.md` 总则第一条「原生优先，不做跨版本仿制」——
+/// 原来那张贴左卡片（手算 2/3 屏宽 + `.regularMaterial` + 圆角阴影 + 透明点击层）在任何
+/// 系统上都是同一个样子，等于把一种版本的观感搬到了所有版本上。改成 `Menu` 之后，
+/// iOS 15 / iOS 16+ / macOS 各拿各的原生菜单形态 —— 与「换线路」（M07c3）、
+/// 「播放历史范围」（M02P11）同一种做法：能被系统控件表达的，就交给系统。
+///
+/// 菜单里放不下的两件东西各自开原生弹层（不是仿制）：
+/// - **搜索**：菜单里没有输入框 → 「查找站点…」开 ``DiscoverSiteFinder``（原生搜索栏的列表）；
+/// - **改名**：同上 → 「重命名站点」子菜单先选站点，由上层弹 `.alert` 输入。
+///
+/// 分组筛选（M06e）与分组排序（M06g）也收进菜单：筛选是一个带对勾的子菜单（菜单项标题里
+/// 带着当前筛的是哪一组），排序是「分组排序 → 每组一节 → 上移 / 下移」。`selectedGroup` 是
+/// 菜单内容自己的 `@State`：随菜单每次开合重来（与上游「关掉就忘」一致）。
+struct DiscoverSiteSwitcher: View {
     let sites: [Site]
     let selectedKey: String
-    /// 抽标签 / 显示名 / 搜索的**全部输入**（接口的 `groupRules` + 站点自定义名）。
+    /// 按钮上的名字（没有可用站点时由上层给「选择站点」）。
+    let title: String
+    /// 显示名 / 搜索要的自定义名（``DiscoverSiteRuleInput`` 里菜单要用的只剩这一项）。
     var ruleInput = DiscoverSiteRuleInput()
+    /// 已抽好的分组标签（`site key → 标签`）。
+    ///
+    /// 抽标签要跑正则，由上层在「输入变了 / 站点清单变了」时算好传进来
+    /// （`HomeView.refreshSiteTags()`）—— **菜单内容的 `body` 何时求值由系统决定**，
+    /// 不适合放这类计算；这里只做廉价的筛选与排序。
+    var tags: [String: [String]] = [:]
     /// 存下来的分组顺序（空 = 用「按站点顺序首次出现」的默认顺序）。
     var savedGroupOrder: [String] = []
-    /// 分组顺序变了（长按菜单里的上移/下移）：回传分组名与方向，由上层算新顺序并落盘。
+    /// 分组上移 / 下移（回传分组名与方向，由上层算新顺序并落盘）。
     var onMoveGroup: ((String, Int) -> Void)?
-    /// 站点改名（回传站点 key 与新名字；新名字为空 = 恢复原名）。
-    var onRename: ((String, String) -> Void)?
+    /// 请求改名（菜单里放不下输入框：回传站点 key，由上层弹 `.alert`）。
+    var onRenameRequest: ((String) -> Void)?
+    /// 打开「查找站点」弹层（同上，菜单里放不下输入框）。
+    var onFindRequest: (() -> Void)?
     let onSelect: (String) -> Void
 
-    /// 当前选中的分组（空 = 不筛）。面板每次打开重置 —— 与上游「关掉就忘」一致。
+    /// 当前筛的分组（空 = 不筛）。
     @State private var selectedGroup = ""
-    /// 搜索关键词（同样只在这次展示内有效）。
-    @State private var keyword = ""
-    /// 每个站点抽出来的标签。在这里缓存一次：抽标签要跑正则，不该每次渲染都重算。
-    /// 分组顺序与筛选都是基于它的**廉价**计算，所以「上移/下移之后立刻看到新顺序」不用重新抽标签；
-    /// 改名、换接口（另一套 `groupRules`）—— 任一项变了都要重抽，所以 `.task(id: ruleInput)` 盯的是整个输入。
-    @State private var tags: [String: [String]] = [:]
-    /// 重命名弹窗的状态（站点 key 与输入框内容）。
-    @State private var renameKey = ""
-    @State private var renameText = ""
-    @State private var isRenamePresented = false
-
-    /// 面板宽度占屏宽的比例：录屏里约占 2/3。
-    static let widthFraction: CGFloat = 0.66
-    /// 面板高度占可用高度的比例：录屏里从工具栏下方一直伸到接近屏幕底部。
-    static let heightFraction: CGFloat = 0.78
-    /// 单行高度。
-    static let rowHeight: CGFloat = 44
-    /// 面板圆角。
-    static let cornerRadius: CGFloat = 12
 
     private var groups: [String] {
         DiscoverSiteList.groups(sites: sites, tags: tags, savedOrder: savedGroupOrder)
@@ -276,139 +277,175 @@ struct DiscoverSitePanel: View {
             selectedKey: selectedKey,
             names: ruleInput.names,
             tags: tags,
-            selectedGroup: selectedGroup,
-            keyword: keyword
+            selectedGroup: selectedGroup
         )
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            searchBar
-            Divider()
-            groupBar
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        if index > 0 {
-                            Divider()
-                        }
-                        Button {
-                            onSelect(row.key)
-                        } label: {
-                            label(row)
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("重命名") { beginRename(row) }
-                            if hasCustomName(row.key) {
-                                Button("恢复原名", role: .destructive) { onRename?(row.key, "") }
-                            }
-                        }
+        Menu {
+            tools
+            siteList
+        } label: {
+            HStack(spacing: 6) {
+                DiscoverSiteSwitchGlyph()
+                Text(title)
+                    .lineLimit(1)
+            }
+            .font(.body.weight(.semibold))
+        }
+        .disabled(sites.isEmpty)
+    }
+
+    // MARK: - 菜单内容
+
+    /// 站点清单上面那一组：分组筛选 / 分组排序 / 查找 / 改名。
+    ///
+    /// 放在**清单前面**是有意的：站点一多，清单会把后面的项推得很深，而「查找站点」正是为长清单
+    /// 准备的入口（分组筛选同理 —— 先筛出这一组，再在清单里挑）。
+    @ViewBuilder
+    private var tools: some View {
+        if !groups.isEmpty {
+            groupMenu
+            if groups.count > 1, onMoveGroup != nil {
+                sortMenu
+            }
+        }
+        if let onFindRequest {
+            Button {
+                onFindRequest()
+            } label: {
+                Label("查找站点…", systemImage: "magnifyingglass")
+            }
+        }
+        if let onRenameRequest {
+            Menu("重命名站点") {
+                ForEach(sites) { site in
+                    Button(DiscoverSiteList.title(for: site, names: ruleInput.names)) {
+                        onRenameRequest(site.key)
                     }
                 }
             }
         }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-        .shadow(radius: 14, y: 6)
-        .task(id: ruleInput) {
-            tags = DiscoverSiteList.tags(sites: sites, input: ruleInput)
-        }
-        .alert("重命名站点", isPresented: $isRenamePresented) {
-            TextField("显示名", text: $renameText)
-            Button("保存") { onRename?(renameKey, renameText) }
-            Button("取消", role: .cancel) { }
-        } message: {
-            Text("填成原名（或清空）即为恢复；分组标签按新名字重抽。")
+    }
+
+    /// 分组筛选：一个子菜单，当前项打勾（标题里带着当前筛的是哪一组 —— 菜单里没别处能显示它）。
+    private var groupMenu: some View {
+        Menu(selectedGroup.isEmpty ? "分组：全部" : "分组：\(selectedGroup)") {
+            Button {
+                selectedGroup = ""
+            } label: {
+                if selectedGroup.isEmpty {
+                    Label("全部站点", systemImage: "checkmark")
+                } else {
+                    Text("全部站点")
+                }
+            }
+            ForEach(groups, id: \.self) { group in
+                Button {
+                    selectedGroup = group
+                } label: {
+                    if group == selectedGroup {
+                        Label(group, systemImage: "checkmark")
+                    } else {
+                        Text(group)
+                    }
+                }
+            }
         }
     }
 
-    /// 搜索框：**按生效名 / 原名 / 站点 key** 命中（规则在 `SiteNameRules`）。
-    ///
-    /// 上游把搜索放在同一个面板里，这里保持一致：面板本来就是「找站点」的地方，
-    /// 再开一层弹窗只会多一次跳转。
-    private var searchBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("搜索站点", text: $keyword)
-                .platformTextInputAutocapitalizationNever()
-                .autocorrectionDisabled()
-                .font(.subheadline)
-            if !keyword.isEmpty {
+    /// 分组排序（M06g）：长按胶囊弹「上移 / 下移」的旧交互换成了菜单里的两级 ——
+    /// 每个分组一个小节，两条动作。（横向滚动手势与拖动排序打架，上游那套长按拖动本来就没做。）
+    private var sortMenu: some View {
+        Menu("分组排序") {
+            ForEach(groups, id: \.self) { group in
+                Section(group) {
+                    Button("上移") {
+                        onMoveGroup?(group, -1)
+                    }
+                    Button("下移") {
+                        onMoveGroup?(group, 1)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 站点清单：一行一个站点，当前站点打勾（与「换线路」菜单同一个写法的对勾）。
+    private var siteList: some View {
+        Section {
+            ForEach(rows) { row in
                 Button {
-                    keyword = ""
+                    onSelect(row.key)
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    if row.isSelected {
+                        Label(row.title, systemImage: "checkmark")
+                    } else {
+                        Text(row.title)
+                    }
+                }
+            }
+        } header: {
+            Text(selectedGroup.isEmpty ? "站点" : "站点（\(selectedGroup)）")
+        }
+    }
+}
+
+/// 「查找站点」弹层（``DiscoverSiteSwitcher`` 菜单里的入口）：菜单里放不下输入框，搜索单独开一层。
+///
+/// 这一层也是系统原生的一套：导航容器 + 原生搜索栏（`adaptiveSearchable`）+ `List` + 行尾对勾。
+/// 命中口径与菜单 / 旧面板一字不差（生效名 / 原名 / 站点 key 任一包含关键词，见 ``SiteNameRules``）；
+/// 点一行 = 切到那个站点并收起（切站后的重新加载由调用方统一发起）。
+struct DiscoverSiteFinder: View {
+    let sites: [Site]
+    let selectedKey: String
+    /// 显示名 / 搜索要的自定义名。
+    var ruleInput = DiscoverSiteRuleInput()
+    let onSelect: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    /// 搜索关键词（弹层每次打开重来）。
+    @State private var keyword = ""
+
+    private var rows: [DiscoverSiteRow] {
+        DiscoverSiteList.rows(sites: sites, selectedKey: selectedKey, names: ruleInput.names, keyword: keyword)
+    }
+
+    var body: some View {
+        AdaptiveNavigationContainer {
+            List {
+                if rows.isEmpty {
+                    Text("没有匹配的站点。")
                         .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("清空搜索")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    private func hasCustomName(_ key: String) -> Bool {
-        !(ruleInput.names[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// 打开重命名弹窗：输入框预填**当前生效名**（上游 `getEditableName` 同款）。
-    private func beginRename(_ row: DiscoverSiteRow) {
-        renameKey = row.key
-        renameText = hasCustomName(row.key) ? (ruleInput.names[row.key] ?? row.title) : row.title
-        isRenamePresented = true
-    }
-
-    /// 分组条：**有分组才显示**（对齐上游：`groups.isEmpty()` 时整条隐藏）。
-    @ViewBuilder
-    private var groupBar: some View {
-        let values = groups
-        if !values.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(values, id: \.self) { group in
-                        groupChip(group)
+                ForEach(rows) { row in
+                    Button {
+                        onSelect(row.key)
+                        dismiss()
+                    } label: {
+                        rowLabel(row)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
             }
-            Divider()
+            .adaptiveListStyle()
+            .adaptiveSearchable(text: $keyword, prompt: "搜索站点")
+            .navigationTitle("查找站点")
+            .adaptiveInlineNavigationTitle()
+            .adaptiveToolbar {
+                EmptyView()
+            } trailing: {
+                Button("取消") {
+                    dismiss()
+                }
+            }
         }
     }
 
-    /// 一个分组胶囊：点一下筛选、再点一下取消（上游同款交互，没有额外的「全部」项）。
-    ///
-    /// 上游是**长按拖动**排序；iOS 上横向滚动手势会和拖动排序打架，这里改成
-    /// 长按弹出「上移 / 下移」菜单 —— 结果一样，少一个手势（差异记在 M06d 文档里）。
-    private func groupChip(_ group: String) -> some View {
-        let active = group == selectedGroup
-        return Button {
-            selectedGroup = active ? "" : group
-        } label: {
-            Text(group)
-                .font(.footnote)
-                .lineLimit(1)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(active ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.14))
-                .foregroundStyle(active ? Color.accentColor : Color.primary)
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            Button("上移") { onMoveGroup?(group, -1) }
-            Button("下移") { onMoveGroup?(group, 1) }
-        }
-        .accessibilityLabel("分组 \(group)")
-    }
-
-    private func label(_ row: DiscoverSiteRow) -> some View {
+    /// 一行：站点名 + 当前站点行尾打勾（与菜单里的对勾同一个口径）。
+    private func rowLabel(_ row: DiscoverSiteRow) -> some View {
         HStack(spacing: 8) {
             Text(row.title)
-                .lineLimit(1)
+                .foregroundStyle(.primary)
             Spacer(minLength: 8)
             if row.isSelected {
                 Image(systemName: "checkmark")
@@ -416,10 +453,6 @@ struct DiscoverSitePanel: View {
                     .foregroundStyle(Color.accentColor)
             }
         }
-        .font(.body)
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: Self.rowHeight)
         .contentShape(Rectangle())
     }
 }

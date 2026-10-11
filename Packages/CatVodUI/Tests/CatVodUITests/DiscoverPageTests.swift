@@ -151,7 +151,7 @@ struct DiscoverPageTests {
         _ = DiscoverFilterStrip(rows: [row], onSelect: { _, _ in })
         _ = DiscoverFilterChip(title: "全部", isSelected: true) { }
         _ = DiscoverPosterCard(item: item)
-        _ = DiscoverSitePanel(sites: [], selectedKey: "", onSelect: { _ in })
+        _ = DiscoverSiteSwitcher(sites: [], selectedKey: "", title: "选择站点", onSelect: { _ in })
         // 参考录屏里网格是 3 列、海报接近 2:3。
         #expect(HomeView.posterColumnCount == 3)
         #expect(DiscoverPosterCard.aspectRatio < 1)
@@ -186,17 +186,31 @@ struct DiscoverPageTests {
         #expect(DiscoverSiteList.title(for: makeSite(key: "wogg", name: "")) == "wogg")
     }
 
-    @Test("站点面板与「切换」图标都能构造（面板宽高比取自录屏）")
+    @Test("站点切换菜单 / 查找站点弹层 / 「切换」图标都能构造（M28 首验之二十四：菜单走系统原生）")
     @MainActor
-    func sitePanelConstructs() {
+    func siteSwitcherConstructs() {
+        let site = makeSite(key: "wogg", name: "玩偶|4K")
         _ = DiscoverSiteSwitchGlyph()
-        _ = DiscoverSitePanel(
-            sites: [makeSite(key: "wogg", name: "玩偶|4K")],
+        // 最简：只有站点清单（分组 / 排序 / 改名 / 查找都没接）。
+        _ = DiscoverSiteSwitcher(
+            sites: [site],
             selectedKey: "wogg",
+            title: "玩偶|4K",
             onSelect: { _ in }
         )
-        #expect(DiscoverSitePanel.widthFraction > 0.5)
-        #expect(DiscoverSitePanel.widthFraction < 1)
-        #expect(DiscoverSitePanel.heightFraction > DiscoverSitePanel.widthFraction)
+        // 全量：分组标签 + 分组排序 + 改名 + 查找（菜单里那几条子项都会出现）。
+        _ = DiscoverSiteSwitcher(
+            sites: [site],
+            selectedKey: "wogg",
+            title: "玩偶|4K",
+            ruleInput: DiscoverSiteRuleInput(names: ["wogg": "[主力]玩偶"]),
+            tags: ["wogg": ["4K", "主力"]],
+            savedGroupOrder: ["4K"],
+            onMoveGroup: { _, _ in },
+            onRenameRequest: { _ in },
+            onFindRequest: { },
+            onSelect: { _ in }
+        )
+        _ = DiscoverSiteFinder(sites: [site], selectedKey: "wogg", onSelect: { _ in })
     }
 }
