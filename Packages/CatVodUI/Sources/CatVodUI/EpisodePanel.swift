@@ -9,7 +9,7 @@ import SwiftUI
 /// 面板内部的控件仍全部是系统件（`ScrollView` / `Button` / 工具条）。
 ///
 /// 版式（对齐参考截图）：
-/// - 面板宽度 = 可用宽的 `Geometry.widthFraction`（夹在 min/max 之间）；
+/// - 面板宽度 = 可用宽的 ``EpisodePanelGeometry/widthFraction``（夹在 min/max 之间，见 ``EpisodePanelGeometry``）；
 /// - 左侧留一条**遮罩**（点它关面板）；面板从右缘滑入；
 /// - 当前集：蓝底白字（参考图里那一条，在 ``EpisodeListDrawer`` 的行里）。
 struct EpisodePanel<Content: View>: View {
@@ -24,7 +24,7 @@ struct EpisodePanel<Content: View>: View {
         ZStack {
             if isPresented {
                 GeometryReader { proxy in
-                    let width = Self.Geometry.width(availableWidth: proxy.size.width)
+                    let width = EpisodePanelGeometry.width(availableWidth: proxy.size.width)
                     HStack(spacing: 0) {
                         Color.black.opacity(0.28)
                             .contentShape(Rectangle())
@@ -40,21 +40,21 @@ struct EpisodePanel<Content: View>: View {
         }
         .animation(.easeOut(duration: 0.28), value: isPresented)
     }
+}
 
-    /// 纯几何（有单测）：面板宽度 = 可用宽 × 三分之一，夹在 [minWidth, maxWidth]。
-    enum Geometry {
-        /// 参考口径：占屏幕宽的三分之一。
-        static let widthFraction: CGFloat = 1.0 / 3.0
-        /// 太窄面板放不下集名（竖屏 iPhone 上按 1/3 只有 ~130pt）。
-        static let minWidth: CGFloat = 260
-        /// 太宽就不像「面板」了（iPad 横屏 1/3 接近 400pt）。
-        static let maxWidth: CGFloat = 420
+/// 选集面板的纯几何（有单测）。**顶层枚举而不是泛型里的嵌套**：泛型类型里不能有 static 存储属性。
+enum EpisodePanelGeometry {
+    /// 参考口径：占屏幕宽的三分之一。
+    static let widthFraction: CGFloat = 1.0 / 3.0
+    /// 太窄面板放不下集名（竖屏 iPhone 上按 1/3 只有 ~130pt）。
+    static let minWidth: CGFloat = 260
+    /// 太宽就不像「面板」了（iPad 横屏 1/3 接近 400pt）。
+    static let maxWidth: CGFloat = 420
 
-        /// 面板宽：可用宽 × 1/3，夹在 [minWidth, maxWidth]。
-        /// 竖屏（可用宽 ≈ 402）按 1/3 只有 134pt、放不下集名 —— 就靠 minWidth 撑住。
-        static func width(availableWidth: CGFloat) -> CGFloat {
-            let base = availableWidth * widthFraction
-            return min(max(base, minWidth), maxWidth)
-        }
+    /// 面板宽：可用宽 × 1/3，夹在 [minWidth, maxWidth]。
+    /// 竖屏（可用宽 ≈ 402）按 1/3 只有 134pt、放不下集名 —— 就靠 minWidth 撑住。
+    static func width(availableWidth: CGFloat) -> CGFloat {
+        let base = availableWidth * widthFraction
+        return min(max(base, minWidth), maxWidth)
     }
 }
