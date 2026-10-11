@@ -128,6 +128,16 @@ public struct PlaybackView: View {
     /// 纵甩切集（M03P23）的采样器：记最近一小段 `(时刻, 纵向位移)`，松手那一刻算速度。
     /// 去掉 `private`：`PlaybackView+Gestures.swift` 要用（与手势那一组同一理由）。
     @State var gestureSwipe = PlaybackSwipeTracker()
+    /// 播放控制设置（M28）：单击 / 双击各干什么、四条滑动开不开、震动与控制中心要不要 ——
+    /// **三个内核同一份**，进页时从存档读一次（与「播放内核 / 解码方式」同一口径，M24P1）。
+    @State var controlSettings: PlaybackControlSettings
+    /// 这次触摸的落点（点按分区要用）：`TapGesture` 不给位置，由 `interactiveLayer` 那条
+    /// 零距离拖动记下来（见 `PlaybackView+Gestures`）。
+    @State var tapStartLocation: CGPoint?
+    /// 三条震动刻度闸（亮度 / 音量 / 进度各记各的；纯逻辑在 `PlaybackHapticGates`）。
+    @State var hapticGates = PlaybackHapticGates()
+    /// 控制中心那一条上次发布的整秒：同一秒里只发一次（进度条不需要每帧都刷）。
+    @State var lastNowPlayingSecond = -1
     /// 手势提示条（进度预览 / 音量 / 亮度 / 长按倍速）；空 = 不显示。
     @State var gestureHint = ""
     /// 当前音量（0...1）：纵拖调的是它（M27 起三个内核同一条手势；系统内核落在 `AVPlayer.volume` 上）。
@@ -155,7 +165,10 @@ public struct PlaybackView: View {
     /// 出错文案（换线路失败也走它，见 `PlaybackView+Lines.swift`）—— 跨文件要用，模块内。
     @State var errorText = ""
     @State var eventTask: Task<Void, Never>?
-    @State private var resumedFromText = ""
+    /// 续播提示（「已跳过片头 / 已从上次位置续播」）。
+    /// 去掉 `private`：`PlaybackView+EpisodeFlow.swift`（单集循环 / 从头播放）与主文件都要清它 ——
+    /// 跨文件扩展看不见 private（与 `latestPosition` 那批同一理由）。
+    @State var resumedFromText = ""
     /// 片头 / 片尾标记（M03P16）：秒；0 = 没标。与进度写在同一份记录里（`opening` / `ending` 两列）。
     /// 去掉 `private`：`PlaybackView+OpeningEnding.swift` 要用（与手势那组同一理由）。
     @State var openingMark: Double = 0
@@ -176,7 +189,9 @@ public struct PlaybackView: View {
     /// 与画面比例同一口径（「这一次播放」的听感偏好，不该把下一部片也放大；要按片记忆另开一片）。
     /// 跨文件扩展（`+Speed` 的音量增益区）要读写，所以是模块内。
     @State var audioGain: Float = AudioGain.minimum
-    @State private var isFinished = false
+    /// 是不是「看完」了（进度落库的 `isFinished`）。
+    /// 去掉 `private`：`PlaybackView+EpisodeFlow.swift` 要用（理由同上）。
+    @State var isFinished = false
     /// 单集循环（M03P20，对齐上游控制条的 `repeat`）：播完（或到片尾标记）回到本集开头，不连播。
     /// 页面内偏好、不落盘 —— 与上游一样是「本次播放」的开关。
     @State var isRepeatOne = false
@@ -247,6 +262,9 @@ public struct PlaybackView: View {
         self.minimalControls = minimalControls
         self.onEngineChanged = onEngineChanged
         _engineKind = State(initialValue: settings.engine)
+        // 播放控制设置（M28）在**进页时**读一次：与「播放内核 / 解码方式」同一口径（M24P1）——
+        // 改了设置想立刻生效，退出播放页再进一次。
+        _controlSettings = State(initialValue: PlaybackControlBook.load())
         _activeProgressContext = State(initialValue: progressContext)
         self.playlist = playlist
         _currentEpisodeIndex = State(initialValue: playlist?.currentIndex)
@@ -449,6 +467,8 @@ public struct PlaybackView: View {
             PlaybackAudioSession.deactivate()
             // 画中画（M27）：页面没了就别把 PiP 挂在一个已经拆掉的内核上。
             pipController.detach()
+            // 控制中心（M28）：离开页面就把信息与命令一起摘掉，不留一个挂着旧剧名的锁屏。
+            PlaybackNowPlaying.deactivate()
             eventTask?.cancel()
             eventTask = nil
             // 控制条的自动收起计时也别留着（离开页面后没人需要它）。
@@ -691,6 +711,9 @@ extension PlaybackView {
             pipController.attach(layer: surface.layer)
         }
         eventTask = Task { await consume(created) }
+        if controlSettings.showsControlCenter {
+            activateNowPlaying()
+        }
 
         do {
             // 续播：有进度记录就从上次位置起播（已看完或过短会从头，规则在 PlaybackProgress.resumePosition）。
@@ -716,6 +739,7 @@ extension PlaybackView {
             case let .stateChanged(state):
                 stateText = describe(state)
                 playerState = state
+                updateNowPlaying(position: latestPosition, duration: latestDuration, isPlaying: state == .playing)
                 // 控制条（M03P10）：播放中才排「几秒后自动收起」；其余状态亮着（暂停时人还要点它）。
                 if state == .playing {
                     scheduleControlsAutoHide()
@@ -760,12 +784,19 @@ extension PlaybackView {
                 errorText = message
             case let .timeChanged(current, duration):
                 latestDuration = duration
+                // 界面节流（M28 收尾）：MPV 的位置事件是**按帧**来的（每秒几十条），
+                // 每一条都写一遍界面状态就是几十次全页重建 —— 0.1 秒踩一个采样点够用了
+                // （覆盖层的顺滑靠外推，不靠事件频率，见 ``PlaybackClock``）。
+                guard playbackClock.isSampleDue(at: Date()) else {
+                    break
+                }
                 // 拖动进度条时不要采纳内核报回的位置：否则滑杆会被顶回去（松手才 seek）。
                 if !isScrubbing {
                     latestPosition = current
                 }
                 // 覆盖层：把「这一刻的位置 + 倍速」一起采下来，下一次上报之前靠外推补足。
                 playbackClock.sample(position: current, rate: clockRate(), at: Date())
+                updateNowPlaying(position: current, duration: duration, isPlaying: playerState.isPlaying, throttled: true)
                 await persist(force: false)
                 await skipEndingIfNeeded(current: current, duration: duration)
             case let .speedChanged(rate):
@@ -804,14 +835,17 @@ extension PlaybackView {
         // 画面比例按片记忆（M03P19，对齐上游 `History.scale`）：认不出的值回落「适应」。
         scaleMode = PlaybackScaleMode.decode(saved.scale)
         // 起播位置：片头与上次位置取靠后的那个（上游 `VodHistoryPolicy.startPositionMs`）。
-        let start = PlaybackOpeningEndingRules.startPosition(opening: saved.opening, resume: resume)
+        // 「自动识别片头片尾」关掉时不看片头标记（标记照旧留着、也还能手动标，只是不自动跳）——
+        // 见 `PlaybackControlSettings`。
+        let opening = controlSettings.autoOpeningEnding ? saved.opening : 0
+        let start = PlaybackOpeningEndingRules.startPosition(opening: opening, resume: resume)
         guard start > 0 else {
             return activeResource
         }
         var copy = activeResource
         copy.startPosition = start
         // 两种起播位置分开说：片头比续播位置更靠后才是「跳过片头」，否则照旧说「续播」。
-        resumedFromText = saved.opening > resume
+        resumedFromText = opening > resume
             ? "已跳过片头（\(Self.timeText(start)) 起播）"
             : "已从上次位置续播（\(Self.timeText(start))）"
         return copy
@@ -841,66 +875,6 @@ extension PlaybackView {
                 metadata: activeProgressContext.metadata
             )
         )
-    }
-
-    /// 锁上之后还允许哪些手势（**纯函数**，有单测）。
-    enum LockedGesturePolicy: Equatable {
-        /// 没锁：全开。
-        case all
-        /// 锁上：**只留单击**（把控制条叫出来 / 收起来）—— 双击、拖动、长按加速、捏合全停。
-        ///
-        /// 为什么留着单击：锁上时控制条只剩解锁按钮，而它跟别的控制条一样会「播放中自动收起」——
-        /// 单击是把它叫回来的唯一办法（上游也是这么留的：`onSingleTap` 不看 lock）。
-        case singleTapOnly
-    }
-
-    static func lockedGesturePolicy(isLocked: Bool) -> LockedGesturePolicy {
-        isLocked ? .singleTapOnly : .all
-    }
-
-    /// 一集走到头（或到片尾标记）之后该干什么（**纯函数**，有单测）。
-    ///
-    /// 循环**优先于**连播：开了循环就是「这一集重来」，片尾标记不再把人带走
-    /// （上游把循环做在内核层 —— 播完根本不到 `ended`；我们做在播放页这一层，三个内核都吃得到）。
-    enum EndAction: Equatable {
-        case loop
-        case nextEpisode
-        case stop
-    }
-
-    static func endAction(isRepeatOne: Bool, hasNextEpisode: Bool) -> EndAction {
-        if isRepeatOne {
-            return .loop
-        }
-        return hasNextEpisode ? .nextEpisode : .stop
-    }
-
-    /// 单集循环：回到本集开头接着播（不改进度记录里的「看完」，也不动选集下标）。
-    func loopCurrentEpisode() async {
-        // 这一集重新开始：进度条回到 0，结束态、片尾跳集的「跳过」标记、续播文案都清掉。
-        latestPosition = 0
-        isFinished = false
-        didSkipEnding = false
-        resumedFromText = ""
-        guard let engine else {
-            return
-        }
-        await engine.seek(to: 0)
-        await engine.play()
-    }
-
-    /// 从头播放：清掉进度记录并 seek 到 0。
-    func restartFromBeginning() async {
-        latestPosition = 0
-        isFinished = false
-        resumedFromText = ""
-        if let activeProgressContext, let progressStore {
-            await progressStore.clear(for: activeProgressContext.key)
-        }
-        guard let engine else {
-            return
-        }
-        await engine.seek(to: 0)
     }
 
     // MARK: - 换集（M12P1）

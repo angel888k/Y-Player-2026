@@ -64,4 +64,20 @@ struct PlaybackClockTests {
         #expect(clock.rate == 0)
         #expect(clock.time(at: t0.addingTimeInterval(2)) == 5)
     }
+
+    @Test("界面节流：还没采样时放行；采过样之后 0.1 秒内的下一条不采纳（M28 收尾）")
+    func sampleThrottle() {
+        var clock = PlaybackClock()
+        // 还没采样：第一条一定放行（起播那一下的进度要立刻能画）
+        #expect(clock.isSampleDue(at: t0))
+        clock.sample(position: 10, rate: 1, at: t0)
+        // MPV 的位置事件按帧来：同一条 0.016 秒后的下一条不采纳
+        #expect(!clock.isSampleDue(at: t0.addingTimeInterval(0.016)))
+        #expect(!clock.isSampleDue(at: t0.addingTimeInterval(PlaybackClock.minimumSampleInterval - 0.001)))
+        // 够 0.1 秒就放行（10Hz，够进度条与覆盖层用）
+        #expect(clock.isSampleDue(at: t0.addingTimeInterval(PlaybackClock.minimumSampleInterval)))
+        #expect(clock.isSampleDue(at: t0.addingTimeInterval(1)))
+        // 系统内核每秒一条：永远放行
+        #expect(PlaybackClock.minimumSampleInterval < 1)
+    }
 }

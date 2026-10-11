@@ -53,4 +53,22 @@ struct PlaybackClock: Equatable {
     var isRunning: Bool {
         sampledAt != .distantPast && rate > 0
     }
+
+    /// 两次「采纳一次采样」的最小间隔（秒）。
+    ///
+    /// 0.1 秒 = 10Hz：进度条、时间文本、弹幕 / 字幕的取样都够用，而 MPV 的位置事件是**按帧**
+    /// 观察来的（每秒几十条）—— 不节流就是每秒几十次全页重建。
+    static let minimumSampleInterval: TimeInterval = 0.1
+
+    /// 现在这条位置事件值不值得采纳（**纯函数**，有单测）。
+    ///
+    /// 为什么节流放在这儿：覆盖层的顺滑靠的**不是**事件频率，而是 ``time(at:)`` 的外推 ——
+    /// 两次采样之间按速率补足。所以「多久踩一个采样点」是这份时钟自己的事；
+    /// 系统内核本来就每秒一条（`addPeriodicTimeObserver` 的 interval = 1s），这里一格都不丢。
+    func isSampleDue(at date: Date) -> Bool {
+        guard sampledAt != .distantPast else {
+            return true
+        }
+        return date.timeIntervalSince(sampledAt) >= Self.minimumSampleInterval
+    }
 }

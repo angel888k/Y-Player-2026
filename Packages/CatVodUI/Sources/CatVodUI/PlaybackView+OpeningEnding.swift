@@ -90,7 +90,9 @@ extension PlaybackView {
     /// 只在**有下一集**时跳：最后一集停在结束态等人（与 M12P1 的片尾策略一致）；
     /// `didSkipEnding` 保证这一集只跳一次（换集会把它清掉）。
     func skipEndingIfNeeded(current: Double, duration: Double) async {
-        guard !didSkipEnding,
+        // 「自动识别片头片尾」关掉时也不自动跳（M28）：标记照旧留着、还能手动标，只是不自动走。
+        guard controlSettings.autoOpeningEnding,
+              !didSkipEnding,
               PlaybackOpeningEndingRules.shouldSkipEnding(position: current, duration: duration, ending: endingMark)
         else {
             return

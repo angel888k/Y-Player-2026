@@ -24,6 +24,10 @@ import SwiftUI
 /// **锁屏**（M03P21，`PlaybackView/isLocked`）：锁上之后双击、拖动、长按加速、捏合全停，
 /// 只留单击 —— 锁上时控制条只剩解锁按钮，单击是把它叫回来的唯一办法（``LockedGesturePolicy``）。
 ///
+/// **开关与动作归设置**（M28）：单击 / 双击各干什么、四条滑动开不开、震动要不要，都由
+/// 「设置 → 播放器 → 播放控制」（``PlaybackControlSettings``）给 —— 三个内核同一份，
+/// 播放页进页时读走（与「播放内核 / 解码方式」同一口径）。
+///
 /// **一甩切集**（M03P23，上游 `onFlingUp` / `onFlingDown`）：纵甩够长、够快、够直（见 ``PlaybackSwipeRules``）
 /// 且起手在画面**中间一半** → 上滑下一集、下滑上一集；那一甩顺手调过的音量 / 亮度会**撤回去**
 /// （不撤的话快速换集会一次跳掉小半格音量）。
@@ -110,14 +114,23 @@ extension PlaybackView {
             .scaleEffect(zoomScale)
             .clipped()
             .contentShape(Rectangle())
+            // 触摸落点：`TapGesture` 不给位置，`SpatialTapGesture` 又要 iOS 16+ ——
+            // 用一条**零距离拖动**把起点记下来（公开 API，iOS 15 也吃），单击 / 双击的
+            // 「中间一半 / 两侧」分区靠它（M28）。它只记位置、`onEnded` 什么都不做，
+            // 点按与拖动照旧各走各的。
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in tapStartLocation = value.startLocation }
+                    .onEnded { _ in }
+            )
             .gesture(
                 TapGesture(count: 2)
                     .onEnded { _ in
-                        // 双击 = 播放 / 暂停；锁上之后不做（M03P21，上游 onDoubleTap 同款早退）。
+                        // 双击干什么由设置给（M28）；锁上之后不做（M03P21，上游 onDoubleTap 同款早退）。
                         guard Self.lockedGesturePolicy(isLocked: isLocked) == .all, !shouldSwallowTap() else {
                             return
                         }
-                        Task { await togglePlayback() }
+                        handleTap(doubleTap: true, width: size.width)
                     }
                     .exclusively(
                         before: TapGesture(count: 1)
@@ -125,7 +138,7 @@ extension PlaybackView {
                                 guard !shouldSwallowTap() else {
                                     return
                                 }
-                                toggleControlsVisibility()
+                                handleTap(doubleTap: false, width: size.width)
                             }
                     )
             )
@@ -181,11 +194,19 @@ extension PlaybackView {
                 }
                 // 纵甩切集的采样（M03P23）：判不判得成甩在松手那一刻算（见 ``PlaybackSwipeRules``）。
                 gestureSwipe.record(at: Date().timeIntervalSinceReferenceDate, y: Double(dy))
+                // 设置里关掉的手势：整次拖动不做事（不提示、不改值）—— 采样照记，
+                // 因为「短剧滑动切集」是**另一项**开关（判在松手那一刻，见 `onEnded`）。
+                guard Self.dragEnabled(mode, settings: controlSettings) else {
+                    return
+                }
                 switch mode {
                 case .seek:
                     let base = gestureBasePosition ?? latestPosition
                     gestureBasePosition = base
                     let target = Self.seekTarget(base: base, dx: dx, width: width, duration: latestDuration)
+                    if controlSettings.hapticSeek, hapticGates.shouldTickSeek(target) {
+                        PlaybackHaptics.tick()
+                    }
                     gestureHint = "\(Self.timeText(target)) / \(Self.timeText(latestDuration))"
                 case .brightness:
                     // 拿不到亮度（macOS 没有公开 API）就整次拖动不做事 —— 不摆一个「拖了没反应」的假手势。
@@ -195,11 +216,17 @@ extension PlaybackView {
                     gestureBaseBrightness = base
                     let target = Self.verticalValue(base: base, dy: dy, pointsForFullRange: Self.verticalPointsForFullRange)
                     PlatformShims.setScreenBrightness(target)
+                    if controlSettings.hapticBrightness, hapticGates.shouldTickBrightness(target) {
+                        PlaybackHaptics.tick()
+                    }
                     gestureHint = "亮度 \(Int((target * 100).rounded()))%"
                 case .volume:
                     let base = gestureBaseVolume ?? volume
                     gestureBaseVolume = base
                     volume = Self.verticalValue(base: base, dy: dy, pointsForFullRange: Self.verticalPointsForFullRange)
+                    if controlSettings.hapticVolume, hapticGates.shouldTickVolume(volume) {
+                        PlaybackHaptics.tick()
+                    }
                     gestureHint = "音量 \(Int((volume * 100).rounded()))%"
                 }
             }
@@ -211,7 +238,7 @@ extension PlaybackView {
                 // 音量 / 亮度调整，seek / 下发音量那两条路都不走。
                 // **有得可换才判**：点播页要 `playlist`（换集），直播页要 `onVerticalSwipe`（换台）；
                 // 两样都没有的页面（下载播放 / 设置页试播）纵甩还是音量 / 亮度（不然甩一下会白撤一次调整）。
-                let canVerticalSwipe = playlist != nil || onVerticalSwipe != nil
+                let canVerticalSwipe = (playlist != nil && controlSettings.swipeEpisode) || onVerticalSwipe != nil
                 let speed = gestureSwipe.speed(at: Date().timeIntervalSinceReferenceDate)
                 gestureSwipe.reset()
                 let swipe: PlaybackSwipeAction? = canVerticalSwipe
@@ -223,14 +250,16 @@ extension PlaybackView {
                     Task { await performSwipe(swipe) }
                     return
                 }
-                if gestureDrag == .seek, let base = gestureBasePosition {
-                    // 进度：松手才 seek。
-                    let target = Self.seekTarget(base: base, dx: value.translation.width, width: width, duration: latestDuration)
-                    Task { await engine?.seek(to: target) }
-                } else if gestureDrag == .volume, gestureBaseVolume != nil {
-                    // 音量：松手才下发内核；亮度那边拖动中已经写进系统亮度了，这里没它的事。
-                    let target = Float(volume)
-                    Task { await engine?.setVolume(target) }
+                if let mode = gestureDrag, Self.dragEnabled(mode, settings: controlSettings) {
+                    if mode == .seek, let base = gestureBasePosition {
+                        // 进度：松手才 seek。
+                        let target = Self.seekTarget(base: base, dx: value.translation.width, width: width, duration: latestDuration)
+                        Task { await engine?.seek(to: target) }
+                    } else if mode == .volume, gestureBaseVolume != nil {
+                        // 音量：松手才下发内核；亮度那边拖动中已经写进系统亮度了，这里没它的事。
+                        let target = Float(volume)
+                        Task { await engine?.setVolume(target) }
+                    }
                 }
                 settleGesture()
             }
@@ -298,6 +327,57 @@ extension PlaybackView {
         gestureHint = ""
     }
 
+    // MARK: - 点按分区（M28）
+
+    /// 一次点按该干什么：动作从设置取（``PlaybackControlSettings/tapAction``），
+    /// 分区判定**复用「纵甩切集」那条**（中间一半 = 中间，两侧四分之一 = 两边）——
+    /// 手上不按屏幕分区，规则就必须是同一份。
+    func handleTap(doubleTap: Bool, width: CGFloat) {
+        let startX = tapStartLocation?.x
+        let isCenter = Self.isCenterTap(startX: startX, width: width)
+        switch controlSettings.tapAction(doubleTap: doubleTap, isCenter: isCenter) {
+        case .toggleControls:
+            toggleControlsVisibility()
+        case .playPause:
+            Task { await togglePlayback() }
+        case .seek:
+            // 左退右进：与「快退 / 快进」的排法一致。
+            let backwards = (startX ?? width / 2) < width / 2
+            Task { await seekBy(seconds: backwards ? -controlSettings.seekStepSeconds : controlSettings.seekStepSeconds) }
+        case .none:
+            break
+        }
+    }
+
+    /// 落点算不算「中间一半」（**纯函数**，有单测）：拿不到落点时按中间算 —— 中间那一档是主档。
+    static func isCenterTap(startX: CGFloat?, width: CGFloat) -> Bool {
+        guard let startX else {
+            return true
+        }
+        return PlaybackSwipeRules.isCenterZone(startX: startX, width: width)
+    }
+
+    /// 这次拖动调的东西是不是开着（**纯函数**，有单测）：关掉的手势整次不做事。
+    static func dragEnabled(_ mode: DragMode, settings: PlaybackControlSettings) -> Bool {
+        switch mode {
+        case .seek: settings.swipeSeek
+        case .brightness: settings.swipeBrightness
+        case .volume: settings.swipeVolume
+        }
+    }
+
+    /// 快进 / 快退（双击分区选了「快进 / 快退」时用）：夹在 0...时长，提示留一会儿自己收。
+    func seekBy(seconds: Double) async {
+        let target = min(max(latestPosition + seconds, 0), max(latestDuration, 0))
+        let hint = "\(seconds >= 0 ? "快进" : "快退") → \(Self.timeText(target))"
+        gestureHint = hint
+        await engine?.seek(to: target)
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        if gestureHint == hint {
+            gestureHint = ""
+        }
+    }
+
     // MARK: - 双指缩放
 
     /// 捏合过程中的倍数：两种 API 的入口都走这里（基准值进一次、后面都按它乘）。
@@ -339,6 +419,9 @@ extension PlaybackView {
         }
         isSpeedBoosting = true
         gestureHint = SpeedSetting.format(longPressSpeed)
+        if controlSettings.hapticLongPress {
+            PlaybackHaptics.press()
+        }
         let boost = longPressSpeed
         Task { await engine.setRate(boost) }
     }

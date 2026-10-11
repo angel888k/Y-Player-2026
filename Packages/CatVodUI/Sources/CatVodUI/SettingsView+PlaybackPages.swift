@@ -109,54 +109,148 @@ struct SettingsPlayerUISettingsView: View {
     }
 }
 
-/// 播放控制：现在的控制从哪来、以后会加什么。
+/// 播放控制（M28，对齐参考的「播放控制」页）：画面手势的**开关与动作** +
+/// 快进步长 / 控制中心 / 片头片尾自动跳 —— 三个内核共用一份（``PlaybackControlSettings``）。
+///
+/// 与「播放界面」那一页的分工：那边管**显示排布**（精简 / TMDB、自动播放），这边管**手上怎么做**
+/// （单击 / 双击 / 滑动 / 震动）。改完在**下次进播放页**时生效 —— 与「播放内核 / 解码方式」同一口径
+/// （M24P1）：正在播的那一页不中途换手势。
 @MainActor
 struct SettingsPlayerControlView: View {
     @ObservedObject var model: AppModel
 
-    /// 控制方式一行：跟着**当前选的内核**走，别写死「系统播放器」（那行以前就是这么过期的）。
-    private var controlSummary: String {
-        switch model.preferredEngine {
-        case .system: "系统播放器（AVPlayer）"
-        case .mpv: "MPV 自带最小控制条 + 播放页手势"
-        case .ffmpeg: "自研 FFmpeg（自绘最小控制条 + 播放页手势）"
-        }
-    }
+    /// 播放控制设置：本页是它的**编辑入口**，改一下就落盘（`onChange`）。
+    @State private var control = PlaybackControlBook.load()
+    /// 两个倍速是另一条老线（`PlaybackSpeedBook`）—— 与播放页信息区的滑杆共用同一把存档，不复制。
+    @State private var speed = PlaybackSpeedBook.speed()
+    @State private var longPressSpeed = PlaybackSpeedBook.longPressSpeed()
 
-    /// 控制从哪来：两套内核各自说清（系统内核全交给系统；MPV 只有最小控制条 + 手势）。
-    private var controlDetail: String {
-        switch model.preferredEngine {
-        case .system:
-            "播放 / 暂停、进度拖动、全屏、画中画、后台播放与手势都由系统播放器提供，我们不自绘 —— 除倍速外没有其它可调项。"
-        case .mpv:
-            "MPV 的画面由我们自己渲染（MoltenVK → Metal），只配了一条最小控制条（播放 / 暂停、进度、倍速、音轨 / 字幕）；"
-                + "画面上的手势是自绘的：双击暂停、横向拖进度、纵向拖音量。"
-        case .ffmpeg:
-            "自研 FFmpeg 的画面由我们自己解码、交给系统渲染管线（硬解走 VideoToolbox、软解走 libswscale，"
-                + "都进 AVSampleBufferDisplayLayer）；解码方式严格按设置来，硬解不可用时播放页会提示改成软解。"
-                + "音轨能在播放页换（从当前位置往后接，不回头对齐）；内嵌文本字幕能出字（样式不还原，M04P19）。"
-        }
-    }
+    /// 长按倍速的档位：上游 `LONG_PRESS_MIN 2.0` 起、步进 0.5，到 5.0（与播放页那条滑杆同源）。
+    private static let longPressPresets: [Float] = Array(stride(
+        from: SpeedSetting.longPressMinimum,
+        through: SpeedSetting.maximum,
+        by: SpeedSetting.longPressStep
+    ))
 
     var body: some View {
         List {
-            Section("当前形态") {
+            Section {
+                Picker("默认倍速", selection: speedBinding) {
+                    ForEach(SpeedSetting.presets, id: \.self) { preset in
+                        Text(SpeedSetting.format(preset)).tag(preset)
+                    }
+                }
+                .pickerStyle(.menu)
+                Picker("长按倍速", selection: longPressSpeedBinding) {
+                    ForEach(Self.longPressPresets, id: \.self) { preset in
+                        Text(SpeedSetting.format(preset)).tag(preset)
+                    }
+                }
+                .pickerStyle(.menu)
+                Picker("快进 / 快退步长", selection: $control.seekStepSeconds) {
+                    ForEach(PlaybackControlSettings.seekStepOptions, id: \.self) { step in
+                        Text("\(Int(step)) 秒").tag(step)
+                    }
+                }
+                .pickerStyle(.menu)
+                if PlaybackNowPlaying.isSupported {
+                    Toggle("控制中心显示", isOn: $control.showsControlCenter)
+                }
+                Toggle("自动识别片头片尾", isOn: $control.autoOpeningEnding)
+            } footer: {
+                Text("「控制中心显示」= 在系统控制中心 / 锁屏显示剧名与进度，并能播放 / 暂停、上一集 / 下一集（画中画在播时让给系统那一份）。"
+                    + "「自动识别片头片尾」= **用已标的**片头 / 片尾自动跳过与连播；音频指纹那类自动识别不做，标记还是手动标。")
+            }
+
+            Section("单击手势") {
+                Picker("单击屏幕中间", selection: $control.singleTapCenter) {
+                    ForEach(PlaybackTapAction.options, id: \.self) { action in
+                        Text(action.title).tag(action)
+                    }
+                }
+                .pickerStyle(.menu)
+                Picker("单击屏幕两边", selection: $control.singleTapSides) {
+                    ForEach(PlaybackTapAction.options, id: \.self) { action in
+                        Text(action.title).tag(action)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            Section("双击手势") {
+                Picker("双击屏幕中间", selection: $control.doubleTapCenter) {
+                    ForEach(PlaybackTapAction.options, id: \.self) { action in
+                        Text(action.title).tag(action)
+                    }
+                }
+                .pickerStyle(.menu)
+                Picker("双击屏幕两边", selection: $control.doubleTapSides) {
+                    ForEach(PlaybackTapAction.options, id: \.self) { action in
+                        Text(action.title).tag(action)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            Section("滑动手势") {
+                Toggle("滑动调节音量", isOn: $control.swipeVolume)
+                Toggle("滑动调节亮度", isOn: $control.swipeBrightness)
+                Toggle("滑动调节进度", isOn: $control.swipeSeek)
+                Toggle("短剧滑动切集", isOn: $control.swipeEpisode)
+            }
+
+            if PlaybackHaptics.isSupported {
+                Section("震动反馈") {
+                    Toggle("长按屏幕", isOn: $control.hapticLongPress)
+                    Toggle("滑动调节亮度", isOn: $control.hapticBrightness)
+                    Toggle("滑动调节音量", isOn: $control.hapticVolume)
+                    Toggle("滑动调节进度", isOn: $control.hapticSeek)
+                }
+            }
+
+            Section("说明") {
                 InfoRow(title: "当前内核", value: model.preferredEngine.displayName)
-                InfoRow(title: "控制方式", value: controlSummary)
-                InfoRow(title: "倍速", value: "播放页「播放速度」区（0.1x–5.0x，含预设）")
-                Text(controlDetail)
+                Text("三个内核（系统 / MPV / 自研 FFmpeg）共用这一份：控制条与画面手势从 M27 起就是同一套，"
+                    + "这里改的是「哪几条开着、点了干什么」—— 换内核不会换手感。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-            }
-            Section("后续") {
-                Text("自研 FFmpeg 内核的专属控制（逐帧步进、音频增益、渲染选项等）尚未做；"
-                    + "上游的「长按屏幕临时加速」要接管手势、与既有手势冲突，暂不做（见 M02P15）。")
+                Text("「屏幕中间」= 画面宽度的中间一半，两侧 = 左右各四分之一（与「上滑 / 下滑切集」的分区一致）。"
+                    + "「快进 / 快退」双击时**左半屏退、右半屏进**，步长就是上面那一项。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text("以上选项在**下次进播放页**时生效：正在播的那一页不中途换手势（与「播放内核 / 解码方式」同一口径）。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
         .adaptiveListStyle()
         .navigationTitle("播放控制")
+        .onChange(of: control) { settings in
+            // 用户动作即落盘（与设置页其它项一致）；播放页在进页时读走。
+            PlaybackControlBook.save(settings)
+        }
+    }
+
+    /// 默认倍速：改一下写同一把存档（播放页进页时读它）。
+    private var speedBinding: Binding<Float> {
+        Binding(
+            get: { speed },
+            set: { value in
+                speed = SpeedSetting.clamp(value)
+                PlaybackSpeedBook.save(speed)
+            }
+        )
+    }
+
+    /// 长按倍速：同上（只有 2.0–5.0 那 7 档）。
+    private var longPressSpeedBinding: Binding<Float> {
+        Binding(
+            get: { longPressSpeed },
+            set: { value in
+                longPressSpeed = SpeedSetting.clampLongPress(value)
+                PlaybackSpeedBook.saveLongPressSpeed(longPressSpeed)
+            }
+        )
     }
 }
 
