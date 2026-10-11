@@ -170,7 +170,9 @@ public struct HomeView: View {
     private var contentBodyStack: some View {
         VStack(spacing: 0) {
             if browsableSites.isEmpty {
-                placeholder(emptyHint)
+                // 冷启动恢复中：已保存过接口、还没加载完站点 —— 显示「站点加载中…」+ 转圈，
+                // 别让用户以为要先去设置里点加载（M28 首验之三十一）。
+                placeholder(isRestoringSavedSource ? "站点加载中…" : emptyHint)
             } else {
                 contentScroll
             }
@@ -178,6 +180,28 @@ public struct HomeView: View {
                 errorBanner
             }
         }
+    }
+
+    /// 冷启动恢复中的判定（纯函数，有单测）：保存过接口地址、这次进程还没加载过配置
+    /// （`.idle`）—— 也就是 `RootView` 的 `.task` 还没把 `loadSavedSourceIfNeeded()` 跑完
+    /// 的那一小段窗口。把「转圈 + 站点加载中」限定在这个窗口里：
+    /// 加载失败（`.failed`）走原因文案、没存过地址走原来的空态提示，都不能被这句盖住。
+    static func isRestoringSavedSource(
+        configURL: String,
+        stateIsIdle: Bool,
+        sitesIsEmpty: Bool
+    ) -> Bool {
+        sitesIsEmpty
+            && stateIsIdle
+            && !configURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isRestoringSavedSource: Bool {
+        Self.isRestoringSavedSource(
+            configURL: model.configURL,
+            stateIsIdle: model.state.isIdle,
+            sitesIsEmpty: browsableSites.isEmpty
+        )
     }
 
     /// 内容区：横向展示是 3 列海报网格（参考视频的版式），纵向展示是内容行（M2 的原观感）。
@@ -414,7 +438,7 @@ public struct HomeView: View {
     /// 空态 / 加载态：居中一行（加载中时带系统指示器，与参考视频一致）。
     private func placeholder(_ text: String) -> some View {
         VStack(spacing: 8) {
-            if isLoading {
+            if isLoading || isRestoringSavedSource {
                 ProgressView()
             }
             Text(text)

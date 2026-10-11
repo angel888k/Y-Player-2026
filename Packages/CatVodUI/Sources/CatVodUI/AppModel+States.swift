@@ -22,6 +22,14 @@ public extension AppModel {
             return false
         }
 
+        /// 这次进程里还没开始加载任何配置（冷启动恢复的判定要用，见 `HomeView.isRestoringSavedSource`）。
+        public var isIdle: Bool {
+            if case .idle = self {
+                return true
+            }
+            return false
+        }
+
         public var loadedSource: LoadedSource? {
             if case let .loaded(source) = self {
                 return source
