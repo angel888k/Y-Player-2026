@@ -11,30 +11,33 @@ extension VodDetailView {
     /// 精简视图（M26 对齐参考的 Normal 页）：**上面一块播放器 + 下面详情** ——
     /// 片名 / 收藏 / 简介 / 「线路」胶囊 / 「剧集」胶囊列表；点一集**就地开播**，不推页面。
     var compactLayout: some View {
-        VStack(spacing: 0) {
-            // 播放器**钉在顶上**（与参考的「半屏播放器」同款）：它自己的拖动是调进度 / 音量 / 亮度，
-            // 跟着滚会跟页面滚动抢手势 —— 分开两层，两边都干净。
-            // 放大成全屏（`isInlineExpanded`）时只留它：下面那块整体收掉，播放器自己铺满整屏。
-            compactPlayer
-            if !isInlineExpanded {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        compactSynopsis
-                        if lines.count > 1 {
-                            compactLineChips
+        // 量一次宽度：顶上那块正常时按 16:9 定高，放大时铺满整屏（见 `compactPlayer(width:)`）。
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                // 播放器**钉在顶上**（与参考的「半屏播放器」同款）：它自己的拖动是调进度 / 音量 / 亮度，
+                // 跟着滚会跟页面滚动抢手势 —— 分开两层，两边都干净。
+                // 放大成全屏（`isInlineExpanded`）时只留它：下面那块整体收掉，播放器自己铺满整屏。
+                compactPlayer(width: proxy.size.width)
+                if !isInlineExpanded {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            compactSynopsis
+                            if lines.count > 1 {
+                                compactLineChips
+                            }
+                            compactEpisodeSection
+                            if !errorText.isEmpty {
+                                Text(errorText)
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                            }
                         }
-                        compactEpisodeSection
-                        if !errorText.isEmpty {
-                            Text(errorText)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                        }
+                        .padding(.horizontal, 14)
+                        .padding(.top, 14)
+                        .padding(.bottom, 28)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 14)
-                    .padding(.bottom, 28)
+                    .background(autoPlayLink)
                 }
-                .background(autoPlayLink)
             }
         }
     }
@@ -48,16 +51,20 @@ extension VodDetailView {
     /// `aspectRatio` 只是「提议」，子视图报多大就是多大 —— 转圈 / 文案这类**自带固有尺寸**的内容
     /// 会把槽位塌成一小块（M27 首验录屏里的「正在向站点请求播放地址…」小框就是这么来的）。
     ///
-    /// **放大成全屏**（M27 首验之四）：`isInlineExpanded` 时不再定尺（`aspectRatio(nil)` = 不限比例），
-    /// 铺满整屏并忽略安全区 —— **同一块内容**（同一个 `PlaybackView`，引擎照旧在跑）跟着变大，
+    /// 高度**自己算**（宽度 ÷ ``compactPlayerAspect`` = 16:9），别拿 `.aspectRatio(nil)` 表示
+    /// 「放大时不定尺」—— 那个 `nil` 不是「不限比例」，而是按视图**自己的固有比例**走：
+    /// `Color` 的固有比例是 1:1，于是放大后给出一块**方**槽位、两边露着页面白底（首验截图就是这个）。
+    ///
+    /// **放大成全屏**（M27 首验之四）：`isInlineExpanded` 时高度不给（`nil` = 跟着父级铺满）
+    /// 并忽略安全区 —— **同一块内容**（同一个 `PlaybackView`，引擎照旧在跑）跟着变大，
     /// 不重建播放器（重建要黑一下、还要重新拉流 / 重解析，用户看到的就是「旧状态又来了」）。
-    var compactPlayer: some View {
+    func compactPlayer(width: CGFloat) -> some View {
         // 两个值都写明类型：三元塞进长表达式里会让类型检查器罢工（首验踩过
         // `failed to produce diagnostic`），显式一点最稳。
-        let aspect: CGFloat? = isInlineExpanded ? nil : Self.compactPlayerAspect
+        let height: CGFloat? = isInlineExpanded ? nil : width / Self.compactPlayerAspect
         let regions: SafeAreaRegions = isInlineExpanded ? .all : []
         return Color.black
-            .aspectRatio(aspect, contentMode: .fit)
+            .frame(height: height)
             .overlay { compactPlayerContent }
             .clipped()
             .ignoresSafeArea(regions, edges: .all)
