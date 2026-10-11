@@ -46,6 +46,15 @@ extension PlaybackView {
         case brightness
         /// 右半屏纵向：App 内音量。
         case volume
+
+        /// 日志里的名字（`PlaybackTrace` 用）。
+        var title: String {
+            switch self {
+            case .seek: "进度"
+            case .brightness: "亮度"
+            case .volume: "音量"
+            }
+        }
     }
 
     /// 换算常量：横向拖满一屏宽 ≈ 120 秒（M03P6）；纵向 200pt 走满量程（音量与亮度共用）。
@@ -83,12 +92,27 @@ extension PlaybackView {
 
     // MARK: - 判定与换算（纯函数，有单测）
 
-    /// 这次拖动调什么：横向主导 → 进度；纵向主导 → 按起点分左右半屏（左亮度 / 右音量，中线算右半屏）。
-    static func dragMode(dx: CGFloat, dy: CGFloat, startX: CGFloat, width: CGFloat) -> DragMode {
-        guard abs(dx) <= abs(dy) else {
+    /// 「判方向」的清晰度门限：主轴至少是次轴的这么多倍才算看清楚（M28 首验之九）。
+    ///
+    /// 为什么不是「第一帧就定」：`DragGesture(minimumDistance: 24)` 的第一帧是手指已经走了 24pt
+    /// 才报的，而「起手慢的滑动」（快进 / 快退常常是先按住、再起步）第一帧往往还带着明显的纵向分量 ——
+    /// 一帧定死会把「快进 / 快退」误判成调亮度 / 音量，而且定下就不再变（用户报
+    /// 「滑动的快退和快进有 bug」）。够清楚才定；**定下之后不再变**（横拖到一半拐弯也不会跳成
+    /// 调音量 —— M03P12 那条规矩不变）。
+    static let dragModeClarityRatio: CGFloat = 1.25
+
+    /// 这次拖动调什么（**纯函数**，有单测）：横向主导 → 进度；纵向主导 → 按起点分左右半屏
+    /// （左亮度 / 右音量，中线算右半屏）；`nil` = 这一帧还看不清（下一个 `onChanged` 再看）。
+    static func dragMode(dx: CGFloat, dy: CGFloat, startX: CGFloat, width: CGFloat) -> DragMode? {
+        let horizontal = abs(dx)
+        let vertical = abs(dy)
+        if horizontal >= vertical * dragModeClarityRatio {
             return .seek
         }
-        return startX < width / 2 ? .brightness : .volume
+        if vertical >= horizontal * dragModeClarityRatio {
+            return startX < width / 2 ? .brightness : .volume
+        }
+        return nil
     }
 
     /// 横向拖了多少 → 目标秒数（夹在 0...总时长）。
@@ -217,12 +241,23 @@ extension PlaybackView {
                 }
                 let dx = value.translation.width
                 let dy = value.translation.height
-                let isFirstFrame = gestureDrag == nil
-                let mode = gestureDrag ?? Self.dragMode(dx: dx, dy: dy, startX: value.startLocation.x, width: width)
-                gestureDrag = mode
-                if isFirstFrame {
-                    // 这次拖动的第一帧：清掉上一轮的采样（上一轮可能被长按 / 捏合打断，没走到收尾）。
+                let mode: DragMode
+                if let latched = gestureDrag {
+                    mode = latched
+                } else if let decided = Self.dragMode(dx: dx, dy: dy, startX: value.startLocation.x, width: width) {
+                    // 方向够清楚了：定下这次拖动调什么（定下就不再变），顺手清掉上一轮的采样
+                    // （上一轮可能被长按 / 捏合打断，没走到收尾）。
+                    mode = decided
+                    gestureDrag = decided
                     gestureSwipe.reset()
+                    // 数字先落成局部量再拼：嵌套插值塞给类型检查器不划算（吃过一次亏）。
+                    let dxText = Int(dx.rounded())
+                    let dyText = Int(dy.rounded())
+                    PlaybackTrace.noteDrag("起：" + decided.title + "（dx=" + String(dxText) + " dy=" + String(dyText) + "）")
+                } else {
+                    // 还看不清方向（第一帧带着明显的纵向抖动）：这一帧不做事、也先不记采样 ——
+                    // 免得把抖动记成「一甩」（M28 首验之九）。
+                    return
                 }
                 // 纵甩切集的采样（M03P23）：判不判得成甩在松手那一刻算（见 ``PlaybackSwipeRules``）。
                 gestureSwipe.record(at: Date().timeIntervalSinceReferenceDate, y: Double(dy))
@@ -233,6 +268,12 @@ extension PlaybackView {
                 }
                 switch mode {
                 case .seek:
+                    // 时长还没读到（起播头几秒 / 直播）：**不拖** —— 没有可夹的范围，硬拖会把目标
+                    // 夹成 0，一松手就跳回开头。给一句直说，不摆「拖了没反应」的假手势。
+                    guard latestDuration > 0 else {
+                        gestureHint = "时长还没读到，先等等"
+                        return
+                    }
                     let base = gestureBasePosition ?? latestPosition
                     gestureBasePosition = base
                     let target = Self.seekTarget(base: base, dx: dx, width: width, duration: latestDuration)
@@ -282,18 +323,24 @@ extension PlaybackView {
                 if let swipe {
                     revertGestureAdjustment()
                     settleGesture()
+                    PlaybackTrace.noteDrag("收：纵甩（\(swipe == .up ? "上" : "下")）")
                     Task { await performSwipe(swipe) }
                     return
                 }
                 if let mode = gestureDrag, Self.dragEnabled(mode, settings: controlSettings) {
-                    if mode == .seek, let base = gestureBasePosition {
+                    if mode == .seek, let base = gestureBasePosition, latestDuration > 0 {
                         // 进度：松手才 seek。
                         let target = Self.seekTarget(base: base, dx: value.translation.width, width: width, duration: latestDuration)
+                        PlaybackTrace.noteDrag("收：进度 → \(Self.timeText(target))（松手交给内核）")
                         Task { await engine?.seek(to: target) }
                     } else if mode == .volume, gestureBaseVolume != nil {
                         // 音量：松手才下发内核；亮度那边拖动中已经写进系统亮度了，这里没它的事。
                         let target = Float(volume)
+                        PlaybackTrace.noteDrag("收：音量 \(Int((target * 100).rounded()))%（松手交给内核）")
                         Task { await engine?.setVolume(target) }
+                    } else if mode == .brightness {
+                        // 亮度在拖动中已经写进系统亮度了，这里只留一条痕。
+                        PlaybackTrace.noteDrag("收：亮度（拖动中已写入系统亮度）")
                     }
                 }
                 settleGesture()

@@ -15,8 +15,19 @@ enum PlaybackHaptics {
     /// 这台设备 / 这个平台会不会震（设置页据此决定「震动反馈」那一组摆不摆）。
     static let isSupported = true
 
+    /// 上一次「刻度反馈」的时刻（最小间隔用）。
+    private static var lastTickAt: Date = .distantPast
+
     /// 刻度反馈：亮度 / 音量跨 1%、进度跨 1 秒那一下。
-    static func tick() {
+    ///
+    /// 自带最小间隔（0.12 秒）：快速拖一整屏 ≈ 120 秒的目标变化，一秒里能跨几十个刻度 ——
+    /// 不加闸就成了「一直震」，手感和耗电都不对。
+    static func tick(minInterval: TimeInterval = 0.12) {
+        let now = Date()
+        guard now.timeIntervalSince(lastTickAt) >= minInterval else {
+            return
+        }
+        lastTickAt = now
         UISelectionFeedbackGenerator().selectionChanged()
     }
 

@@ -12,22 +12,31 @@ import Testing
 struct PlaybackGestureTests {
     @Test("横向主导：调进度（起点在左半屏也一样）")
     func horizontalSeek() {
-        #expect(PlaybackView.dragMode(dx: 40, dy: 10, startX: 10, width: 400) == .seek)
-        #expect(PlaybackView.dragMode(dx: -40, dy: 10, startX: 390, width: 400) == .seek)
+        #expect(PlaybackView.dragMode(dx: 40, dy: 10, startX: 10, width: 400) == DragMode.seek)
+        #expect(PlaybackView.dragMode(dx: -40, dy: 10, startX: 390, width: 400) == DragMode.seek)
     }
 
     @Test("纵向主导：左半屏亮度、右半屏音量；中线算右半屏")
     func verticalSides() {
-        #expect(PlaybackView.dragMode(dx: 0, dy: -60, startX: 10, width: 400) == .brightness)
-        #expect(PlaybackView.dragMode(dx: 0, dy: -60, startX: 300, width: 400) == .volume)
-        #expect(PlaybackView.dragMode(dx: 0, dy: -60, startX: 200, width: 400) == .volume)
+        #expect(PlaybackView.dragMode(dx: 0, dy: -60, startX: 10, width: 400) == DragMode.brightness)
+        #expect(PlaybackView.dragMode(dx: 0, dy: -60, startX: 300, width: 400) == DragMode.volume)
+        #expect(PlaybackView.dragMode(dx: 0, dy: -60, startX: 200, width: 400) == DragMode.volume)
     }
 
     @Test("斜着拖：哪边分量大听哪边")
     func diagonal() {
-        #expect(PlaybackView.dragMode(dx: 60, dy: 40, startX: 10, width: 400) == .seek)
-        #expect(PlaybackView.dragMode(dx: 40, dy: 60, startX: 10, width: 400) == .brightness)
-        #expect(PlaybackView.dragMode(dx: 40, dy: 60, startX: 390, width: 400) == .volume)
+        #expect(PlaybackView.dragMode(dx: 60, dy: 40, startX: 10, width: 400) == DragMode.seek)
+        #expect(PlaybackView.dragMode(dx: 40, dy: 60, startX: 10, width: 400) == DragMode.brightness)
+        #expect(PlaybackView.dragMode(dx: 40, dy: 60, startX: 390, width: 400) == DragMode.volume)
+    }
+
+    @Test("还看不清方向：给 nil（下一帧再定）—— 免得把「起手慢的滑动」定成调亮度 / 音量（M28 首验之九）")
+    func ambiguousDirectionWaits() {
+        #expect(PlaybackView.dragMode(dx: 30, dy: 25, startX: 10, width: 400) == nil)
+        #expect(PlaybackView.dragMode(dx: -26, dy: 24, startX: 390, width: 400) == nil)
+        // 门限是 1.25 倍：差一点点也还算看不清；过线就定。
+        #expect(PlaybackView.dragMode(dx: 31, dy: 25, startX: 10, width: 400) == nil)
+        #expect(PlaybackView.dragMode(dx: 32, dy: 25, startX: 10, width: 400) == DragMode.seek)
     }
 
     @Test("纵向换算：向上加、向下减，200pt 走满量程，夹在 0...1")

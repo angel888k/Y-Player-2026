@@ -41,6 +41,11 @@ enum PlaybackTrace {
         logger.notice("长按加速 \(event, privacy: .public)")
     }
 
+    /// 一次拖动：定了哪个模式 / 松手时把目标交给了谁（快进快退「有 bug」这类问题就看这两条）。
+    static func noteDrag(_ event: String) {
+        logger.notice("拖动 \(event, privacy: .public)")
+    }
+
     /// 控制条显隐：谁改的、改成什么。
     static func noteControls(visible: Bool, reason: String) {
         let state: String = visible ? "显示" : "收起"
