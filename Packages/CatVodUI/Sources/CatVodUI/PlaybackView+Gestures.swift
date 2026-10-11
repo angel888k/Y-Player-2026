@@ -54,6 +54,14 @@ extension PlaybackView {
     static let speedBoostMaxDistance: CGFloat = 10
     /// 松手后多久内补发的点按要吞掉（同一次触摸的尾巴）。
     static let speedBoostSwallowSeconds: TimeInterval = 0.5
+    /// 「长按还按着」最多信多久（秒）：超过它再来点按，就当那次长按**已经被系统吞了**。
+    ///
+    /// 为什么要有这条（M27 首验之六）：SwiftUI 的手势被取消时（转屏 / 视图重建 / 控制条显隐这些
+    /// 布局变化都会）`onEnded` **不发**，`isSpeedBoostHolding` 就一直挂着 ——
+    /// 用户看到的是「一直按长按倍速在播」+ 提示一直亮「2.0x」，而且之后**每一次点按都被吞**
+    /// （「点一下变 2x，再点没反应」）。留一个窗口把它兜住：
+    /// 正常的长按松手，补发的那次点按在 0.3 秒内就到（双击优先那套要等第二下），1.5 秒绰绰有余。
+    static let speedBoostTrustSeconds: TimeInterval = 1.5
 
     /// 双指缩放的上限（上游 `Math.clamp(scale, 1.0f, 5.0f)` 里的那个 5）。
     static let zoomMaximum: CGFloat = 5
@@ -325,6 +333,7 @@ extension PlaybackView {
             return
         }
         isSpeedBoostHolding = true
+        speedBoostStartedAt = Date()
         guard Self.canStartSpeedBoost(isPlaying: playerState.isPlaying, isBoosting: isSpeedBoosting), let engine else {
             return
         }
@@ -341,6 +350,7 @@ extension PlaybackView {
             return
         }
         isSpeedBoostHolding = false
+        speedBoostStartedAt = nil
         speedBoostEndedAt = Date()
         gestureHint = ""
         guard isSpeedBoosting else {
@@ -350,18 +360,65 @@ extension PlaybackView {
         setSpeed(speed, persist: false)
     }
 
-    /// 这次点按要不要吞掉：长按这次触摸还没结束（`simultaneousGesture` 不挡点按）、或刚松手那一下补发的。
+    /// 点按该当何论。
+    enum TapDisposition: Equatable {
+        /// 同一次触摸的尾巴：吞掉。
+        case swallow
+        /// 正常点按：放行。
+        case allow
+        /// 「还按着」挂太久了 = 那次长按被系统吞了：先收掉加速（恢复倍速），再放行这一下。
+        case endStaleBoost
+    }
+
+    /// 这次点按归哪一类（**纯函数**，有单测）：长按这次触摸还没结束（`simultaneousGesture` 不挡点按）、
+    /// 或刚松手那一下补发的，都要吞。
     ///
     /// 为什么要吞：SwiftUI 的 `TapGesture` 没有「按多久算点按」的上限，长按松手后会补一次单击 ——
     /// 不吞的话「按住加速 → 松手」会把控制条闪一下（那是单击的副作用）。
-    func shouldSwallowTap() -> Bool {
-        if isSpeedBoostHolding {
-            return true
+    ///
+    /// 为什么「还按着」只信 ``speedBoostTrustSeconds``：见那个常量的说明 ——
+    /// 手势被系统取消时 `onEnded` 不发，不兜住就是「一直 2x + 点什么都不动」。
+    static func tapDisposition(
+        isHolding: Bool,
+        holdStartedAt: Date?,
+        endedAt: Date?,
+        now: Date
+    ) -> TapDisposition {
+        if isHolding {
+            guard let holdStartedAt,
+                  now.timeIntervalSince(holdStartedAt) < speedBoostTrustSeconds
+            else {
+                return .endStaleBoost
+            }
+            return .swallow
         }
-        guard let endedAt = speedBoostEndedAt else {
+        guard let endedAt else {
+            return .allow
+        }
+        return now.timeIntervalSince(endedAt) < speedBoostSwallowSeconds ? .swallow : .allow
+    }
+
+    /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:holdStartedAt:endedAt:now:)``；
+    /// 「挂太久」那一类顺手把加速收掉，别让界面一直卡在 2x）。
+    func shouldSwallowTap() -> Bool {
+        let disposition = Self.tapDisposition(
+            isHolding: isSpeedBoostHolding,
+            holdStartedAt: speedBoostStartedAt,
+            endedAt: speedBoostEndedAt,
+            now: Date()
+        )
+        switch disposition {
+        case .swallow:
+            return true
+        case .allow:
+            speedBoostEndedAt = nil
+            return false
+        case .endStaleBoost:
+            endSpeedBoost()
+            // 收加速会写一个「刚松手」的时刻 —— 这里再清掉：这一下是用户要的点按，
+            // 紧接着的连点不该被那句「刚松手」吞掉。
+            speedBoostEndedAt = nil
             return false
         }
-        speedBoostEndedAt = nil
-        return Date().timeIntervalSince(endedAt) < Self.speedBoostSwallowSeconds
     }
 }

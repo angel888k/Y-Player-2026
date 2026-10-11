@@ -63,10 +63,36 @@ struct PlaybackGestureTests {
         #expect(!PlaybackView.canStartSpeedBoost(isPlaying: true, isBoosting: true))
     }
 
-    @Test("长按倍速：上游默认 2.0x；按住时刻与吞点按窗口是本项目的常量")
+    @Test("长按倍速：上游默认 2.0x；按住时刻与两个窗口是本项目的常量")
     func boostConstants() {
         #expect(SpeedSetting.longPress == 2.0)
         #expect(PlaybackView.speedBoostHoldSeconds == 0.5)
         #expect(PlaybackView.speedBoostSwallowSeconds == 0.5)
+        #expect(PlaybackView.speedBoostTrustSeconds == 1.5)
+        // 「还按着」的窗口得比「刚松手」那条宽：它兜的是「onEnded 根本没来」那种（转屏 / 视图重建）。
+        #expect(PlaybackView.speedBoostTrustSeconds > PlaybackView.speedBoostSwallowSeconds)
+    }
+
+    @Test("点按的三种下场：吞尾巴 / 放行 / 「还按着」挂太久就当长按已被系统吞掉（M27 首验之六）")
+    func tapDisposition() {
+        let now = Date()
+        #expect(PlaybackView.tapDisposition(
+            isHolding: true, holdStartedAt: now.addingTimeInterval(-0.2), endedAt: nil, now: now
+        ) == .swallow)
+        #expect(PlaybackView.tapDisposition(
+            isHolding: true, holdStartedAt: now.addingTimeInterval(-30), endedAt: nil, now: now
+        ) == .endStaleBoost)
+        #expect(PlaybackView.tapDisposition(
+            isHolding: true, holdStartedAt: nil, endedAt: nil, now: now
+        ) == .endStaleBoost)
+        #expect(PlaybackView.tapDisposition(
+            isHolding: false, holdStartedAt: nil, endedAt: now.addingTimeInterval(-0.2), now: now
+        ) == .swallow)
+        #expect(PlaybackView.tapDisposition(
+            isHolding: false, holdStartedAt: nil, endedAt: now.addingTimeInterval(-5), now: now
+        ) == .allow)
+        #expect(PlaybackView.tapDisposition(
+            isHolding: false, holdStartedAt: nil, endedAt: nil, now: now
+        ) == .allow)
     }
 }

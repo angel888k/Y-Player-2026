@@ -147,6 +147,9 @@ public struct PlaybackView: View {
     @State var isSpeedBoosting = false
     /// 长按松手的那一刻：松手补发的那次点按要吞掉（只吞一次）。
     @State var speedBoostEndedAt: Date?
+    /// 这次长按**开始**的时刻：见 ``tapDisposition(isHolding:holdStartedAt:endedAt:now:)`` ——
+    /// 「还按着」只信一小会儿，挂久了就是手势被系统吞了（M27 首验之六）。
+    @State var speedBoostStartedAt: Date?
     @State private var stateText = "准备中…"
     @State private var engineText = ""
     /// 出错文案（换线路失败也走它，见 `PlaybackView+Lines.swift`）—— 跨文件要用，模块内。
@@ -525,6 +528,11 @@ public struct PlaybackView: View {
                 // 字幕的时间轴不依赖尺寸（没有几何烘进去），键只看 cue 本身。
                 .task(id: subtitleTimelineKey) {
                     subtitleTimeline = makeSubtitleTimeline()
+                }
+                // 布局变了（转屏 / 就地放大 + 转横屏 / 分屏）：手势多半已经被系统取消
+                // （`onEnded` 不会来）—— 把长按加速收掉，别让它挂着一直 2x（M27 首验之六）。
+                .onChange(of: proxy.size) { _ in
+                    endSpeedBoost()
                 }
             }
             // 沉浸版：画面区吃掉信息区之外的全部高度 —— 竖屏视频因此能铺满大半屏，
