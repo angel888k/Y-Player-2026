@@ -36,6 +36,9 @@ public struct HomeView: View {
     @State var renameKey = ""
     @State var renameText = ""
     @State var isRenamePresented = false
+    /// 站点菜单里当前筛的分组（空 = 不筛）。由本视图持有 —— **跨菜单开合记忆**（M28 首验之二十九），
+    /// 选过一次就只列那一组，菜单弹出更利索。
+    @State var siteGroupFilter = ""
     /// 分组标签（`site key → 标签`）：站点菜单的「分组筛选 / 分组排序」要用。
     ///
     /// 抽标签要跑正则，不能放进每次渲染：只在这两处重算 —— `.task(id: model.siteRuleInput)`
@@ -455,6 +458,7 @@ public struct HomeView: View {
             ruleInput: model.siteRuleInput,
             tags: siteTags,
             savedGroupOrder: model.siteGroupOrder,
+            selectedGroup: $siteGroupFilter,
             onMoveGroup: { group, direction in
                 model.moveSiteGroup(group, direction: direction)
             },

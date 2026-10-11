@@ -280,8 +280,36 @@ struct DiscoverSiteSwitcher: View {
     var onFindRequest: (() -> Void)?
     let onSelect: (String) -> Void
 
-    /// 当前筛的分组（空 = 不筛）。
-    @State private var selectedGroup = ""
+    /// 当前筛的分组（空 = 不筛）。**跨开合记忆**（M28 首验之二十九）：由上层持有 ——
+    /// 选过一次「某组」，下次点开菜单就只列那一组的站点（主清单立刻变短，弹出更利索）；
+    /// 原来放本视图的 `@State` 里，菜单一关就忘，等于每次都要面对全量清单。
+    @Binding var selectedGroup: String
+
+    init(
+        sites: [Site],
+        selectedKey: String,
+        title: String,
+        ruleInput: DiscoverSiteRuleInput = DiscoverSiteRuleInput(),
+        tags: [String: [String]] = [:],
+        savedGroupOrder: [String] = [],
+        selectedGroup: Binding<String> = .constant(""),
+        onMoveGroup: ((String, Int) -> Void)? = nil,
+        onRenameCurrent: (() -> Void)? = nil,
+        onFindRequest: (() -> Void)? = nil,
+        onSelect: @escaping (String) -> Void
+    ) {
+        self.sites = sites
+        self.selectedKey = selectedKey
+        self.title = title
+        self.ruleInput = ruleInput
+        self.tags = tags
+        self.savedGroupOrder = savedGroupOrder
+        _selectedGroup = selectedGroup
+        self.onMoveGroup = onMoveGroup
+        self.onRenameCurrent = onRenameCurrent
+        self.onFindRequest = onFindRequest
+        self.onSelect = onSelect
+    }
 
     private var groups: [String] {
         DiscoverSiteList.groups(sites: sites, tags: tags, savedOrder: savedGroupOrder)
@@ -333,7 +361,7 @@ struct DiscoverSiteSwitcher: View {
         if !groups.isEmpty {
             groupMenu
             if groups.count > 1, onMoveGroup != nil {
-                sortMenu
+                moreMenu
             }
         }
         if let onFindRequest {
@@ -378,10 +406,10 @@ struct DiscoverSiteSwitcher: View {
         }
     }
 
-    /// 分组排序（M06g）：长按胶囊弹「上移 / 下移」的旧交互换成了菜单里的两级 ——
-    /// 每个分组一个小节，两条动作。（横向滚动手势与拖动排序打架，上游那套长按拖动本来就没做。）
-    private var sortMenu: some View {
-        Menu("分组排序") {
+    /// 「更多」子菜单：**低频操作收在这里**（M28 首验之二十九）—— 分组排序原来常驻主菜单，
+    /// 每组两行会把主菜单撑长，而它是个设置类操作；收进二级之后主菜单只剩「分组筛选 + 清单」。
+    private var moreMenu: some View {
+        Menu("更多") {
             ForEach(groups, id: \.self) { group in
                 Section(group) {
                     Button("上移") {
