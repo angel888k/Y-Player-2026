@@ -72,63 +72,43 @@ struct PlaybackGestureTests {
         #expect(!PlaybackView.canStartSpeedBoost(isPlaying: true, isBoosting: true))
     }
 
-    @Test("长按倍速：时间线是本项目的常量（M28 首验之十：起加速自己计时，线还是 1.5 秒）")
+    @Test("长按倍速：两条线按实测重定（M28 首验之十一：0.4 秒起加速 / 0.8 秒才吞尾巴）")
     func boostConstants() {
         #expect(SpeedSetting.longPress == 2.0)
-        // 1.5：用户真实的「单击」实测按下 0.8–1.2 秒（日志反推）—— 这条线要躲开它，不是反过来。
-        #expect(PlaybackView.speedBoostHoldSeconds == 1.5)
+        // 实测：真实单击 0.10–0.13 秒、「按实一点」的 0.45–0.66 秒 —— 0.4 秒这条线离单击有三倍余量。
+        #expect(PlaybackView.speedBoostHoldSeconds == 0.4)
+        // 防误吞线要比手感线高一截：「长按完控制条跳一下」比「误吞一根真点按」轻。
+        #expect(PlaybackView.speedBoostSwallowHoldSeconds == 0.8)
+        #expect(PlaybackView.speedBoostSwallowHoldSeconds > PlaybackView.speedBoostHoldSeconds)
         // 「按下」的报时门槛：几乎为零（0.01 秒）—— 它只负责报到，不负责判定。
         #expect(PlaybackView.speedBoostPressDetectSeconds <= 0.05)
     }
 
-    @Test("按住「动了」的判定：超过抖动线就不算按住（与 maximumDistance 同一条线）")
-    func pressMoved() {
-        #expect(!PlaybackView.pressMoved(CGSize(width: 10, height: 0)))
-        #expect(PlaybackView.pressMoved(CGSize(width: 11, height: 0)))
-        #expect(!PlaybackView.pressMoved(CGSize(width: 0, height: -10)))
-        #expect(PlaybackView.pressMoved(CGSize(width: 0, height: -11)))
-        #expect(!PlaybackView.pressMoved(CGSize(width: 8, height: 8)))
-        #expect(PlaybackView.pressMoved(CGSize(width: 8, height: 12)))
-    }
-
-    @Test("点按的分档（M28 首验之十）：只看量出来的按住时长 —— 0.45 秒的单击放行、2 秒的尾巴吞")
+    @Test("点按的分档（M28 首验之十 / 十一）：只看量出来的按住时长 —— 0.45 秒放行、0.9 秒吞")
     func tapDisposition() {
         let now = Date()
-        // 尾巴点按先到（松手还没被识别，`pressEndedAt` 还是 nil）：按住 0.45 秒的单击放行 ——
-        // 现场日志里就是它被误吞过（「点屏幕没反应 / 按钮点了没动静」）。
+        // 0.45 秒的点按放行 —— 现场日志里就是这一档被误吞过（「点屏幕没反应 / 按钮点了没动静」）。
         #expect(PlaybackView.tapDisposition(
-            isHolding: true, pressStartedAt: now.addingTimeInterval(-0.45), pressEndedAt: nil, now: now
+            isHolding: true, pressStartedAt: now.addingTimeInterval(-0.45), now: now
         ) == .allow)
-        // 真·长按（按住 2 秒）的尾巴：吞（不让控制条闪）。
+        // 快速单击（0.12 秒）当然放行。
         #expect(PlaybackView.tapDisposition(
-            isHolding: true, pressStartedAt: now.addingTimeInterval(-2.0), pressEndedAt: nil, now: now
-        ) == .swallow)
-        // 松手先被识别（`onEnded` 已到）：同一个结论 —— 顺序不固定，两种来信都按同一本账量。
-        #expect(PlaybackView.tapDisposition(
-            isHolding: false,
-            pressStartedAt: now.addingTimeInterval(-2.2),
-            pressEndedAt: now.addingTimeInterval(-0.2),
-            now: now
-        ) == .swallow)
-        #expect(PlaybackView.tapDisposition(
-            isHolding: false,
-            pressStartedAt: now.addingTimeInterval(-1.4),
-            pressEndedAt: now.addingTimeInterval(-0.2),
-            now: now
+            isHolding: true, pressStartedAt: now.addingTimeInterval(-0.12), now: now
         ) == .allow)
+        // 真·长按（0.9 秒）的尾巴：吞（不让控制条闪）。
+        #expect(PlaybackView.tapDisposition(
+            isHolding: true, pressStartedAt: now.addingTimeInterval(-0.9), now: now
+        ) == .swallow)
         // 按得久的（5 秒）也是真·长按：吞 —— 没有「挂太久」的上限（那会把长按的尾巴放进来）。
         #expect(PlaybackView.tapDisposition(
-            isHolding: false,
-            pressStartedAt: now.addingTimeInterval(-5.2),
-            pressEndedAt: now.addingTimeInterval(-0.2),
-            now: now
+            isHolding: false, pressStartedAt: now.addingTimeInterval(-5.2), now: now
         ) == .swallow)
         // 连按下时刻都没记到：还按着当挂死（自愈 + 放行）；没按着直接放行。
         #expect(PlaybackView.tapDisposition(
-            isHolding: true, pressStartedAt: nil, pressEndedAt: nil, now: now
+            isHolding: true, pressStartedAt: nil, now: now
         ) == .endStaleBoost)
         #expect(PlaybackView.tapDisposition(
-            isHolding: false, pressStartedAt: nil, pressEndedAt: now, now: now
+            isHolding: false, pressStartedAt: nil, now: now
         ) == .allow)
     }
 }
