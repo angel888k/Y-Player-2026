@@ -79,7 +79,9 @@ extension VodDetailView {
                 onRequestFullScreen: {
                     inlineSitePlayback = nil
                     fullScreenPlayback = target
-                }
+                },
+                // 同上：这块也是定尺槽位（16:9），画面区不带下限。
+                playerAreaMinHeight: 0
             )
         }
     }
@@ -94,7 +96,10 @@ extension VodDetailView {
             onRequestFullScreen: {
                 inlinePlayback = nil
                 fullScreenPlayback = target
-            }
+            },
+            // 槽位尺寸由外面的 16:9 说了算：去掉画面区的 280 下限（不清掉会把槽位顶高，
+            // 点播放的瞬间下面整页内容往下跳一截）。
+            playerAreaMinHeight: 0
         )
     }
 
@@ -126,14 +131,23 @@ extension VodDetailView {
     static let compactPlayerAspect: CGFloat = 16.0 / 9.0
 
     /// 从「该播的那一集」（有观看记录就是那一集）就地开播。
+    ///
+    /// 不能就地播的（要过解析链 / 不支持）**交回导航链** —— 与点剧集胶囊同一套口径：
+    /// 那两条自带页面与网嗅，不是换一个地址能说完的。
     func startInlinePlaybackFromSlot() {
         guard let slot = playSlot else {
+            return
+        }
+        guard canPlayInline(at: slot.index) else {
+            openEpisode(at: slot.index)
             return
         }
         startInlinePlayback(at: slot.index)
     }
 
     /// 点一集就地播：直链走 ``inlinePlayback``，站点换地址的（type=3 / 4）走 ``inlineSitePlayback``。
+    ///
+    /// **调用方先问过 ``canPlayInline(at:)``**（不就地播的那两条走导航链，别把状态设歪）。
     func startInlinePlayback(at index: Int) {
         guard episodes.indices.contains(index) else {
             return

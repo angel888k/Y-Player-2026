@@ -38,6 +38,9 @@ struct SitePlayEpisodeView: View {
     var onClose: (() -> Void)?
     /// 转到全屏（就地播放时才给）：控制条上那颗 ⤢。
     var onRequestFullScreen: (() -> Void)?
+    /// 画面区的下限高度（透传给它的 `PlaybackView`）：挂在详情页顶上那块定尺槽位时传 0
+    /// （见 `PlaybackView/playerAreaMinHeight` 的说明）。
+    var playerAreaMinHeight: CGFloat = 280
 
     @State private var resource: MediaResource?
     /// 站点说「还要再解析一次」时存下 play 的结果，body 里转交给解析链（见 ``loadResource()``）。
@@ -78,6 +81,7 @@ struct SitePlayEpisodeView: View {
                     isFullScreen: isFullScreen,
                     onClose: onClose,
                     onRequestFullScreen: onRequestFullScreen,
+                    playerAreaMinHeight: playerAreaMinHeight,
                     progressContext: progressContext,
                     progressStore: model.progressStore,
                     danmaku: DanmakuRequest(name: title, episode: episode.displayName),

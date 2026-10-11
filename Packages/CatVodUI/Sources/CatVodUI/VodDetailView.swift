@@ -313,7 +313,8 @@ public struct VodDetailView: View {
         at index: Int,
         isFullScreen: Bool = false,
         onClose: (() -> Void)? = nil,
-        onRequestFullScreen: (() -> Void)? = nil
+        onRequestFullScreen: (() -> Void)? = nil,
+        playerAreaMinHeight: CGFloat = 280
     ) -> some View {
         // 播放页自己的换集能力（M12P1）：详情页知道「集列表 + 线路 + 站点」，包成闭包交给它。
         let playlist = episodePlaylist(currentIndex: index)
@@ -325,6 +326,8 @@ public struct VodDetailView: View {
                 isFullScreen: isFullScreen,
                 onClose: onClose,
                 onRequestFullScreen: onRequestFullScreen,
+                // 定尺槽位（精简视图顶上那块）传 0：别让画面区的下限把外面的 16:9 顶高。
+                playerAreaMinHeight: playerAreaMinHeight,
                 // 就地换了内核（M26）：记成默认，下次进来自动用新内核（与设置页那次选择同一条路）。
                 onEngineChanged: { kind in
                     model.preferredEngine = kind

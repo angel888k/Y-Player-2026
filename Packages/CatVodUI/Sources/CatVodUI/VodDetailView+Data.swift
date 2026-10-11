@@ -155,8 +155,10 @@ extension VodDetailView {
         }
         autoPlayEpisodeIndex = episodeIndex
         // 精简视图：**就地开播**（对齐参考的 Normal 页：视频在上、详情在下），不推页面。
-        if model.playbackPageLayout == .compact, makeResource(for: episodes[episodeIndex]) != nil {
-            inlinePlayback = PlaybackTarget(index: episodeIndex, episode: episodes[episodeIndex])
+        // 与点播放 / 点胶囊**同一套分派**：直链 → PlaybackView；type=3/4 换地址的 → SitePlayEpisodeView。
+        // 只有「要过解析链」与不支持的仍走导航链（与胶囊一致）。
+        if model.playbackPageLayout == .compact, canPlayInline(at: episodeIndex) {
+            startInlinePlayback(at: episodeIndex)
             return
         }
         // 等一小会儿再激活导航链：详情刚加载完时列表可能还没画出来，

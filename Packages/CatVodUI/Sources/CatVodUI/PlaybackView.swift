@@ -202,6 +202,7 @@ public struct PlaybackView: View {
         isFullScreen: Bool = false,
         onClose: (() -> Void)? = nil,
         onRequestFullScreen: (() -> Void)? = nil,
+        playerAreaMinHeight: CGFloat = 280,
         onEngineChanged: ((PlayerEngineKind) -> Void)? = nil,
         progressContext: PlaybackProgressContext? = nil,
         progressStore: PlaybackProgressStore? = nil,
@@ -229,6 +230,7 @@ public struct PlaybackView: View {
         self.isFullScreen = isFullScreen
         self.onClose = onClose
         self.onRequestFullScreen = onRequestFullScreen
+        self.playerAreaMinHeight = playerAreaMinHeight
         self.onEngineChanged = onEngineChanged
         _engineKind = State(initialValue: settings.engine)
         _activeProgressContext = State(initialValue: progressContext)
@@ -267,6 +269,10 @@ public struct PlaybackView: View {
     let onClose: (() -> Void)?
     /// 转到全屏（就地播放时才给）：控制条上那颗 ⤢ —— 对齐参考里「半屏播放器 → 全屏」的那颗图标。
     let onRequestFullScreen: (() -> Void)?
+    /// 画面区的**下限高度**（默认 280）：推页 / 全屏时横屏（可用高约 350）把信息区压进内部滚动，画面不被挤出屏幕。
+    /// 精简视图顶上那块是**定尺槽位**（16:9，尺寸由外面的 `aspectRatio` 说了算，iPhone 上只有 ~220pt）——
+    /// 那里传 0：下限会把槽位顶高，点播放的瞬间下面的内容会往下跳一截（M26 首验之二）。
+    let playerAreaMinHeight: CGFloat
     /// 就地换了内核时回传（M26）：上层把它记成默认，下次进来自动用新内核。
     let onEngineChanged: ((PlayerEngineKind) -> Void)?
     /// **当前生效的内核**：初值取设置里那一档，控制条上的「播放器」可以就地换（M26）。
@@ -500,8 +506,9 @@ public struct PlaybackView: View {
             }
             // 沉浸版：画面区吃掉信息区之外的全部高度 —— 竖屏视频因此能铺满大半屏，
             // 不再是顶部一条 16:9 的横带（那正是「白底边」的来源）。
-            // 下限 280：横屏（可用高约 350）时把信息区压到内部滚动，画面不被挤出屏幕。
-            .frame(maxWidth: .infinity, minHeight: 280, maxHeight: .infinity)
+            // 下限见 `playerAreaMinHeight`：推页 / 全屏 280；定尺槽位（精简视图顶上那块）传 0，
+            // 不让这条下限把槽位的 16:9 顶高。
+            .frame(maxWidth: .infinity, minHeight: playerAreaMinHeight, maxHeight: .infinity)
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, minHeight: 200, maxHeight: .infinity)

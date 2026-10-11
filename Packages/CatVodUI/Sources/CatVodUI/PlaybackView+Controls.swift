@@ -39,15 +39,28 @@ extension PlaybackView {
     }
 
     /// 上下两条压暗：只压边缘，不糊整屏（参考图里字直接压在画面上、不垫整块底）。
+    ///
+    /// 高度封顶 110 / 180（沉浸全屏的量），但**再按可用高度收**（``backdropGradientHeights(forHeight:)``）：
+    /// 精简视图顶上那块 16:9 槽位只有 ~220pt，固定的两条加起来 290 会顶出画面 —— 底那条糊到下面的内容上。
     private var barBackdrop: some View {
-        VStack(spacing: 0) {
-            LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
-                .frame(height: 110)
-            Spacer(minLength: 0)
-            LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 180)
+        GeometryReader { proxy in
+            let heights = Self.backdropGradientHeights(forHeight: proxy.size.height)
+            VStack(spacing: 0) {
+                LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: heights.top)
+                Spacer(minLength: 0)
+                LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: heights.bottom)
+            }
         }
         .allowsHitTesting(false)
+    }
+
+    /// 两条压暗的高度（**纯函数**，有单测）：封顶 110 / 180，再乘可用高度的 35% / 55%。
+    ///
+    /// 两个系数之和是 0.9 —— 任何高度下两条加起来都放得下（不顶出画面外）。
+    static func backdropGradientHeights(forHeight height: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
+        (min(110, height * 0.35), min(180, height * 0.55))
     }
 
     /// 顶排：关闭 · 画面比例 —— 弹幕 · 倍速 · 锁定。

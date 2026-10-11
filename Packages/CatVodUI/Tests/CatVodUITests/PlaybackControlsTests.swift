@@ -33,3 +33,41 @@ struct PlaybackControlsTests {
         #expect(PlaybackView.controlsAutoHideSeconds == 4)
     }
 }
+
+/// 控制条上下两条压暗的高度（M26 首验之二）：沉浸全屏还是 110 / 180，
+/// **定尺槽位（精简视图顶上那块 16:9，~220pt）按高度收** —— 不收会顶出画面、糊到下面的内容上。
+@Suite("播放页：控制条压暗随高度收")
+@MainActor
+struct PlaybackBackdropTests {
+    @Test("沉浸全屏 / 横屏（够高）：还是封顶的 110 / 180，不动")
+    func keepsFullHeights() {
+        for height: CGFloat in [327.3, 390, 800, 844] {
+            let heights = PlaybackView.backdropGradientHeights(forHeight: height)
+            #expect(heights.top == 110)
+            #expect(heights.bottom == 180)
+        }
+    }
+
+    @Test("精简视图顶上那块 16:9（iPhone ~220pt）：两条都收，加起来放得下")
+    func shrinksInSlot() {
+        let height: CGFloat = 220
+        let heights = PlaybackView.backdropGradientHeights(forHeight: height)
+        #expect(heights.top < 110)
+        #expect(heights.bottom < 180)
+        #expect(heights.top > 0)
+        #expect(heights.bottom > 0)
+        #expect(heights.top + heights.bottom <= height)
+    }
+
+    @Test("任何高度都不顶出画面：0 / 1 / 100 / 220 / 280 / 327.3")
+    func neverOverflows() {
+        for height: CGFloat in [0, 1, 100, 220, 280, 327.3] {
+            let heights = PlaybackView.backdropGradientHeights(forHeight: height)
+            #expect(heights.top >= 0)
+            #expect(heights.bottom >= 0)
+            #expect(heights.top <= 110)
+            #expect(heights.bottom <= 180)
+            #expect(heights.top + heights.bottom <= height)
+        }
+    }
+}
