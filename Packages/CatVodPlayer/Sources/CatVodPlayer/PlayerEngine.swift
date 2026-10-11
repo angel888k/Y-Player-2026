@@ -166,6 +166,9 @@ public protocol PlayerEngine: AnyObject, Sendable {
     /// 系统内核没有这个能力（空实现），界面也不会对它显示这一项。
     func setScaleMode(_ mode: PlaybackScaleMode) async
     func teardown() async
+    /// 结束事件流（**持有者销毁内核时调用**）。`teardown()` 自己不结束 —— 同一个引擎要能接着加载下一个视频，
+    /// 而「就地换内核 / 离开播放页」时旧引擎连同它的 `consume` 任务要能干净退场（M26 换内核用）。
+    func finishEvents() async
 }
 
 /// 轨道类别。

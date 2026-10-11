@@ -322,6 +322,10 @@ public struct VodDetailView: View {
                 isFullScreen: isFullScreen,
                 onClose: onClose,
                 onRequestFullScreen: onRequestFullScreen,
+                // 就地换了内核（M26）：记成默认，下次进来自动用新内核（与设置页那次选择同一条路）。
+                onEngineChanged: { kind in
+                    model.preferredEngine = kind
+                },
                 progressContext: progressContext(for: episode, at: index),
                 progressStore: model.progressStore,
                 // 直链路径（type 0/1/2 的 CMS 站）以前没有弹幕请求 —— M08c 只接了站点/解析两条路，

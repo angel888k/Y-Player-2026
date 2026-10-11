@@ -88,11 +88,11 @@ public struct PlaybackView: View {
     let onPlaybackStats: ((PlaybackStats) -> Void)?
 
     @State var engine: (any PlayerEngine)?
-    @State private var player: AVPlayer?
+    @State var player: AVPlayer?
     /// MPV 的画面层（只有选了 MPV 才有）：引擎拿它当 `wid`，`MpvVideoView` 把它挂进画面区。
-    @State private var mpvSurface: MpvVideoSurface?
+    @State var mpvSurface: MpvVideoSurface?
     /// 自研 FFmpeg 内核的画面层（只有选了它才有）：会话往这层喂样本，`FFmpegVideoView` 把它挂进画面区。
-    @State private var ffmpegSurface: FFmpegVideoSurface?
+    @State var ffmpegSurface: FFmpegVideoSurface?
     /// 正在拖进度条：拖动期间不采纳内核报回的位置，否则滑杆会被顶回去。
     /// 正在拖控制条的进度条：拖动期间不采纳内核报回的位置，否则滑杆会被顶回去。
     /// （去掉 `private`：`PlaybackView+Controls.swift` 要用。）
@@ -139,7 +139,7 @@ public struct PlaybackView: View {
     @State private var engineText = ""
     /// 出错文案（换线路失败也走它，见 `PlaybackView+Lines.swift`）—— 跨文件要用，模块内。
     @State var errorText = ""
-    @State private var eventTask: Task<Void, Never>?
+    @State var eventTask: Task<Void, Never>?
     @State private var resumedFromText = ""
     /// 片头 / 片尾标记（M03P16）：秒；0 = 没标。与进度写在同一份记录里（`opening` / `ending` 两列）。
     /// 去掉 `private`：`PlaybackView+OpeningEnding.swift` 要用（与手势那组同一理由）。
@@ -199,6 +199,7 @@ public struct PlaybackView: View {
         isFullScreen: Bool = false,
         onClose: (() -> Void)? = nil,
         onRequestFullScreen: (() -> Void)? = nil,
+        onEngineChanged: ((PlayerEngineKind) -> Void)? = nil,
         progressContext: PlaybackProgressContext? = nil,
         progressStore: PlaybackProgressStore? = nil,
         danmaku: DanmakuRequest? = nil,
@@ -225,6 +226,8 @@ public struct PlaybackView: View {
         self.isFullScreen = isFullScreen
         self.onClose = onClose
         self.onRequestFullScreen = onRequestFullScreen
+        self.onEngineChanged = onEngineChanged
+        _engineKind = State(initialValue: settings.engine)
         _activeProgressContext = State(initialValue: progressContext)
         self.playlist = playlist
         _currentEpisodeIndex = State(initialValue: playlist?.currentIndex)
@@ -261,6 +264,11 @@ public struct PlaybackView: View {
     let onClose: (() -> Void)?
     /// 转到全屏（就地播放时才给）：控制条上那颗 ⤢ —— 对齐参考里「半屏播放器 → 全屏」的那颗图标。
     let onRequestFullScreen: (() -> Void)?
+    /// 就地换了内核时回传（M26）：上层把它记成默认，下次进来自动用新内核。
+    let onEngineChanged: ((PlayerEngineKind) -> Void)?
+    /// **当前生效的内核**：初值取设置里那一档，控制条上的「播放器」可以就地换（M26）。
+    /// 换成别的内核只影响这一次播放 + 回传默认值 —— 与设置页那次选择是同一条路。
+    @State var engineKind: PlayerEngineKind
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -334,7 +342,7 @@ public struct PlaybackView: View {
                     }
                     if engine != nil {
                         speedSection
-                        if settings.engine.supportsAudioGain {
+                        if engineKind.supportsAudioGain {
                             audioGainSection
                         }
                     }
@@ -421,6 +429,8 @@ public struct PlaybackView: View {
             Task {
                 // 退出前落一次进度（节流不适用于离场）。
                 await persist(force: true)
+                // 事件流也要收：`consume` 那个任务持有引擎，不结束它旧内核不会退场。
+                await current?.finishEvents()
                 await current?.teardown()
             }
         }
@@ -569,7 +579,7 @@ extension PlaybackView {
             return
         }
         let coordinator = PlayerCoordinator()
-        engineText = settings.engine.displayName
+        engineText = engineKind.displayName
         speed = PlaybackSpeedBook.speed()
         longPressSpeed = PlaybackSpeedBook.longPressSpeed()
         // 弹幕倍速的初值：`speedChanged` 事件不一定在起播时发（引擎本来就是这个速度时它不会变），
@@ -577,7 +587,7 @@ extension PlaybackView {
         playbackRate = Double(speed)
 
         // 策略：严格按用户设置执行，**不自动降级**。不可用就提示，让用户改设置。
-        if case let .unavailable(kind, reason) = coordinator.resolve(settings: settings) {
+        if case let .unavailable(kind, reason) = coordinator.resolve(settings: effectiveSettings) {
             errorText = "\(kind.displayName)：\(reason)\n请到「接口 → 播放设置」更换内核。"
             return
         }
@@ -588,24 +598,24 @@ extension PlaybackView {
         // 画面层要在建引擎**之前**准备好：MPV 的 `wid` 是启动期选项、自研 FFmpeg 的层是会话的落点
         // （见 `LibmpvSession` / `FFmpegSession.make(surface:)`），都得在会话建起来之前交出去。
         var videoSurface: MpvVideoSurface?
-        if settings.engine == .mpv {
+        if engineKind == .mpv {
             let surface = MpvVideoSurface()
             videoSurface = surface
             mpvSurface = surface
         }
         var ffmpegVideoSurface: FFmpegVideoSurface?
-        if settings.engine == .ffmpeg {
+        if engineKind == .ffmpeg {
             let surface = FFmpegVideoSurface()
             ffmpegVideoSurface = surface
             ffmpegSurface = surface
         }
         guard let created = coordinator.makeEngine(
-            kind: settings.engine,
+            kind: engineKind,
             decoderMode: settings.decoderMode,
             videoSurface: videoSurface,
             ffmpegSurface: ffmpegVideoSurface
         ) else {
-            errorText = "\(settings.engine.displayName) 内核当前不可用，无法播放（不会自动切换其他内核）。"
+            errorText = "\(engineKind.displayName) 内核当前不可用，无法播放（不会自动切换其他内核）。"
             return
         }
 
@@ -884,18 +894,8 @@ extension PlaybackView {
         await loadActiveResource()
     }
 
-    /// 重试一次播放（M16P8）：引擎已经建起来就重新 load，没建起来就整条 `start()` 重走。
-    func retryPlayback() async {
-        errorText = ""
-        if engine == nil {
-            await start()
-        } else {
-            await loadActiveResource()
-        }
-    }
-
     /// 让当前引擎加载 `activeResource`（换集走这里；首播走 `start()`）。
-    private func loadActiveResource() async {
+    func loadActiveResource() async {
         guard let engine else {
             return
         }
@@ -942,7 +942,7 @@ extension PlaybackView {
     /// 画面比例（M03P9）：只列**当前内核真的支持**的档位 —— 系统内核一档都不支持，整行不出现；
     /// 自研 FFmpeg 只有 gravity 三态（三档）。不做「点了没反应」的开关。
     @ViewBuilder private var scaleSection: some View {
-        let modes = PlaybackScaleMode.supportedModes(by: settings.engine)
+        let modes = PlaybackScaleMode.supportedModes(by: engineKind)
         if !modes.isEmpty {
             Section("画面比例") {
                 Picker("画面比例", selection: scaleBinding) {

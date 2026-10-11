@@ -134,6 +134,7 @@ extension PlaybackView {
                 Task { await engine?.stepFrame() }
             }
             Spacer(minLength: 0)
+            engineMenu
             subtitleMenu
             audioMenu
             openingEndingMenu
@@ -150,7 +151,7 @@ extension PlaybackView {
     /// 画面比例：只列**当前内核真的支持**的档位（系统内核一档都不支持，这颗按钮就不出现）。
     @ViewBuilder
     private var scaleMenu: some View {
-        let modes = PlaybackScaleMode.supportedModes(by: settings.engine)
+        let modes = PlaybackScaleMode.supportedModes(by: engineKind)
         if !modes.isEmpty {
             Menu {
                 Picker("画面比例", selection: scaleBinding) {
@@ -222,6 +223,36 @@ extension PlaybackView {
     }
 
     // MARK: - 底排那几个文字按钮
+
+    /// 「播放器」：就地换内核（参考底排第一颗）。**只列现在真能用的**那一档以上 ——
+    /// 一个可用内核都没有时整颗按钮不出现（不摆假选项，也不自动降级）。
+    @ViewBuilder
+    private var engineMenu: some View {
+        if availableEngineKinds.count > 1 {
+            barMenu("播放器") {
+                Picker("播放器", selection: enginePickerBinding) {
+                    ForEach(availableEngineKinds, id: \.self) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 现在能用的内核（`isAvailable` 是「引擎实装 + 依赖可用」那条口径）。
+    var availableEngineKinds: [PlayerEngineKind] {
+        PlayerEngineKind.allCases.filter(\.isAvailable)
+    }
+
+    /// 选内核：换内核是**异步重载**（拆 + 建 + 续播），所以绑定只派活（真正的活在 `switchEngine(to:)`）。
+    private var enginePickerBinding: Binding<PlayerEngineKind> {
+        Binding(
+            get: { engineKind },
+            set: { kind in
+                Task { await switchEngine(to: kind) }
+            }
+        )
+    }
 
     /// 字幕：轨列表 + 关闭（**内核报了字幕轨才出现** —— 不做「点不动的假菜单」）。
     @ViewBuilder
