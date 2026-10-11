@@ -197,6 +197,8 @@ public struct PlaybackView: View {
         title: String,
         settings: PlaybackSettings = PlaybackSettings(),
         isFullScreen: Bool = false,
+        onClose: (() -> Void)? = nil,
+        onRequestFullScreen: (() -> Void)? = nil,
         progressContext: PlaybackProgressContext? = nil,
         progressStore: PlaybackProgressStore? = nil,
         danmaku: DanmakuRequest? = nil,
@@ -221,6 +223,8 @@ public struct PlaybackView: View {
         _activeTitle = State(initialValue: title)
         self.settings = settings
         self.isFullScreen = isFullScreen
+        self.onClose = onClose
+        self.onRequestFullScreen = onRequestFullScreen
         _activeProgressContext = State(initialValue: progressContext)
         self.playlist = playlist
         _currentEpisodeIndex = State(initialValue: playlist?.currentIndex)
@@ -252,6 +256,11 @@ public struct PlaybackView: View {
     /// 全屏模式（M26，参考口径「emby 视图下点击播放直接全屏」）：**只有画面 + 叠层控制条**，
     /// 不摆信息列表 —— 收藏 / 下载 / 循环这些回详情页或竖屏播放页去管。
     let isFullScreen: Bool
+    /// 关掉「这一层播放」：就地播放（精简视图顶部那块）给的是「清掉这块画面」；
+    /// 推页 / 全屏不给，控制条上的 ✕ 就退回 `dismiss`。
+    let onClose: (() -> Void)?
+    /// 转到全屏（就地播放时才给）：控制条上那颗 ⤢ —— 对齐参考里「半屏播放器 → 全屏」的那颗图标。
+    let onRequestFullScreen: (() -> Void)?
 
     public var body: some View {
         VStack(spacing: 0) {

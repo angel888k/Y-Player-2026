@@ -154,6 +154,11 @@ extension VodDetailView {
             return
         }
         autoPlayEpisodeIndex = episodeIndex
+        // 精简视图：**就地开播**（对齐参考的 Normal 页：视频在上、详情在下），不推页面。
+        if model.playbackPageLayout == .compact, makeResource(for: episodes[episodeIndex]) != nil {
+            inlinePlayback = PlaybackTarget(index: episodeIndex, episode: episodes[episodeIndex])
+            return
+        }
         // 等一小会儿再激活导航链：详情刚加载完时列表可能还没画出来，
         // 这时直接推入播放页、返回后看到一片空白，观感像「点了没反应」。
         Task {

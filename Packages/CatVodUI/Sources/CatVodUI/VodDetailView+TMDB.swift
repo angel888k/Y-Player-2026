@@ -224,10 +224,6 @@ extension VodDetailView {
             }
             .adaptiveHalfSheet()
         }
-        // 「点播放直接全屏」（M26）：全屏那一层没有导航栏、没有信息列表，只有画面 + 叠层控制条。
-        .fullScreenCover(item: $fullScreenPlayback) { target in
-            fullScreenDestination(for: target)
-        }
     }
 
     /// 简介（参考图里图标行下面那段）：TMDB overview 优先，没刮到回落到站点的 vodContent。

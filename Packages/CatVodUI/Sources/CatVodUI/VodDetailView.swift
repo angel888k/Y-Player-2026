@@ -52,6 +52,11 @@ public struct VodDetailView: View {
     @State var episodeGridWidth: CGFloat = 0
     /// TMDB 视图下点播放 / 点剧集卡要进的那一集：**走全屏**（参考口径「emby 视图下点击播放直接全屏」）。
     @State var fullScreenPlayback: PlaybackTarget?
+    /// 精简视图顶部那块**就地播放**的落点（参考的 Normal 页：视频在上、详情在下）；nil = 还没开播。
+    @State var inlinePlayback: PlaybackTarget?
+    /// 精简视图「剧集」列表的两个开关（对齐参考图右侧那两颗图标：展开文件名 / 正序倒序）。
+    @State var isEpisodeListExpanded = false
+    @State var isEpisodeListDescending = false
     /// 「整部下载（逐集换地址）」是否正在跑：按钮据此置灰，避免点两遍并行换地址。
     @State var isResolvingDownloads = false
     /// 上面那件事的进度 / 结果文案（换地址串行做，一格一格更新）。
@@ -96,6 +101,10 @@ public struct VodDetailView: View {
             .navigationTitle(vod?.vodName.isEmpty == false ? (vod?.vodName ?? "详情") : "详情")
             // 详情页是沉浸页：登记给本 Tab 的根页面，由它把底部 Tab 栏收起来（见 Platform/AdaptiveTabBar.swift）。
             .immersiveTabBarPage()
+            // 全屏播放那一层（M26）：两种视图共用 —— 精简视图的就地播放器点 ⤢ 也走它。
+            .fullScreenCover(item: $fullScreenPlayback) { target in
+                fullScreenDestination(for: target)
+            }
             .refreshable {
                 await loadDetail(force: true)
                 await loadProgress()
@@ -156,26 +165,6 @@ public struct VodDetailView: View {
         }
     }
 
-    /// 精简视图：影片信息 + 线路分段控件 + 选集列表（M2 以来的形态）。
-    private var compactLayout: some View {
-        List {
-            headerSection
-            if lines.count > 1 {
-                lineSection
-            }
-            episodesSection
-            if !errorText.isEmpty {
-                Section("错误") {
-                    Text(errorText)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-            }
-        }
-        .adaptiveListStyle()
-        .background(autoPlayLink)
-    }
-
     /// 全屏那一层的落点（M26）：直链集直接全屏播放；其余（站点换地址 / 解析 / 不支持）包一层
     /// 导航容器 —— 那几张页面自带工具栏与返回按钮，卸掉导航会把人困住。
     @ViewBuilder
@@ -206,123 +195,6 @@ public struct VodDetailView: View {
                 EmptyView()
             }
         }
-    }
-
-    // MARK: - 区块
-
-    private var headerSection: some View {
-        Section("影片") {
-            if isLoading, detail.list.isEmpty {
-                Text("加载中…")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            if let vod {
-                HStack(alignment: .top, spacing: 12) {
-                    AsyncImage(url: URL(string: vod.vodPic)) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        Color.secondary.opacity(0.15)
-                    }
-                    .frame(width: 80, height: 112)
-                    .clipShape(RoundedRectangle(cornerRadius: PlatformShims.cardCornerRadius))
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(vod.vodName.isEmpty ? vod.vodID : vod.vodName)
-                            .font(.headline)
-                        if !vod.vodRemarks.isEmpty {
-                            Text(vod.vodRemarks)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        if !vod.typeName.isEmpty {
-                            Text(vod.typeName)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        if !vod.vodYear.isEmpty || !vod.vodArea.isEmpty {
-                            Text([vod.vodYear, vod.vodArea].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if !vod.vodActor.isEmpty {
-                    Text("演员：\(vod.vodActor)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if !vod.vodDirector.isEmpty {
-                    Text("导演：\(vod.vodDirector)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if !vod.vodContent.isEmpty {
-                    Text(vod.vodContent)
-                        .font(.footnote)
-                }
-                if let summary = progressSummary {
-                    Text(summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var lineSection: some View {
-        Section("线路") {
-            Picker("线路", selection: $selectedLineIndex) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                    Text(line.name).tag(index)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-    }
-
-    private var episodesSection: some View {
-        Section("选集") {
-            wholeLineDownloadsRow
-            if episodes.isEmpty {
-                Text(isLoading ? "加载中…" : "没有可用线路")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            ForEach(Array(episodes.enumerated()), id: \.element.id) { index, episode in
-                NavigationLink {
-                    destination(for: episode, at: index)
-                } label: {
-                    HStack {
-                        Text(episode.name.isEmpty ? "播放" : episode.name)
-                        if isLastWatched(index) {
-                            Text("上次看到")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if showsUnsupportedBadge(for: episode) {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// 「上次看到 · 第 N 集 · 12:34」；没有进度时为 nil。
-    // （internal：拆分出的 `VodDetailView+TMDB.swift` 也要用，不能是 private。）
-    var progressSummary: String? {
-        guard let progress, !progress.isFinished, progress.position > 0 else {
-            return nil
-        }
-        let episodeName = episodes.indices.contains(progress.episodeIndex)
-            ? episodes[progress.episodeIndex].displayName
-            : ""
-        return ["上次看到", episodeName, PlaybackView.timeText(progress.position)]
-            .filter { !$0.isEmpty }
-            .joined(separator: " · ")
     }
 
     /// 是否为「上次看到」的那一集（**当前线路内**下标；跨线路/跨站对齐留 M8）。
@@ -431,7 +303,13 @@ public struct VodDetailView: View {
 
     @ViewBuilder
     // （internal：拆分出的 `VodDetailView+TMDB.swift` 也要用，不能是 private。）
-    func destination(for episode: PlaylistParser.Episode, at index: Int, isFullScreen: Bool = false) -> some View {
+    func destination(
+        for episode: PlaylistParser.Episode,
+        at index: Int,
+        isFullScreen: Bool = false,
+        onClose: (() -> Void)? = nil,
+        onRequestFullScreen: (() -> Void)? = nil
+    ) -> some View {
         // 播放页自己的换集能力（M12P1）：详情页知道「集列表 + 线路 + 站点」，包成闭包交给它。
         let playlist = episodePlaylist(currentIndex: index)
         if let resource = makeResource(for: episode) {
@@ -440,6 +318,8 @@ public struct VodDetailView: View {
                 title: episode.displayName,
                 settings: model.playbackSettings,
                 isFullScreen: isFullScreen,
+                onClose: onClose,
+                onRequestFullScreen: onRequestFullScreen,
                 progressContext: progressContext(for: episode, at: index),
                 progressStore: model.progressStore,
                 // 直链路径（type 0/1/2 的 CMS 站）以前没有弹幕请求 —— M08c 只接了站点/解析两条路，

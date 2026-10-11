@@ -54,9 +54,14 @@ extension PlaybackView {
     private var topIconRow: some View {
         HStack(spacing: 24) {
             barIcon("xmark", label: "关闭播放") {
-                dismissPlayback()
+                closePlayback()
             }
             scaleMenu
+            if onRequestFullScreen != nil {
+                barIcon("arrow.up.left.and.arrow.down.right", label: "全屏播放") {
+                    onRequestFullScreen?()
+                }
+            }
             Spacer(minLength: 0)
             danmakuMenu
             speedMenu
@@ -275,6 +280,15 @@ extension PlaybackView {
                     .disabled(!PlaybackOpeningEndingRules.canSetEnding(position: latestPosition, duration: latestDuration))
                 }
             }
+        }
+    }
+
+    /// 关播放：就地播放清掉那块画面，推页 / 全屏退回 `dismiss`（见 `PlaybackView/onClose`）。
+    func closePlayback() {
+        if let onClose {
+            onClose()
+        } else {
+            dismissPlayback()
         }
     }
 
