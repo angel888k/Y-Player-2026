@@ -144,6 +144,21 @@ enum SiteSelection {
     }
 }
 
+/// 点封面的去向（M28 首验之二十二，用户口径）：**接口的第一个站点**点封面去**搜索页**
+/// （自动带片名并搜索这个影视）—— 其余站点照旧进详情。
+///
+/// 判定单独拿出来放纯函数：站点清单顺序与「第一个是谁」是最容易被改排序时碰坏的东西，
+/// 单测盯住它（见 `DiscoverPageTests`）。
+enum DiscoverPosterTarget {
+    /// 当前选中的站点是不是清单里的第一个。
+    static func opensSearch(selectedKey: String, siteKeys: [String]) -> Bool {
+        guard let first = siteKeys.first else {
+            return false
+        }
+        return selectedKey == first
+    }
+}
+
 /// 站点切换面板的行模型与分组（M06e / M06f / M06g）。
 ///
 /// 单测价值：录屏里的面板有三种容易做错的状态 —— 站点名为空、当前站点、站点顺序，

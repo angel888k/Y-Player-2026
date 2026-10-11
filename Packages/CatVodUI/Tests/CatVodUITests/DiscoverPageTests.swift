@@ -67,6 +67,17 @@ struct DiscoverPageTests {
         #expect(SiteSelection.resolvedKey(current: "", saved: "", available: []).isEmpty)
     }
 
+    // MARK: - DiscoverPosterTarget
+
+    @Test("点封面去向：接口第一个站点去搜索；其余（与空选择）照旧去详情")
+    func posterTarget() {
+        let keys = ["wogg", "douban", "noName"]
+        #expect(DiscoverPosterTarget.opensSearch(selectedKey: "wogg", siteKeys: keys))
+        #expect(!DiscoverPosterTarget.opensSearch(selectedKey: "douban", siteKeys: keys))
+        #expect(!DiscoverPosterTarget.opensSearch(selectedKey: "", siteKeys: keys))
+        #expect(!DiscoverPosterTarget.opensSearch(selectedKey: "wogg", siteKeys: []))
+    }
+
     // MARK: - DiscoverFilterRow
 
     private func makeFilter(name: String = "地区") -> VodFilter {

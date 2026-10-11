@@ -22,8 +22,11 @@ public struct SearchView: View {
     /// 「筛选站源」面板是否展开（搜索框右侧的圆形按钮）。
     @State var isFilterPresented = false
 
-    public init(model: AppModel) {
+    /// - Parameter initialKeyword: 带词进来自动搜一次（发现页第一个站点点封面走这条路，
+    ///   M28 首验之二十二）；工具栏那颗入口不传，照旧停在历史页。
+    public init(model: AppModel, initialKeyword: String = "") {
         self.model = model
+        _keyword = State(initialValue: initialKeyword)
     }
 
     public var body: some View {
@@ -38,6 +41,13 @@ public struct SearchView: View {
             }
             .sheet(isPresented: $isFilterPresented) {
                 SearchSourceFilterView(model: model)
+            }
+            .task {
+                // 带词进来：自动搜一次（裁空白 / 记历史 / 触发墙，全走 `submitSearch` 原路）。
+                // 只补第一次：搜过之后 `submittedKeyword` 非空，body 重排不再触发。
+                if submittedKeyword.isEmpty, !keyword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    submitSearch()
+                }
             }
     }
 

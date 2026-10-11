@@ -278,8 +278,10 @@ public struct HomeView: View {
         .padding(.vertical, 12)
     }
 
-    /// 一张海报卡的点击行为：普通条目进详情；**网页条目**（配置中心这类）开着网页看
-    /// —— 详情接口里没有它的内容，进去只会是一片空白（见 ``WebEntryRules``）。
+    /// 一张海报卡的点击行为（M28 首验之二十二）：**接口第一个站点**点封面去**搜索页**
+    /// （自动带片名并搜索 —— 用户口径，只有第一个站点这样）；其余站点进详情；
+    /// **网页条目**（配置中心这类）开着网页看 —— 详情接口里没有它的内容，进去只会是一片空白
+    /// （见 ``WebEntryRules``）。
     @ViewBuilder
     private func posterLink<Label: View>(
         _ item: VodItem,
@@ -292,6 +294,13 @@ public struct HomeView: View {
                 label()
             }
             .buttonStyle(.plain)
+        } else if posterOpensSearch {
+            NavigationLink {
+                SearchView(model: model, initialKeyword: item.vodName)
+            } label: {
+                label()
+            }
+            .buttonStyle(.plain)
         } else {
             NavigationLink {
                 VodDetailView(model: model, site: selectedSite, vodID: item.vodID)
@@ -300,6 +309,14 @@ public struct HomeView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// 点封面去不去搜索页：当前站点是不是**接口的第一个站点**（判定在 ``DiscoverPosterTarget``）。
+    private var posterOpensSearch: Bool {
+        DiscoverPosterTarget.opensSearch(
+            selectedKey: selectedSite?.key ?? "",
+            siteKeys: browsableSites.map(\.key)
+        )
     }
 
     private var posterColumns: [GridItem] {
