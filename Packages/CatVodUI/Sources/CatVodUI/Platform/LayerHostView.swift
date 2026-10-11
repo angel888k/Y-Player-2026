@@ -54,6 +54,8 @@ final class LayerHostView: UIView {
                 attached: layer?.superlayer === self.layer,
                 frame: layer?.frame,
                 layerBounds: layer?.bounds,
+                presentationBounds: layer?.presentation()?.bounds,
+                contentsGravity: layer?.contentsGravity.rawValue,
                 identityTransform: layer.map { CATransform3DIsIdentity($0.transform) },
                 windowFrame: window.map { convert(bounds, to: $0) },
                 windowSize: window?.bounds.size
@@ -97,7 +99,16 @@ final class LayerHostView: UIView {
         // 关掉隐式动画：尺寸变化时不做动画，否则画面会拖影。
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        attachedLayer.frame = CGRect(origin: .zero, size: hostedSize ?? bounds.size)
+        let target = CGRect(origin: .zero, size: hostedSize ?? bounds.size)
+        if attachedLayer.frame != target {
+            attachedLayer.frame = target
+            // 尺寸真的变了：**把层重新挂一次**。`AVPlayerLayer` 的渲染几何是挂上去那一刻跟
+            // `player` 绑定的 —— 只改 frame 不重挂，画面会一直按旧尺寸画（M27 首验之六之七：
+            // 层 / 宿主 / 窗口三处都是 874×402，屏幕上却还是竖屏槽位那么小一块；暂停能暂停，
+            // 说明确实是这一路播放）。
+            attachedLayer.removeFromSuperlayer()
+            layer.addSublayer(attachedLayer)
+        }
         attachedLayer.contentsScale = window?.screen.scale ?? UIScreen.main.scale
         CATransaction.commit()
     }
@@ -154,6 +165,8 @@ final class LayerHostView: NSView {
                 attached: layer?.superlayer === self.layer,
                 frame: layer?.frame,
                 layerBounds: layer?.bounds,
+                presentationBounds: layer?.presentation()?.bounds,
+                contentsGravity: layer?.contentsGravity.rawValue,
                 identityTransform: layer.map { CATransform3DIsIdentity($0.transform) },
                 windowFrame: window?.contentView.map { convert(bounds, to: $0) },
                 windowSize: window?.contentView?.bounds.size
@@ -182,7 +195,13 @@ final class LayerHostView: NSView {
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        attachedLayer.frame = CGRect(origin: .zero, size: hostedSize ?? bounds.size)
+        let target = CGRect(origin: .zero, size: hostedSize ?? bounds.size)
+        if attachedLayer.frame != target {
+            attachedLayer.frame = target
+            // 尺寸变了就重挂一次（理由见 iOS 那一支的注释）。
+            attachedLayer.removeFromSuperlayer()
+            layer?.addSublayer(attachedLayer)
+        }
         attachedLayer.contentsScale = window?.backingScaleFactor ?? 2
         CATransaction.commit()
     }
