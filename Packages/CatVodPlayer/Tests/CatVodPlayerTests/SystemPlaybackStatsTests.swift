@@ -30,6 +30,8 @@ struct SystemStatsMappingTests {
 
     @Test("音频编码四字码 → 编码名")
     func audioCodecNames() {
+        // AAC 的两个四字码都认：MP4 里是 `mp4a`、TS / ADTS 是 `aac `（去空格后 `aac`）。
+        #expect(SystemStatsMapping.audioCodecName(fourCC: "mp4a") == "aac")
         #expect(SystemStatsMapping.audioCodecName(fourCC: "aac") == "aac")
         #expect(SystemStatsMapping.audioCodecName(fourCC: "ac-3") == "ac3")
         #expect(SystemStatsMapping.audioCodecName(fourCC: "ec-3") == "eac3")

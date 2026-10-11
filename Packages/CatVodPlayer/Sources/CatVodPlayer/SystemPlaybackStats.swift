@@ -166,9 +166,13 @@ enum SystemStatsMapping {
     }
 
     /// 音频编码四字码 → 编码名（与 mpv 的 `audio-codec` 同一套词）。
+    ///
+    /// AAC 有两个四字码都要认：**MP4 里的音轨是 `mp4a`**（`kAudioFormatMPEG4AAC`），
+    /// TS / ADTS 那条路才是 `aac `（去空格后是 `aac`）—— 只认后者的话，普通 mp4 的音频那一行
+    /// 会莫名其妙地空着（M28 首验的端到端用例就是这么抓出来的）。
     static func audioCodecName(fourCC: String) -> String? {
         switch fourCC.trimmingCharacters(in: .whitespaces).lowercased() {
-        case "aac": "aac"
+        case "aac", "mp4a": "aac"
         case "ac-3": "ac3"
         case "ec-3", "eac3": "eac3"
         case "alac": "alac"
