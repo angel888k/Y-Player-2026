@@ -103,8 +103,9 @@ extension VodDetailView {
     @ViewBuilder
     var playButtonRow: some View {
         if let slot = playSlot {
-            NavigationLink {
-                destination(for: slot.episode, at: slot.index)
+            // 「点播放直接全屏」（M26）：不再先落竖屏播放页，直接进全屏那层（画面 + 叠层控制条）。
+            Button {
+                fullScreenPlayback = PlaybackTarget(index: slot.index, episode: slot.episode)
             } label: {
                 VStack(spacing: 8) {
                     // 大按钮：**浅底深字**（`Color.primary` 的低透明度当底、主色当字）—— 浅色外观下
@@ -222,6 +223,10 @@ extension VodDetailView {
                 model.setTMDBMatchKey(key, for: vod?.vodName ?? "")
             }
             .adaptiveHalfSheet()
+        }
+        // 「点播放直接全屏」（M26）：全屏那一层没有导航栏、没有信息列表，只有画面 + 叠层控制条。
+        .fullScreenCover(item: $fullScreenPlayback) { target in
+            fullScreenDestination(for: target)
         }
     }
 
@@ -349,12 +354,12 @@ extension VodDetailView {
         } else {
             LazyVGrid(columns: episodeGridColumns, spacing: 14) {
                 ForEach(Array(episodes.enumerated()), id: \.element.id) { index, episode in
-                    NavigationLink {
-                        destination(for: episode, at: index)
+                    Button {
+                        fullScreenPlayback = PlaybackTarget(index: index, episode: episode)
                     } label: {
                         tmdbEpisodeCard(episode, at: index)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                 }
             }
             // 量一次可用宽度算列数：宽变（转屏 / iPad 分栏）跟着重算。
@@ -490,4 +495,12 @@ extension VodDetailView {
         }
         return base + 1
     }
+}
+
+/// 全屏播放的落点（M26）：集 + 下标（`fullScreenCover(item:)` 要 `Identifiable`）。
+struct PlaybackTarget: Identifiable {
+    let index: Int
+    let episode: PlaylistParser.Episode
+
+    var id: Int { index }
 }

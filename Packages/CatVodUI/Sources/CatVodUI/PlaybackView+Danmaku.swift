@@ -41,7 +41,7 @@ extension PlaybackView {
     /// 「弹幕」区是否出现（M03P18 / M03P24 / M03P25）：**有得可管**才出现 ——
     /// 要么这一集真有弹幕行（能开关 / 能调显示），要么有候选可选（能换一条）；
     /// 两样都没有就不摆这一块（不摆假开关、假入口；上游那颗弹幕按钮同样只在 `haveDanmaku()` 时露出来）。
-    private var showsDanmakuSection: Bool {
+    var showsDanmakuSection: Bool {
         let canControl = onDanmakuDisplayChanged != nil || danmakuSwitcher != nil
         let hasSomething = !danmakuLines.isEmpty || danmakuSwitcher?.candidates.isEmpty == false
         return canControl && hasSomething

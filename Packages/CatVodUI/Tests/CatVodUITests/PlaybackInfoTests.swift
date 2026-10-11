@@ -56,4 +56,22 @@ struct PlaybackInfoTests {
         #expect(SubtitleStatus.loaded(source: "简中", count: 3).isVisible)
         #expect(SubtitleStatus.failed(reason: "连不上").isVisible)
     }
+
+    @Test("控制条徽标：编码 / 分辨率 / 帧率都取短名（参考那排 `H265 4K 25FPS`）")
+    func statBadgeTokens() {
+        #expect(PlaybackView.shortCodec("hevc · yuv420p10") == "H265")
+        #expect(PlaybackView.shortCodec("h264 · yuv420p") == "H264")
+        #expect(PlaybackView.shortCodec("av1") == "AV1")
+        #expect(PlaybackView.shortCodec("") == nil)
+
+        #expect(PlaybackView.shortResolution("3840×2160") == "4K")
+        #expect(PlaybackView.shortResolution("1920×1080") == "1080P")
+        #expect(PlaybackView.shortResolution("1280×720") == "720P")
+        #expect(PlaybackView.shortResolution("640×360") == "640×360")
+        #expect(PlaybackView.shortResolution("") == nil)
+
+        #expect(PlaybackView.shortFPS("23.976") == "24FPS")
+        #expect(PlaybackView.shortFPS("25") == "25FPS")
+        #expect(PlaybackView.shortFPS("") == nil)
+    }
 }

@@ -50,6 +50,8 @@ public struct VodDetailView: View {
     @State var isSynopsisExpanded = false
     /// 选集网格量到的可用宽度（算列数用；见 `VodDetailView+TMDB.swift` 的 `episodeGridColumnCount`）。
     @State var episodeGridWidth: CGFloat = 0
+    /// TMDB 视图下点播放 / 点剧集卡要进的那一集：**走全屏**（参考口径「emby 视图下点击播放直接全屏」）。
+    @State var fullScreenPlayback: PlaybackTarget?
     /// 「整部下载（逐集换地址）」是否正在跑：按钮据此置灰，避免点两遍并行换地址。
     @State var isResolvingDownloads = false
     /// 上面那件事的进度 / 结果文案（换地址串行做，一格一格更新）。
@@ -174,6 +176,20 @@ public struct VodDetailView: View {
         .background(autoPlayLink)
     }
 
+    /// 全屏那一层的落点（M26）：直链集直接全屏播放；其余（站点换地址 / 解析 / 不支持）包一层
+    /// 导航容器 —— 那几张页面自带工具栏与返回按钮，卸掉导航会把人困住。
+    @ViewBuilder
+    func fullScreenDestination(for target: PlaybackTarget) -> some View {
+        if makeResource(for: target.episode) != nil {
+            destination(for: target.episode, at: target.index, isFullScreen: true)
+        } else {
+            NavigationView {
+                destination(for: target.episode, at: target.index)
+            }
+            .navigationViewStyle(.stack)
+        }
+    }
+
     /// 自动播放用的隐藏导航链（设置 → 播放 → 播放页 → 自动播放）。
     ///
     /// 用 `NavigationLink(isActive:)` 而不是 `navigationDestination`：后者要 iOS 16+，
@@ -184,7 +200,8 @@ public struct VodDetailView: View {
     var autoPlayLink: some View {
         if let index = autoPlayEpisodeIndex, episodes.indices.contains(index) {
             NavigationLink(isActive: $isAutoPlaying) {
-                destination(for: episodes[index], at: index)
+                // 自动播放跟着显示视图走（M26）：TMDB 视图本来就是「点播放直接全屏」。
+                destination(for: episodes[index], at: index, isFullScreen: model.playbackPageLayout == .tmdb)
             } label: {
                 EmptyView()
             }
@@ -414,7 +431,7 @@ public struct VodDetailView: View {
 
     @ViewBuilder
     // （internal：拆分出的 `VodDetailView+TMDB.swift` 也要用，不能是 private。）
-    func destination(for episode: PlaylistParser.Episode, at index: Int) -> some View {
+    func destination(for episode: PlaylistParser.Episode, at index: Int, isFullScreen: Bool = false) -> some View {
         // 播放页自己的换集能力（M12P1）：详情页知道「集列表 + 线路 + 站点」，包成闭包交给它。
         let playlist = episodePlaylist(currentIndex: index)
         if let resource = makeResource(for: episode) {
@@ -422,6 +439,7 @@ public struct VodDetailView: View {
                 resource: resource,
                 title: episode.displayName,
                 settings: model.playbackSettings,
+                isFullScreen: isFullScreen,
                 progressContext: progressContext(for: episode, at: index),
                 progressStore: model.progressStore,
                 // 直链路径（type 0/1/2 的 CMS 站）以前没有弹幕请求 —— M08c 只接了站点/解析两条路，

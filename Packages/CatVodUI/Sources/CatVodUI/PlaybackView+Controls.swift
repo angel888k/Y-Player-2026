@@ -1,60 +1,96 @@
 import CatVodPlayer
 import SwiftUI
 
-/// 播放页自绘内核的**控制条**（M03P6 起，M03P21 加锁屏按钮）。
+/// 播放页自绘内核的**叠层控制条**（M03P6 起；M26 按参考的全屏播放器重排）。
+///
+/// 排布对齐参考截图：
+/// - 顶排：关闭（✕）· 画面比例 —— 右侧：弹幕 · 倍速 · 锁定；
+/// - 底排：参数徽标（`HW HDR H265 4K 25FPS 5.6Mbps`，**只报读得到的**）+「当前时间 · 进度条 · 总时长」，
+///   再一行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧四个文字按钮「字幕 / 音轨 / 片头片尾 / 选集」。
+///
+/// 参考里还有投屏 / 画中画 / 「播放器（内核切换）」/「视轨」四组我们**没有**的控件，
+/// 照「不摆假开关」的规矩不出现（换内核在设置里、也没有视频轨选择）。
 ///
 /// 为什么必须自绘：系统内核的控件是 `VideoPlayer` 自带的；自绘内核（MPV / 自研 FFmpeg）只有一层画面层，
-/// 没有这条就只能看，不能停、不能拖。变速 / 画面比例这些在信息区，控制条只留最常用的几个。
+/// 没有这条就只能看，不能停、不能拖。
 ///
-/// 锁屏（M03P21）也落在这一条上：锁上之后**常规内容整块藏起来，只剩锁按钮** ——
-/// 上游 `control.right.lock` 同款。
+/// 锁屏（M03P21）也落在这一条上：锁上之后**常规内容整块藏起来，只剩锁按钮** —— 上游 `control.right.lock` 同款。
 ///
 /// 为什么拆出去：`PlaybackView.swift` 的行数又贴到 SwiftLint 的 `file_length` error（800）——
 /// 与 `+Speed` / `+Gestures` / `+OpeningEnding` / `+Lines` 同一套做法。
-///
-/// 逐帧步进按钮（M04P23）也落在这一条上：播放 / 暂停旁边，播放中按 = 内核先暂停再走一帧。
 extension PlaybackView {
-    /// 最小控制条：播放 / 暂停 + 进度 + 时间（变速 / 画面比例在信息区，不在这儿）。
+    /// 整条叠层：顶排图标 + 底排（锁上时只剩锁按钮）。
     var playerControls: some View {
-        VStack {
-            Spacer()
-            HStack(spacing: 12) {
-                if !isLocked {
-                    playbackControls
+        VStack(spacing: 10) {
+            if isLocked {
+                HStack {
+                    Spacer(minLength: 0)
+                    lockButton
                 }
-                lockButton
+            } else {
+                topIconRow
+                Spacer(minLength: 0)
+                bottomControls
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(Color.black.opacity(0.45))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(barBackdrop)
+    }
+
+    /// 上下两条压暗：只压边缘，不糊整屏（参考图里字直接压在画面上、不垫整块底）。
+    private var barBackdrop: some View {
+        VStack(spacing: 0) {
+            LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: 110)
+            Spacer(minLength: 0)
+            LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 180)
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// 顶排：关闭 · 画面比例 —— 弹幕 · 倍速 · 锁定。
+    private var topIconRow: some View {
+        HStack(spacing: 24) {
+            barIcon("xmark", label: "关闭播放") {
+                dismissPlayback()
+            }
+            scaleMenu
+            Spacer(minLength: 0)
+            danmakuMenu
+            speedMenu
+            lockButton
         }
     }
 
-    /// 控制条的常规内容：播放 / 暂停 + 进度 + 时间（锁上时整块藏起来，只剩 ``lockButton``）。
-    var playbackControls: some View {
+    /// 底排：参数徽标 + 进度 + 动作行。
+    private var bottomControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !statBadges.isEmpty {
+                badgesRow
+            }
+            progressRow
+            transportRow
+        }
+    }
+
+    /// 参数徽标（参考图那排 `HW HDR H265 4K 25FPS 5.6Mbps`）。
+    private var badgesRow: some View {
         HStack(spacing: 12) {
-            Button {
-                Task { await togglePlayback() }
-            } label: {
-                Image(systemName: playerState.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 28)
+            ForEach(statBadges, id: \.self) { badge in
+                Text(badge)
+                    .font(.caption2.weight(.semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.95))
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(playerState.isPlaying ? "暂停" : "播放")
+        }
+        .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+    }
 
-            Button {
-                Task { await engine?.stepFrame() }
-            } label: {
-                Image(systemName: "forward.frame")
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 28)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("逐帧步进")
-
+    /// 进度那行：当前时间 · 滑杆 · 总时长。
+    private var progressRow: some View {
+        HStack(spacing: 10) {
             Text(Self.timeText(latestPosition))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.white)
@@ -78,8 +114,171 @@ extension PlaybackView {
         }
     }
 
-    /// 锁 / 解锁按钮（M03P21）：锁上之后控制条只剩它 —— 上游 `control.right.lock` 同款，
-    /// 点一下切换，并把控制条亮出来（免得刚锁上那条就自己收起来了）。
+    /// 动作行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧文字按钮。
+    private var transportRow: some View {
+        HStack(spacing: 22) {
+            barIcon(playerState.isPlaying ? "pause.fill" : "play.fill", label: playerState.isPlaying ? "暂停" : "播放") {
+                Task { await togglePlayback() }
+            }
+            if let next = nextEpisodeIndex {
+                barIcon("forward.end.fill", label: "下一集") {
+                    Task { await switchEpisode(to: next) }
+                }
+            }
+            barIcon("forward.frame", label: "逐帧步进") {
+                Task { await engine?.stepFrame() }
+            }
+            Spacer(minLength: 0)
+            subtitleMenu
+            audioMenu
+            openingEndingMenu
+            if playlist != nil {
+                barTextButton("选集") {
+                    isEpisodeDrawerPresented = true
+                }
+            }
+        }
+    }
+
+    // MARK: - 顶排那几个菜单
+
+    /// 画面比例：只列**当前内核真的支持**的档位（系统内核一档都不支持，这颗按钮就不出现）。
+    @ViewBuilder
+    private var scaleMenu: some View {
+        let modes = PlaybackScaleMode.supportedModes(by: settings.engine)
+        if !modes.isEmpty {
+            Menu {
+                Picker("画面比例", selection: scaleBinding) {
+                    ForEach(modes, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+            } label: {
+                barIconLabel("arrow.up.left.and.arrow.down.right")
+            }
+            .accessibilityLabel("画面比例")
+        }
+    }
+
+    /// 弹幕：开关 + 搜索 + 设置（参考图那颗「弹」）。
+    @ViewBuilder
+    private var danmakuMenu: some View {
+        if showsDanmakuSection {
+            Menu {
+                Toggle("显示弹幕", isOn: Binding(
+                    get: { danmakuDisplay.isVisible },
+                    set: { next in
+                        var copy = danmakuDisplay
+                        copy.isVisible = next
+                        onDanmakuDisplayChanged?(copy)
+                    }
+                ))
+                if danmakuSwitcher != nil {
+                    Button("搜索弹幕…") {
+                        isDanmakuPickerPresented = true
+                    }
+                }
+                Button("弹幕设置…") {
+                    isDanmakuSettingsPresented = true
+                }
+            } label: {
+                Text("弹")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+            }
+            .accessibilityLabel("弹幕")
+        }
+    }
+
+    /// 倍速：预设列表（改完当场生效，落盘在 `setSpeed` 里）。
+    @ViewBuilder
+    private var speedMenu: some View {
+        if engine != nil {
+            Menu {
+                Picker("倍速", selection: speedPickerBinding) {
+                    ForEach(SpeedSetting.presets, id: \.self) { preset in
+                        Text(SpeedSetting.format(preset)).tag(preset)
+                    }
+                }
+            } label: {
+                barIconLabel("timer")
+            }
+            .accessibilityLabel("倍速")
+        }
+    }
+
+    /// 倍速选择：只派活（`setSpeed` 里改内核 + 落盘），当前值不是预设时单纯不显示选中态。
+    private var speedPickerBinding: Binding<Float> {
+        Binding(
+            get: { speed },
+            set: { setSpeed($0, persist: true) }
+        )
+    }
+
+    // MARK: - 底排那几个文字按钮
+
+    /// 字幕：轨列表 + 关闭（**内核报了字幕轨才出现** —— 不做「点不动的假菜单」）。
+    @ViewBuilder
+    private var subtitleMenu: some View {
+        if !subtitleTracks.isEmpty {
+            barMenu("字幕") {
+                Picker("字幕", selection: subtitleSelectionBinding) {
+                    Text("自动").tag(TrackSelection.auto)
+                    Text("关闭").tag(TrackSelection.disabled)
+                    ForEach(subtitleTracks) { track in
+                        Text(track.label ?? "字幕 \(track.id)").tag(TrackSelection.index(track.id))
+                    }
+                }
+            }
+        }
+    }
+
+    /// 音轨：同上，只在内核报了音轨时出现。
+    @ViewBuilder
+    private var audioMenu: some View {
+        if !audioTracks.isEmpty {
+            barMenu("音轨") {
+                Picker("音轨", selection: audioSelectionBinding) {
+                    Text("自动").tag(TrackSelection.auto)
+                    ForEach(audioTracks) { track in
+                        Text(track.label ?? "音轨 \(track.id)").tag(TrackSelection.index(track.id))
+                    }
+                }
+            }
+        }
+    }
+
+    /// 片头片尾：标记 / 清除（没有进度记录或时长未知时不出现，与信息区那条同一口径）。
+    @ViewBuilder
+    private var openingEndingMenu: some View {
+        if activeProgressContext != nil, latestDuration > 0 {
+            barMenu("片头片尾") {
+                if openingMark > 0 {
+                    Button("清除片头") {
+                        clearOpening()
+                    }
+                } else {
+                    Button("标记片头") {
+                        markOpening()
+                    }
+                    .disabled(!PlaybackOpeningEndingRules.canSetOpening(position: latestPosition, duration: latestDuration))
+                }
+                if endingMark > 0 {
+                    Button("清除片尾") {
+                        clearEnding()
+                    }
+                } else {
+                    Button("标记片尾") {
+                        markEnding()
+                    }
+                    .disabled(!PlaybackOpeningEndingRules.canSetEnding(position: latestPosition, duration: latestDuration))
+                }
+            }
+        }
+    }
+
+    /// 锁 / 解锁按钮（M03P21）：锁上之后控制条只剩它，点一下切换并把控制条亮出来。
     var lockButton: some View {
         Button {
             isLocked.toggle()
@@ -88,17 +287,143 @@ extension PlaybackView {
             Image(systemName: isLocked ? "lock.fill" : "lock.open")
                 .font(.title3)
                 .foregroundStyle(.white)
-                .frame(width: 28)
+                .frame(width: 30, height: 30)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isLocked ? "解锁" : "锁定画面")
     }
 
-    /// 进度条绑定：拖动只改界面上的位置（松手才真 seek，见 ``playerControls`` 的 `onEditingChanged`）。
+    /// 进度条绑定：拖动只改界面上的位置（松手才真 seek，见 ``progressRow``）。
     var seekBinding: Binding<Double> {
         Binding(
             get: { latestPosition },
             set: { newValue in latestPosition = newValue }
         )
+    }
+
+    // MARK: - 小件
+
+    /// 一颗图标按钮（白色、固定 30×30 —— 排布对齐参考里那排图标）。
+    private func barIcon(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            barIconLabel(systemName)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    /// 图标本体（菜单的 label 也要用同一套尺寸 / 颜色）。
+    private func barIconLabel(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.title3)
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+    }
+
+    /// 一个文字按钮（底排右侧那四个）。
+    private func barTextButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            barTextLabel(title)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+
+    /// 文字菜单（底排右侧那四个里的菜单）。
+    private func barMenu<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        Menu {
+            content()
+        } label: {
+            barTextLabel(title)
+        }
+        .accessibilityLabel(title)
+    }
+
+    /// 文字按钮 / 文字菜单共用的 label。
+    private func barTextLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline)
+            .foregroundStyle(.white)
+            .frame(height: 30)
+    }
+
+    // MARK: - 参数徽标
+
+    /// 底排那排参数徽标（参考图：`HW HDR H265 4K 25FPS 5.6Mbps`）—— **只报读得到的**，
+    /// 读不到就不占位置（与信息区「播放信息」同一口径）。
+    var statBadges: [String] {
+        guard let stats = playbackStats, !stats.isEmpty else {
+            return []
+        }
+        var badges: [String] = []
+        if stats.decodeText.contains("硬") {
+            badges.append("HW")
+        } else if !stats.decodeText.isEmpty {
+            badges.append("SW")
+        }
+        if stats.dynamicRangeText.uppercased().contains("HDR") {
+            badges.append("HDR")
+        }
+        if let codec = Self.shortCodec(stats.codecText) {
+            badges.append(codec)
+        }
+        if let size = Self.shortResolution(stats.resolutionText) {
+            badges.append(size)
+        }
+        if let fps = Self.shortFPS(stats.fpsText) {
+            badges.append(fps)
+        }
+        if !stats.bitrateText.isEmpty {
+            badges.append(stats.bitrateText)
+        }
+        return badges
+    }
+
+    /// 编码短名：`hevc · yuv420p10` → `H265`（认不出来的取第一个词大写）。
+    static func shortCodec(_ text: String) -> String? {
+        let head = text.split(separator: "·").first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
+        guard !head.isEmpty else {
+            return nil
+        }
+        switch head.lowercased() {
+        case "hevc", "h265":
+            return "H265"
+        case "h264", "avc":
+            return "H264"
+        default:
+            return head.uppercased()
+        }
+    }
+
+    /// 分辨率短名：`3840×2160` → `4K`、`1920×1080` → `1080P`、`1280×720` → `720P`，其余原样。
+    static func shortResolution(_ text: String) -> String? {
+        guard !text.isEmpty else {
+            return nil
+        }
+        let head = text.split(whereSeparator: { $0 == "×" || $0 == "x" || $0 == "*" }).first.map(String.init) ?? ""
+        guard let width = Int(head.trimmingCharacters(in: .whitespaces)) else {
+            return text
+        }
+        switch width {
+        case 3800...:
+            return "4K"
+        case 1900 ..< 3800:
+            return "1080P"
+        case 1200 ..< 1900:
+            return "720P"
+        default:
+            return text
+        }
+    }
+
+    /// 帧率短名：`23.976` → `24FPS`（取整，与参考的 `25FPS` 同款）。
+    static func shortFPS(_ text: String) -> String? {
+        guard !text.isEmpty else {
+            return nil
+        }
+        guard let value = Double(text.trimmingCharacters(in: .whitespaces)), value > 0 else {
+            return text
+        }
+        return "\(Int(value.rounded()))FPS"
     }
 }

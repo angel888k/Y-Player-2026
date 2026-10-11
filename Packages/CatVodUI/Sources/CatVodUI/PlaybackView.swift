@@ -37,7 +37,7 @@ public struct PlaybackView: View {
     /// 去掉 `private`：`PlaybackView+Lines.swift`（换线路）要用。
     @State var currentEpisodeIndex: Int?
     /// 「选集」抽屉是否展开。
-    @State private var isEpisodeDrawerPresented = false
+    @State var isEpisodeDrawerPresented = false
     /// 「弹幕设置」快捷面板是否展开（M03P24）／「选择弹幕」面板是否展开（M03P25）。
     /// 去掉 `private`：`PlaybackView+Danmaku.swift` 的入口按钮要用（与手势那一组同一理由）——
     /// `@State` 只能声明在主声明里，所以这两个留在这儿。
@@ -100,8 +100,8 @@ public struct PlaybackView: View {
     /// 最近一次读到的播放信息：只有报得出来的内核（MPV 与自研 FFmpeg 都认这个协议）才有这一块。
     @State var playbackStats: PlaybackStats?
     /// 内核上报的轨道（系统内核现在不上报，只有 MPV 会报，见 M03P3/M03P5）。
-    @State private var audioTracks: [PlayerTrack] = []
-    @State private var subtitleTracks: [PlayerTrack] = []
+    @State var audioTracks: [PlayerTrack] = []
+    @State var subtitleTracks: [PlayerTrack] = []
     /// 当前选中的轨道（界面态；换片时回到「自动」）。
     @State private var audioSelection: TrackSelection = .auto
     @State var subtitleSelection: TrackSelection = .auto
@@ -196,6 +196,7 @@ public struct PlaybackView: View {
         resource: MediaResource,
         title: String,
         settings: PlaybackSettings = PlaybackSettings(),
+        isFullScreen: Bool = false,
         progressContext: PlaybackProgressContext? = nil,
         progressStore: PlaybackProgressStore? = nil,
         danmaku: DanmakuRequest? = nil,
@@ -219,6 +220,7 @@ public struct PlaybackView: View {
         _activeResource = State(initialValue: resource)
         _activeTitle = State(initialValue: title)
         self.settings = settings
+        self.isFullScreen = isFullScreen
         _activeProgressContext = State(initialValue: progressContext)
         self.playlist = playlist
         _currentEpisodeIndex = State(initialValue: playlist?.currentIndex)
@@ -244,106 +246,114 @@ public struct PlaybackView: View {
 
     /// 前后台切换：锁屏的自动解锁要用（见 M03P21）。
     @Environment(\.scenePhase) private var scenePhase
+    /// 关播放页（控制条左上那颗 ✕）：与导航栏返回同一个动作。
+    @Environment(\.dismiss) var dismissPlayback
+
+    /// 全屏模式（M26，参考口径「emby 视图下点击播放直接全屏」）：**只有画面 + 叠层控制条**，
+    /// 不摆信息列表 —— 收藏 / 下载 / 循环这些回详情页或竖屏播放页去管。
+    let isFullScreen: Bool
 
     public var body: some View {
         VStack(spacing: 0) {
             playerArea
-            List {
-                Section("追剧与下载") {
-                    if let onToggleFavorite {
-                        Toggle("收藏（加入追剧）", isOn: Binding(
-                            get: { isFavorite },
-                            set: { _ in onToggleFavorite() }
-                        ))
-                    }
-                    Button("下载本集") {
-                        Task { await enqueueDownload() }
-                    }
-                    if !downloadNotice.isEmpty {
-                        Text(downloadNotice)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Section("播放状态") {
-                    InfoRow(title: "状态", value: stateText)
-                    if !engineText.isEmpty {
-                        InfoRow(title: "内核", value: engineText)
-                    }
-                }
-                if supportsPlaybackStats {
-                    statsSection
-                }
-                if !audioTracks.isEmpty || !subtitleTracks.isEmpty {
-                    tracksSection
-                }
-                danmakuSection
-                scaleSection
-                if let playlist {
-                    Section("选集") {
-                        Button("选集（共 \(playlist.episodes.count) 集）") {
-                            isEpisodeDrawerPresented = true
+            if !isFullScreen {
+                List {
+                    Section("追剧与下载") {
+                        if let onToggleFavorite {
+                            Toggle("收藏（加入追剧）", isOn: Binding(
+                                get: { isFavorite },
+                                set: { _ in onToggleFavorite() }
+                            ))
                         }
-                        if let next = nextEpisodeIndex {
-                            Button("下一集：\(playlist.episodeName(at: next))") {
-                                Task { await switchEpisode(to: next) }
+                        Button("下载本集") {
+                            Task { await enqueueDownload() }
+                        }
+                        if !downloadNotice.isEmpty {
+                            Text(downloadNotice)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Section("播放状态") {
+                        InfoRow(title: "状态", value: stateText)
+                        if !engineText.isEmpty {
+                            InfoRow(title: "内核", value: engineText)
+                        }
+                    }
+                    if supportsPlaybackStats {
+                        statsSection
+                    }
+                    if !audioTracks.isEmpty || !subtitleTracks.isEmpty {
+                        tracksSection
+                    }
+                    danmakuSection
+                    scaleSection
+                    if let playlist {
+                        Section("选集") {
+                            Button("选集（共 \(playlist.episodes.count) 集）") {
+                                isEpisodeDrawerPresented = true
+                            }
+                            if let next = nextEpisodeIndex {
+                                Button("下一集：\(playlist.episodeName(at: next))") {
+                                    Task { await switchEpisode(to: next) }
+                                }
+                            }
+                        }
+                    }
+                    lineSection
+                    openingEndingSection
+                    if activeProgressContext != nil {
+                        Section("播放") {
+                            Toggle("单集循环（播完回到本集开头）", isOn: $isRepeatOne)
+                        }
+                    }
+                    Section("媒体") {
+                        ForEach(playbackInfoRows, id: \.self) { row in
+                            Text(row)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(activeResource.url)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                        if !activeResource.headers.isEmpty {
+                            Text("已携带 \(activeResource.headers.count) 个请求 header")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if engine != nil {
+                        speedSection
+                        if settings.engine.supportsAudioGain {
+                            audioGainSection
+                        }
+                    }
+                    if !resumedFromText.isEmpty {
+                        Section("进度") {
+                            Text(resumedFromText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("从头播放") {
+                                Task { await restartFromBeginning() }
+                            }
+                        }
+                    }
+                    if !errorText.isEmpty {
+                        Section("错误") {
+                            Text(errorText)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                            Button("重试") {
+                                Task { await retryPlayback() }
                             }
                         }
                     }
                 }
-                lineSection
-                openingEndingSection
-                if activeProgressContext != nil {
-                    Section("播放") {
-                        Toggle("单集循环（播完回到本集开头）", isOn: $isRepeatOne)
-                    }
-                }
-                Section("媒体") {
-                    ForEach(playbackInfoRows, id: \.self) { row in
-                        Text(row)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(activeResource.url)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                    if !activeResource.headers.isEmpty {
-                        Text("已携带 \(activeResource.headers.count) 个请求 header")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if engine != nil {
-                    speedSection
-                    if settings.engine.supportsAudioGain {
-                        audioGainSection
-                    }
-                }
-                if !resumedFromText.isEmpty {
-                    Section("进度") {
-                        Text(resumedFromText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Button("从头播放") {
-                            Task { await restartFromBeginning() }
-                        }
-                    }
-                }
-                if !errorText.isEmpty {
-                    Section("错误") {
-                        Text(errorText)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                        Button("重试") {
-                            Task { await retryPlayback() }
-                        }
-                    }
-                }
+                .adaptiveListStyle()
+                // 信息区限高：屏幕的大头留给画面（沉浸版），列表不够高时自己在内部滚动。
+                .frame(maxHeight: 320)
             }
-            .adaptiveListStyle()
-            // 信息区限高：屏幕的大头留给画面（沉浸版），列表不够高时自己在内部滚动。
-            .frame(maxHeight: 320)
         }
         // 外观跟随应用 / 系统（用户口径）：信息区与导航栏回落系统外观。
         // 画面区自己的黑色衬底**不跟随** —— 视频舞台在浅色下也应是黑的（跟随的是页面，不是画面）。
@@ -935,7 +945,7 @@ extension PlaybackView {
     ///
     /// 归位这条对齐上游 `onScale(tag)`：`resetScale()` 之后才 `setScale(tag)` ——
     /// 缩放是「临时看细节」，换比例就该回到 1.0（M03P14）。
-    private var scaleBinding: Binding<PlaybackScaleMode> {
+    var scaleBinding: Binding<PlaybackScaleMode> {
         Binding(
             get: { scaleMode },
             set: { mode in
@@ -949,7 +959,7 @@ extension PlaybackView {
     }
 
     /// 音轨选择：改界面态 + 立刻下发内核（`selectTrack`）。
-    private var audioSelectionBinding: Binding<TrackSelection> {
+    var audioSelectionBinding: Binding<TrackSelection> {
         Binding(
             get: { audioSelection },
             set: { selection in
@@ -960,7 +970,7 @@ extension PlaybackView {
     }
 
     /// 字幕轨选择：同上。
-    private var subtitleSelectionBinding: Binding<TrackSelection> {
+    var subtitleSelectionBinding: Binding<TrackSelection> {
         Binding(
             get: { subtitleSelection },
             set: { selection in
