@@ -50,6 +50,9 @@ struct ImageCacheWiringTests {
         #expect(model.totalCacheByteCount >= 700, "图片缓存要算进「全部缓存」")
 
         #expect(await model.clearImageCache() >= 1)
+        // `URLCache` 在被清时会异步落自己的库文件（上机抓过 144KB 残留）——给它一拍再断言，
+        // 断的是「清完之后稳定下来的占用」，不是「某一瞬间的占用」。
+        try await Task.sleep(nanoseconds: 300_000_000)
         #expect(model.imageCacheByteCount == 0)
     }
 }
