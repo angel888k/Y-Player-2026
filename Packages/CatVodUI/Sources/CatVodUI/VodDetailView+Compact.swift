@@ -17,7 +17,6 @@ extension VodDetailView {
             compactPlayer
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    compactTitleRow
                     compactSynopsis
                     if lines.count > 1 {
                         compactLineChips
@@ -160,25 +159,6 @@ extension VodDetailView {
             return false
         }
         return isSpiderPlayable(site) || requiresSitePlay(site, episode: episode)
-    }
-
-    /// 片名 + 收藏（参考图里就是片名右边一颗星）。
-    var compactTitleRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(vod?.vodName.isEmpty == false ? (vod?.vodName ?? "") : "详情")
-                .font(.title3.bold())
-            Button {
-                Task { await toggleFavorite() }
-            } label: {
-                Image(systemName: isFavorite ? "star.fill" : "star")
-                    .font(.body)
-                    .foregroundStyle(isFavorite ? .yellow : .secondary)
-            }
-            .buttonStyle(.plain)
-            .disabled(progressKey == nil)
-            .accessibilityLabel(isFavorite ? "取消收藏" : "收藏")
-            Spacer(minLength: 0)
-        }
     }
 
     /// 简介：站点的 `vodContent`，默认三行（参考图就是三行 + 省略）。
