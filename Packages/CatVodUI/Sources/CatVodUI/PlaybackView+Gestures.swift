@@ -57,35 +57,33 @@ extension PlaybackView {
         }
     }
 
+    /// 一次按住的账（M28 首验之十）：按下 / 松手两个时刻 —— 加速起不收、尾巴吞不吞都按它算。
+    /// 包成一个值、主文件里只留一个 `@State`：`PlaybackView` 的类型体行数顶在 lint 的 450 线上。
+    struct SpeedBoostPress: Equatable {
+        var startedAt: Date
+        var endedAt: Date?
+    }
+
     /// 换算常量：横向拖满一屏宽 ≈ 120 秒（M03P6）；纵向 200pt 走满量程（音量与亮度共用）。
     static let seekSecondsPerScreen: Double = 120
     static let verticalPointsForFullRange: Double = 200
 
-    /// 长按多久算「长按」。
+    /// 按住多久算「真·长按」。
     ///
-    /// **1.5 秒**（M28 首验之八）：用户带回的日志里，「距长按起 0.43s」+ 0.8 秒阈值反推 ——
-    /// **他的「单击」实测按下 0.8–1.2 秒**（在模拟器上点得慢一点就够着了 0.8 秒那条线）。
-    /// 0.5 → 0.8 → 1.5 这两次上调都是同一个理由：**这条线要躲开用户真实的单击**，
-    /// 而不是让用户去适应它。按住 1.5 秒对「想临时加速」来说不算负担（那是按住好几秒的事）。
+    /// **1.5 秒**（M28 首验之八定的这条线）。这条线现在管两件事，都用**量出来的按住时长**算：
+    /// 按住够 1.5 秒才起加速；松手后按住时长 ≥ 1.5 秒才吞尾巴。
     ///
-    /// 顺带：「吞尾巴」不再需要单独的时长线 —— 能起加速就说明已经按住 ≥ 1.5 秒（真·长按），
-    /// 它的尾巴就该吞；短于 1.5 秒的单击压根起不了加速，尾巴点按自然照常执行。
+    /// 为什么时刻要自己量（M28 首验之十）：现场日志里「距长按起 0.45s」的单击也起过加速、
+    /// 还整条被吞 —— 长按手势报「成立」的时机与真实按住时长对不上（0.5 → 0.8 → 1.5 三次上调
+    /// 都躲不开它，因为问题不在线的高低）。现在「按下」由一条 0.01 秒的长按报时
+    /// （``speedBoostPressDetectSeconds``），这条线由 ``speedBoostArmTask`` 自己走。
     static let speedBoostHoldSeconds: Double = 1.5
+    /// 「按下」怎么拿到：挂一条**门槛几乎为零**的长按，它一成立（≈ 按下的那一刻）就是报时器。
+    /// 真·长按的门槛由我们自己的计时走（见 ``speedBoostHoldSeconds``）—— 不再借它的识别时机。
+    static let speedBoostPressDetectSeconds: Double = 0.01
     /// 按住期间允许的抖动（超过这个距离就不算长按，交给拖动那条）。
+    /// 与 `LongPressGesture` 的 `maximumDistance` 同一条线；按住期间的持续检查见 ``pressMoved(_:)``。
     static let speedBoostMaxDistance: CGFloat = 10
-    /// 松手后多久内补发的点按要吞掉（同一次触摸的尾巴）。
-    static let speedBoostSwallowSeconds: TimeInterval = 0.5
-    /// 「长按还按着」最多信多久（秒）：超过它再来点按，就当那次长按**已经被系统吞了**。
-    ///
-    /// 为什么要有这条（M27 首验之六）：SwiftUI 的手势被取消时（转屏 / 视图重建 / 控制条显隐这些
-    /// 布局变化都会）`onEnded` **不发**，`isSpeedBoostHolding` 就一直挂着 ——
-    /// 用户看到的是「一直按长按倍速在播」+ 提示一直亮「2.0x」，而且之后**每一次点按都被吞**
-    /// （「点一下变 2x，再点没反应」）。留一个窗口把它兜住。
-    ///
-    /// **3.5 秒**（M28 首验之五从 1.5 提上来）：真·长按可以按很久（用户日志里就有 1.6 秒的），
-    /// 1.5 秒那条线会把「按了 1.6 秒再松手」错当成挂死 —— 尾巴点按就会去改控制条（正是「吞尾巴」
-    /// 这条规则本来要避免的那一下）。这条窗只兜「压根没有点按来」的极端情况，所以放宽。
-    static let speedBoostTrustSeconds: TimeInterval = 3.5
 
     /// 双指缩放的上限（上游 `Math.clamp(scale, 1.0f, 5.0f)` 里的那个 5）。
     static let zoomMaximum: CGFloat = 5
@@ -131,6 +129,14 @@ extension PlaybackView {
         isPlaying && !isBoosting
     }
 
+    /// 按住期间「动了」没有（**纯函数**，有单测）：任一方向超过 ``speedBoostMaxDistance`` 就不算按住。
+    ///
+    /// 与 `LongPressGesture` 的 `maximumDistance` 同一条线 —— 但那条只管「识别成功之前」，
+    /// 现在识别几乎瞬间成立（0.01 秒），「动没动」得在按住期间一直盯着（见 `speedBoostGesture`）。
+    static func pressMoved(_ translation: CGSize) -> Bool {
+        abs(translation.width) > speedBoostMaxDistance || abs(translation.height) > speedBoostMaxDistance
+    }
+
     /// 双指捏合换出的倍数（纯函数，有单测）：夹在 1.0 ... ``zoomMaximum`` —— 捏回 1.0 就是归位。
     static func zoomValue(base: CGFloat, magnification: CGFloat) -> CGFloat {
         min(max(base * magnification, 1), zoomMaximum)
@@ -157,7 +163,7 @@ extension PlaybackView {
                 onDoubleTap: { location in
                     // 双击干什么由设置给（M28）；锁上之后不做（M03P21，上游 onDoubleTap 同款早退）。
                     let unlocked = Self.lockedGesturePolicy(isLocked: isLocked) == .all
-                    let held = currentHoldSeconds
+                    let held = currentPressSeconds
                     guard unlocked, !shouldSwallowTap() else {
                         // 没做事的那些也留一条痕（「哪一段断了」全在日志里，排障不靠猜）。
                         let skipped: String = unlocked ? "（被长按尾巴吞掉）" : "（锁上不做）"
@@ -173,7 +179,7 @@ extension PlaybackView {
                     handleTap(doubleTap: true, at: location, width: size.width, held: held)
                 },
                 onSingleTap: { location in
-                    let held = currentHoldSeconds
+                    let held = currentPressSeconds
                     guard !shouldSwallowTap() else {
                         PlaybackTrace.noteTap(
                             doubleTap: false,
@@ -201,22 +207,41 @@ extension PlaybackView {
 
     /// 长按临时加速（M03P12）：按住画面 → 换成长按倍速；松手 → 回到用户那份倍速。
     ///
-    /// 为什么串一个零距离拖动：`LongPressGesture` 自己的 `onEnded` 在**识别成功**时就发
-    /// （按住够 0.5 秒那一刻），拿不到「松手」；串完整个序列跟着手指结束，`onEnded` 才是松手。
+    /// **两件事分开（M28 首验之十）**：
+    /// 1. 「按下」由一条门槛几乎为零的长按（``speedBoostPressDetectSeconds`` = 0.01 秒）报时 ——
+    ///    它一成立 ≈ 按下的那一刻；
+    /// 2. 「按住够 1.5 秒 → 起加速」由自己的 ``speedBoostArmTask`` 计时，松手 / 动了 / 布局变了都撤。
+    ///
+    /// 为什么不再让长按手势自己担 1.5 秒：之十的现场日志里，0.45 秒的单击也起了加速、
+    /// 尾巴还把整条单击吞了 —— 手势报「成立」的时机与真实按住时长对不上（线从 0.8 提到 1.5 也没用）。
+    /// 自己计时之后，「起加速」与「吞尾巴」都只认**量出来的按住时长**。
+    ///
+    /// 为什么还串一个零距离拖动：长按手势的 `onEnded` 在**识别成功**时就发，拿不到「松手」；
+    /// 串完整个序列跟着手指结束，`onEnded` 才是松手（按下与松手两个时刻就都拿全了）。
     private var speedBoostGesture: some Gesture {
-        LongPressGesture(minimumDuration: Self.speedBoostHoldSeconds, maximumDistance: Self.speedBoostMaxDistance)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .onChanged { value in
-                // 长按已识别（`.first(true)`；紧接着的 `.second` 也兜一下）→ 开加速。
-                // `beginSpeedBoost()` 自己有守卫，重复调用无副作用；拖动阶段这里不做事。
-                switch value {
-                case .first(true), .second(true, _):
-                    beginSpeedBoost()
-                default:
-                    break
+        LongPressGesture(
+            minimumDuration: Self.speedBoostPressDetectSeconds,
+            maximumDistance: Self.speedBoostMaxDistance
+        )
+        .sequenced(before: DragGesture(minimumDistance: 0))
+        .onChanged { value in
+            switch value {
+            case .first(true):
+                beginSpeedBoostPress()
+            case let .second(true, drag):
+                // 长按手势没把「成立」报到（版本差异）时的兜底：第一次拖动事件里补上按下时刻。
+                if speedBoostPress == nil {
+                    beginSpeedBoostPress()
                 }
+                // 动了（超过抖动线）就不是「按住」：把这一按整条撤掉（没起的计时、起了的加速）。
+                if let drag, Self.pressMoved(drag.translation) {
+                    endSpeedBoost(reason: "动了（不是按住加速）")
+                }
+            default:
+                break
             }
-            .onEnded { _ in endSpeedBoost() }
+        }
+        .onEnded { _ in endSpeedBoostPress() }
     }
 
     /// 拖动：进度 / 亮度 / 音量三选一。加速期间与捏合期间整条拖动不做事
@@ -225,16 +250,17 @@ extension PlaybackView {
     private func playerGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .onChanged { value in
-                // 手已经在拖了（≥24pt）：这次触摸**不是**「按住加速」—— 立刻把加速收掉、放行这次拖动。
+                // 手已经在拖了（≥24pt）：这次触摸**不是**「按住加速」—— 立刻把加速（或还没点着的
+                // 计时）收掉、放行这次拖动。
                 //
                 // 为什么不能等信任窗（首验之七 · 用户报「滑动快进快退和倍速好像连着了」）：
-                // `LongPressGesture` 的 `maximumDistance` **只管「识别之前」那一段** —— 长按一旦成立，
+                // 长按手势的 `maximumDistance` **只管「识别之前」那一段** —— 长按一旦成立，
                 // 手指之后再滑多远都不算失败。于是「起手慢一点的滑动」（快进 / 快退要先按住再看方向）
                 // 会先被判成长按、视频上到 2.0x，而后面的拖动还要等 1.3 秒才被放行 ——
                 // 用户看到的就是「一滑就 2 倍速、拖动前 1.3 秒没反应」。
-                if isSpeedBoostHolding {
-                    endSpeedBoost(reason: "开始拖动（不是按住加速）")
-                    speedBoostEndedAt = nil
+                // 现在起加速是自己的计时（M28 首验之十）：拖动一开始就把「按住」这条账整条销掉。
+                if isSpeedBoostHolding || speedBoostPress != nil {
+                    finishSpeedBoostSession(reason: "开始拖动（不是按住加速）")
                 }
                 guard !isZooming, !isLocked else {
                     return
@@ -493,20 +519,49 @@ extension PlaybackView {
         gestureHint = ""
     }
 
-    // MARK: - 长按加速
+    // MARK: - 长按加速（M03P12；计时与分档从 M28 首验之十起都自己量）
 
-    /// 长按识别到了：先记「这次触摸是长按」（拖动不做事、点按要吞 —— 不在播也一样），
-    /// 能加速时才真把速度切过去（上游 `if (!player().isPlaying()) return;` 就是这一步）。
+    /// 手指按下了（`speedBoostGesture` 报到；≈ 真实按下的那一刻）：记下起点，
+    /// 把「按住够 ``speedBoostHoldSeconds`` 秒 → 起加速」的计时排上。
     ///
+    /// 上一次的加速要是还挂着（它的松手丢了），先当场收干净 —— 不能再让新的按住接着挂。
+    func beginSpeedBoostPress() {
+        guard !isLocked else {
+            return
+        }
+        if isSpeedBoostHolding {
+            endSpeedBoost(reason: "上一次没收到松手")
+        }
+        speedBoostPress = SpeedBoostPress(startedAt: Date())
+        speedBoostArmTask?.cancel()
+        speedBoostArmTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(Self.speedBoostHoldSeconds * 1_000_000_000))
+            guard !Task.isCancelled else {
+                return
+            }
+            beginSpeedBoost()
+        }
+    }
+
+    /// 松手（长按序列的 `onEnded`）：记下松手时刻（「松手先被识别」那条路的尾巴点按随后到，
+    /// 按住时长 = 松手 − 按下），并把加速收掉。挂着的尾巴点按由 `shouldSwallowTap()` 分档。
+    func endSpeedBoostPress() {
+        speedBoostPress?.endedAt = Date()
+        endSpeedBoost(reason: "松手")
+    }
+
+    /// 按住够 ``speedBoostHoldSeconds``（``speedBoostArmTask`` 走到的）：真把速度切过去。
+    ///
+    /// 守卫与上游同款：不在播不切（但「按住」这件事照样成立 —— 尾点按的吞 / 放判定不受它影响）；
+    /// 锁上、或已经挂着一次没收到松手的加速，都不再来一遍。
     /// 提示直接用倍速文本（`2.0x`，上游 `play_speed_hint` 同款），按住期间一直亮着；
     /// 加速到多少是**可调的**（M03P13：播放页「长按倍速」，上游 `speed_long_press`）。
     func beginSpeedBoost() {
-        // 锁上之后长按不加速、也不接管手势（M03P21）—— 上游 `onLongPress` 里就是这一条早退。
-        guard !isSpeedBoostHolding, !isLocked else {
+        // 锁上之后长按不加速（M03P21）—— 上游 `onLongPress` 里就是这一条早退。
+        guard !isSpeedBoostHolding, !isLocked, speedBoostPress != nil else {
             return
         }
         isSpeedBoostHolding = true
-        speedBoostStartedAt = Date()
         // 按住期间**别让控制条动**：它一显一隐就是一次视图树结构变化，而结构变化会把这次长按
         // 序列取消 —— 松手就再也不会来（提示常亮 2.0x、点按被吞）。松手时 `endSpeedBoost()`
         // 按当前状态补排一次（见 `refreshControlsForState()`）。
@@ -525,17 +580,19 @@ extension PlaybackView {
         Task { await engine.setRate(boost) }
     }
 
-    /// 松手：回到**用户那份**倍速（他把速度设成 1.5x 时按一下不该变成 1.0x）；
-    /// 本来就没加速（不在播 / 没内核）就只是把长按状态收掉。
+    /// 松手 / 拖动 / 布局变化 / 退到后台：把加速收掉，回到**用户那份**倍速
+    /// （他把速度设成 1.5x 时按一下不该变成 1.0x）；本来就没加速（不在播 / 没内核）
+    /// 就只是把长按状态收掉。计时的撤销在这儿**统一**做：不管有没有真起加速，
+    /// 这一刻的「按住」都已经不算数了。
     ///
     /// `reason` 只进日志 —— 排障时要能分清是「松手」「自愈」还是「布局变了」。
     func endSpeedBoost(reason: String = "松手") {
+        speedBoostArmTask?.cancel()
+        speedBoostArmTask = nil
         guard isSpeedBoostHolding else {
             return
         }
         isSpeedBoostHolding = false
-        speedBoostStartedAt = nil
-        speedBoostEndedAt = Date()
         gestureHint = ""
         PlaybackTrace.noteBoost("收（\(reason)）")
         if isSpeedBoosting {
@@ -546,72 +603,71 @@ extension PlaybackView {
         refreshControlsForState()
     }
 
+    /// 「这一按到此为止」的整条收尾（拖动接手 / 布局变化 / 退到后台用）：
+    /// 收加速 + 撤掉计时 + 把按住的账结清 —— 三件事永远一起做，别各写一份。
+    func finishSpeedBoostSession(reason: String) {
+        endSpeedBoost(reason: reason)
+        consumePressSession()
+    }
+
     /// 点按该当何论。
     enum TapDisposition: Equatable {
-        /// 真·长按（已经起了加速）的尾巴：吞掉。
+        /// 真·长按（量的按住时长 ≥ ``speedBoostHoldSeconds``）的尾巴：吞掉。
         case swallow
         /// 正常点按（含「按得实一点的单击」）：放行。
         case allow
-        /// 「还按着」挂太久了 = 那次长按被系统吞了：先收掉加速（恢复倍速），再放行这一下。
+        /// 「还按着」但连按下时刻都没有（状态坏了 / 上一次长按挂了）：先收掉加速，再放行。
         case endStaleBoost
     }
 
-    /// 这次点按归哪一类（**纯函数**，有单测）。
+    /// 这次点按归哪一类（**纯函数**，有单测）：只看**量出来的按住时长**。
     ///
-    /// 走到「还按着」那支时，**长按一定已经成立**（``speedBoostHoldSeconds`` = 1.5 秒，
-    /// 用户真实的单击够不着）—— 所以那就是真·长按的尾巴：吞（不让控制条闪）。
-    /// 只有「挂太久」（≥ ``speedBoostTrustSeconds``）才当那次长按已被系统吞掉：自愈 + 放行。
-    /// 另外一支（`endedAt`）是尾巴点按晚于松手的情况：按住时长够（≥ 长按线）就吞，
-    /// 拿不到起点时退回「刚松手」那个时间窗。
+    /// - 按住 ≥ ``speedBoostHoldSeconds``：真·长按的尾巴 —— 吞（不让控制条闪）；
+    /// - 短于它（含「按得实一点的单击」）：放行 —— 之十现场日志里 0.45 秒的单击被吞过，
+    ///   正是「点屏幕没反应 / 按钮点了没动静」里最难受的一种；
+    /// - 连按下时刻都没记到：还按着当挂死（自愈 + 放行），没按着直接放行。
     ///
-    /// 两种来信都认：`isHolding`（尾巴点按先到，松手还没被识别）与 `endedAt`（松手先被识别）——
-    /// 顺序不固定（日志实测两个方向都出现过），所以两条路都要拿「按住时长」量一遍。
+    /// 两条来信都认：尾巴点按先到（`pressEndedAt` 还是 nil，用 `now` 顶上）与松手先到
+    /// （`onEnded` 已记下松手时刻）—— 顺序不固定（日志实测两个方向都出现过），
+    /// 所以两种都按同一本账量。
     static func tapDisposition(
         isHolding: Bool,
-        holdStartedAt: Date?,
-        endedAt: Date?,
+        pressStartedAt: Date?,
+        pressEndedAt: Date?,
         now: Date
     ) -> TapDisposition {
-        if isHolding {
-            guard let holdStartedAt,
-                  now.timeIntervalSince(holdStartedAt) < speedBoostTrustSeconds
-            else {
-                return .endStaleBoost
-            }
-            return .swallow
+        if let started = pressStartedAt {
+            let ended = pressEndedAt ?? now
+            return ended.timeIntervalSince(started) >= speedBoostHoldSeconds ? .swallow : .allow
         }
-        guard let endedAt else {
-            return .allow
-        }
-        // 松手先到：按住时长 = `endedAt - holdStartedAt`（拿不到起点就退回老规矩：只认时间窗）。
-        if let holdStartedAt, endedAt.timeIntervalSince(holdStartedAt) < speedBoostHoldSeconds {
-            return .allow
-        }
-        return now.timeIntervalSince(endedAt) < speedBoostSwallowSeconds ? .swallow : .allow
+        return isHolding ? .endStaleBoost : .allow
     }
 
-    /// 这次点按距「长按起」多久（秒）；没在长按状态给 nil。**只进日志** ——
-    /// 「吞 / 放」的判定输入就是它，排障时不用再猜用户按了多久。
-    var currentHoldSeconds: TimeInterval? {
-        guard isSpeedBoostHolding, let started = speedBoostStartedAt else {
+    /// 这次按住量出来的时长（秒）；没记到按下时刻给 nil。
+    ///
+    /// **只进日志与分档判定** —— 「吞 / 放」的输入就是它，排障时不用再猜用户按了多久。
+    var currentPressSeconds: TimeInterval? {
+        guard let press = speedBoostPress else {
             return nil
         }
-        return Date().timeIntervalSince(started)
+        return (press.endedAt ?? Date()).timeIntervalSince(press.startedAt)
     }
 
-    /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:holdStartedAt:endedAt:now:)``）。
+    /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:pressStartedAt:pressEndedAt:now:)``）。
     ///
-    /// 两件事在任何分支里都要做对：
-    /// 1. **收掉加速 + 清掉 `speedBoostEndedAt`** —— 点按只在松手后才来，走到这儿说明这次按住已经
-    ///    结束；那一下就是尾巴本身，别再让它吞掉下一个真点按（提示也立刻消失、速度回原样）；
-    /// 2. 「挂太久」（≥ ``speedBoostTrustSeconds``）那一类当自愈处理（记一条原因进日志）。
+    /// 不管哪一档，走到这儿都要做两件事：
+    /// 1. **撤掉「按住计时」** —— 点按只在松手后才来，这一按到此为止，别让计时再把加速点着；
+    /// 2. **把这次按住的账清掉**（`consumePressSession`）—— 那一下就是尾巴本身，
+    ///    别再让它吞掉下一个真点按（吞的那条顺手把加速收掉：提示立刻消失、速度回原样）。
     func shouldSwallowTap() -> Bool {
         let disposition = Self.tapDisposition(
             isHolding: isSpeedBoostHolding,
-            holdStartedAt: speedBoostStartedAt,
-            endedAt: speedBoostEndedAt,
+            pressStartedAt: speedBoostPress?.startedAt,
+            pressEndedAt: speedBoostPress?.endedAt,
             now: Date()
         )
+        speedBoostArmTask?.cancel()
+        speedBoostArmTask = nil
         switch disposition {
         case .swallow:
             // 只有控制条**亮着**时才吞（吞的目的是别让它闪一下）；暗着的时候这一下照常执行 ——
@@ -619,19 +675,25 @@ extension PlaybackView {
             // 是「点屏幕没反应」里最难受的一种）。
             if isControlsVisible {
                 endSpeedBoost(reason: "尾巴（真·长按）")
-                speedBoostEndedAt = nil
+                consumePressSession()
                 return true
             }
             endSpeedBoost(reason: "尾巴（控制条暗着，放行）")
-            speedBoostEndedAt = nil
+            consumePressSession()
             return false
         case .allow:
-            speedBoostEndedAt = nil
+            consumePressSession()
             return false
         case .endStaleBoost:
             endSpeedBoost(reason: "自愈（挂太久）")
-            speedBoostEndedAt = nil
+            consumePressSession()
             return false
         }
+    }
+
+    /// 这次按住的账（按下 / 松手时刻）到此为止：尾巴点按只吞它自己那一下；
+    /// 拖动 / 布局变化 / 退到后台这类「不会再有尾巴点按」的路径也顺手结清。
+    func consumePressSession() {
+        speedBoostPress = nil
     }
 }

@@ -30,8 +30,9 @@ enum PlaybackTrace {
         let kind: String = doubleTap ? "双击" : "单击"
         let point: String = location.map { "(\(Int($0.x.rounded())), \(Int($0.y.rounded())))" } ?? "无"
         let zone: String = isCenter ? "中间" : "两边"
-        // 「距长按起」是判定的输入（吞 / 放都看它）：下一步排障不用再猜用户按了多久。
-        let heldText: String = held.map { String(format: "距长按起 %.2fs", $0) } ?? "无长按"
+        // 「按住时长」是判定的输入（吞 / 放都看它，M28 首验之十起按量出来的算）：
+        // 排障不用再猜用户按了多久。
+        let heldText: String = held.map { String(format: "按住 %.2fs", $0) } ?? "无长按"
         let text = "点按 " + kind + " 落点 " + point + "／分区 " + zone + "／动作 " + action + "／" + heldText
         logger.notice("\(text, privacy: .public)")
     }

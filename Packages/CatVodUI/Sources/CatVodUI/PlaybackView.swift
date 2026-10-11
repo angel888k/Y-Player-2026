@@ -152,11 +152,10 @@ public struct PlaybackView: View {
     @State var isSpeedBoostHolding = false
     /// 长按这次真的把速度切到长按倍速了（不在播时不切，松手也不用回）。M03P12。
     @State var isSpeedBoosting = false
-    /// 长按松手的那一刻：松手补发的那次点按要吞掉（只吞一次）。
-    @State var speedBoostEndedAt: Date?
-    /// 这次长按**开始**的时刻：见 ``tapDisposition(isHolding:holdStartedAt:endedAt:now:)`` ——
-    /// 「还按着」只信一小会儿，挂久了就是手势被系统吞了（M27 首验之六）。
-    @State var speedBoostStartedAt: Date?
+    /// 这一次按住的账（M28 首验之十）：起加速与吞尾巴都按「从它量出来的时长」算。
+    @State var speedBoostPress: SpeedBoostPress?
+    /// 「按住 → 起加速」的计时句柄：松手 / 动了 / 布局变了都要撤掉它（M28 首验之十）。
+    @State var speedBoostArmTask: Task<Void, Never>?
     @State private var stateText = "准备中…"
     @State private var engineText = ""
     /// 出错文案（换线路失败也走它，见 `PlaybackView+Lines.swift`）—— 跨文件要用，模块内。
@@ -447,6 +446,8 @@ public struct PlaybackView: View {
                 return
             }
             isLocked = false
+            // 手势大概率也一起死了：整条收尾（M28 首验之十）—— 回来别发现画面挂着 2.0x、点一下还被吞。
+            finishSpeedBoostSession(reason: "退到后台")
         }
         .task {
             // 音频会话（M26）：`.playback` 才谈得上画中画与后台出声；离场在 `onDisappear` 还原。
@@ -468,9 +469,10 @@ public struct PlaybackView: View {
             PlaybackNowPlaying.deactivate()
             eventTask?.cancel()
             eventTask = nil
-            // 控制条的自动收起计时也别留着（离开页面后没人需要它）。
+            // 控制条的自动收起计时与「按住计时」也别留着（离开页面后没人需要它们）。
             controlsHideTask?.cancel()
             controlsHideTask = nil
+            speedBoostArmTask?.cancel()
             let current = engine
             Task {
                 // 退出前落一次进度（节流不适用于离场）。
@@ -551,7 +553,8 @@ public struct PlaybackView: View {
                 // 布局变了（转屏 / 就地放大 + 转横屏 / 分屏）：手势多半已经被系统取消
                 // （`onEnded` 不会来）—— 把长按加速收掉，别让它挂着一直 2x（M27 首验之六）。
                 .onChange(of: proxy.size) { _ in
-                    endSpeedBoost(reason: "布局变了（转屏 / 放大）")
+                    // 布局变了手势多半已被系统取消（`onEnded` 不会来）：整条收尾。
+                    finishSpeedBoostSession(reason: "布局变了（转屏 / 放大）")
                 }
                 // 画面区尺寸变了：**mpv 得被告知**（它不会自己发现 —— `--wid` 嵌的是那一层，
                 // 层变大变小它不知道，会一直按创建时的尺寸出画；M27 首验之六之十）。

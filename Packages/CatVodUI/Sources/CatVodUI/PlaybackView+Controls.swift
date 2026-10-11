@@ -42,6 +42,9 @@ extension PlaybackView {
                     Spacer(minLength: 0)
                     lockButton
                 }
+                // 锁上时这条只剩解锁按钮：这一条自己吃掉点按 —— 点歪一点别穿到画面上去，
+                // 不然「点解锁」会变成「把控制条藏了」（M28 首验之十）。
+                .contentShape(Rectangle())
             } else if minimalBar {
                 Spacer(minLength: 0)
                 bottomControls(compact: compact, minimal: true)
@@ -109,6 +112,9 @@ extension PlaybackView {
             speedMenu
             lockButton
         }
+        // 这条自己吃掉点按：点歪一点别穿到画面上去 —— 穿过去就是把控制条显隐掉，
+        // 看上去像「按钮点了没反应」（M28 首验之十）。
+        .contentShape(Rectangle())
     }
 
     /// 底排：参数徽标 + 进度 + 动作行。
@@ -120,6 +126,8 @@ extension PlaybackView {
             progressRow
             transportRow(compact: compact, minimal: minimal)
         }
+        // 同上：这一条的空档也吃掉点按，别穿到画面上（按钮之间的空隙不是「画面」）。
+        .contentShape(Rectangle())
     }
 
     /// 参数徽标（参考图那排 `HW HDR H265 4K 25FPS 5.6Mbps`）。
