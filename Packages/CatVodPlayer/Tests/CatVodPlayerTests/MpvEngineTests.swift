@@ -132,18 +132,26 @@ final class FakeMpvSession: MpvSession, @unchecked Sendable {
 }
 
 /// 建一个用假会话的引擎（工厂每次都给同一个假会话，便于断言累积的调用）。
+///
+/// `videoSurface` 默认给一层**新的**（2 倍 scale：`contentsScale` 的默认值，也是单测里的既有口径）——
+/// 画面区尺寸那条线要读它算像素尺寸。与真机同一条约束：layer 只在主线程动、引擎侧只读。
 private func makeEngine(
     decoderMode: DecoderMode = .hardware,
     initializeFailure: String? = nil,
     commandFailure: String? = nil,
-    propertyStrings: [String: String] = [:]
+    propertyStrings: [String: String] = [:],
+    videoSurface: MpvVideoSurface = MpvVideoSurface()
 ) -> (engine: MpvEngine, session: FakeMpvSession) {
     let session = FakeMpvSession(
         initializeFailure: initializeFailure,
         commandFailure: commandFailure,
         propertyStrings: propertyStrings
     )
-    let engine = MpvEngine(decoderMode: decoderMode, makeSession: { session })
+    let engine = MpvEngine(
+        decoderMode: decoderMode,
+        makeSession: { session },
+        videoSurface: videoSurface
+    )
     return (engine, session)
 }
 
@@ -432,6 +440,26 @@ struct MpvEngineTests {
         // 落的是**最后**那个：再报一次它不该再重建（假会话报不出 `osd-dimensions`，走的就是重建那条路）。
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
         #expect(rebuilds() == 1)
+        // 尺寸站稳后起的自愈探针在后台睡满下蹲时长（3.5s）—— 测试**替它把这觉睡完**再收尾，
+        // 别让一个还在跑的 Task 拷着会话进下一个测试（探针本身只读属性、不改状态，断言不受它影响）。
+        try? await Task.sleep(nanoseconds: 3_700_000_000)
+    }
+
+    @Test("画面区尺寸：自愈探针只是旁听 —— 不追加 vo 命令、也不弄脏账本")
+    func videoAreaSettleProbeIsObservationOnly() async throws {
+        let (engine, session) = makeEngine()
+        try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
+
+        await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
+
+        // 探针蹲满下蹲时长 + 500ms 匹配窗口之后才出结论；这里替它把时间走完，再看它没动过状态：
+        // 没有第二条 `vo` 命令，也没有把 `appliedVideoAreaSize` 弄脏（再报同一个尺寸仍然不重建）。
+        try? await Task.sleep(nanoseconds: 4_100_000_000)
+        let rebuilds = session.commands.filter { $0 == ["set", "vo", "null"] }.count
+        #expect(rebuilds == 1)
+        #expect(session.commands.filter { $0 == ["set", "vo", "gpu-next"] }.count == 1)
+        await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
+        #expect(session.commands.filter { $0 == ["set", "vo", "null"] }.count == 1)
     }
 
     @Test("画面区尺寸：mpv 自己认下新尺寸时不重建 VO（省掉那一顿）")
@@ -445,6 +473,7 @@ struct MpvEngineTests {
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
 
         #expect(session.commands.filter { $0 == ["set", "vo", "null"] }.isEmpty)
+        #expect(session.commands.filter { $0 == ["set", "vo", "gpu-next"] }.isEmpty)
     }
 
     @Test("画面区尺寸：同一个尺寸重复上报不重建 VO")

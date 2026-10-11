@@ -37,13 +37,20 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
     /// 上一次真正应用过的画面区尺寸：同一个尺寸不重复重建 VO（转屏动画里尺寸可能连报几次，
     /// 重建一次就闪一帧）。
     ///
-    /// 这三个是「画面区尺寸 → mpv」那条线的账本，读写都在 `MpvEngine+VideoAreaSize.swift` 的扩展里
+    /// 这几个是「画面区尺寸 → mpv」那条线的账本，读写都在 `MpvEngine+VideoAreaSize.swift` 的扩展里
     /// （`private` 是文件作用域，跨文件就用不了 —— 与 `PlaybackView+*` 同一套做法）。
     var appliedVideoAreaSize: CGSize?
     /// 还没来得及应用的**最新**尺寸：合并窗口里后到的顶掉先到的（见 ``setVideoAreaSize(_:)``）。
     var pendingVideoAreaSize: CGSize?
     /// 正在收尾的那一批尺寸上报；nil = 没在收尾（新尺寸来了就起一批）。
     var videoAreaFlushTask: Task<Void, Never>?
+    /// 最近一次**尺寸上报**的时刻与那个尺寸（M28 首验之二十八）：日志里的「尺寸到于」用它，
+    /// 「那一顿是重建本身还是重建撞了转屏动画」靠它与重建的落点对齐时间轴才能分。
+    var lastVideoAreaReportAt: Date?
+    var lastVideoAreaSize: CGSize?
+    /// 尺寸站稳后的**自愈探针**（M28 首验之二十八，见 `MpvEngine+VideoAreaSize.swift`）：
+    /// 就是一条拿日志的观察任务，不改播放行为 —— 它试的是「mpv 会不会自己认下新尺寸」。
+    var videoSettleProbeTask: Task<Void, Never>?
 
     /// 画面层（M03P1 第 3 步的渲染路径）：**引擎要留着它**，除了建会话，还要在画面区变尺寸时
     /// 把新窗口尺寸转告 mpv（见 ``setVideoAreaSize(_:)``）。**没有 `private`**：同上。
