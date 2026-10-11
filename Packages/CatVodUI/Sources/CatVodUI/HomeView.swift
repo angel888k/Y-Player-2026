@@ -51,12 +51,13 @@ public struct HomeView: View {
     @State var isLoadingSections = false
     /// 底部 Tab 栏的收放（规格与判定见 ``DiscoverTabBarVisibility``）。
     ///
-    /// **为什么换掉原来的 `@State`**（M28 首验之二十九）：`@State` 一改就重建 `HomeView.body`，
-    /// 而滚动监听器的回调**每帧**都要摸它 —— 一屏 `NavigationLink` 结构每帧重造，模拟器上直接
-    /// 掉到 2~6 帧/拖动（上机隔离实验：去掉监听器立刻顺）。现在状态在 ``DiscoverTabBarGate``
-    /// 里，**只在 `isHidden` 真的翻转时**才广播，且 `HomeView.body` 不再读它 —— 收放由
-    /// ``BookTabBarHider`` 子视图自己观察（动画也只重建那一层）。
-    @StateObject private var tabBarGate = DiscoverTabBarGate()
+    /// **静态共享、不归本视图所有**（首验之二十九的定案，理由见 ``DiscoverTabBarGate``）：
+    /// 只要它归 `HomeView` 所有（`@State` 或 `@StateObject`），一广播 `HomeView.body` 就得重来
+    /// —— 帧账里每次重建 ≈ 50~100ms，1~2 次/拖动就是可见的卡。共享实例只被 ``BookTabBarHider``
+    /// 观察：收放只重算那一层。
+    private var tabBarGate: DiscoverTabBarGate {
+        .shared
+    }
     /// 本 Tab 的沉浸页登记簿（详情 / 播放压上来时也要收栏）；登记方见 ``ImmersiveTabBarPageModifier``。
     @EnvironmentObject private var immersiveTabBar: ImmersiveTabBarState
     /// 滚动帧探针（只在模拟器上生效）：拖动期间记帧、松手出一条日志 —— 「还卡」要有帧账才谈得上修。

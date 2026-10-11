@@ -329,9 +329,16 @@ struct DiscoverTabBarVisibility: Equatable {
 ///
 /// 为什么要它：原来 `HomeView` 用一个 `@State DiscoverTabBarVisibility`，而滚动监听器**每帧**
 /// 都要摸它 —— `@State` 一改就重建整页（一屏 `NavigationLink` 每帧重造），模拟器上直接掉到
-/// 2~6 帧/拖动。现在状态在这里，**只在可见性真的变时**发一次通知，且读取点搬去
-/// ``BookTabBarHider`` 子视图：整页不再因为「滑动收栏」而重建。
+/// 2~6 帧/拖动。
+///
+/// **为什么是静态共享、不给任何视图持有**（M28 首验之二十九，上机帧账定案）：只把它从
+/// `@State` 换成 `@StateObject` **还不够** —— `@StateObject` 归 `HomeView` 所有，一广播
+/// `HomeView.body` 照样重来。帧账证据：0 次重建的拖动全顺、1~2 次的就卡（每次重建 ≈ 50~100ms，
+/// 就是 `LazyVGrid` 的 diff）。现在没有任何视图「拥有」它，观察者只有 ``BookTabBarHider``：
+/// 广播只重算那一层，滚动内容一次都不再求值。
 final class DiscoverTabBarGate: ObservableObject {
+    /// 共享实例（发现页的收放只有一份：一个包一份界面）。
+    static let shared = DiscoverTabBarGate()
     @Published private(set) var isHidden = false
 
     /// 判定状态（纯值类型，规格与判定见 ``DiscoverTabBarVisibility``）。
