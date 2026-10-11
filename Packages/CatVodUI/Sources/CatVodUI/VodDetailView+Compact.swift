@@ -19,20 +19,24 @@ extension VodDetailView {
                 // 放大成全屏（`isInlineExpanded`）时只留它：下面那块整体收掉，播放器自己铺满整屏。
                 compactPlayer(width: proxy.size.width)
                 if !isInlineExpanded {
-                    ScrollView {
+                    // 列表滑动条藏起来（用户口径）：这块不是主列表，滚动条闪一下反而多余。
+                    // 横向边距从「整块 14」改成**各区自己带**：「线路」那条要全宽（见 `compactLineChips`）。
+                    ScrollView(.vertical, showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 14) {
                             compactSynopsis
+                                .padding(.horizontal, 14)
                             if lines.count > 1 {
                                 compactLineChips
                             }
                             compactEpisodeSection
+                                .padding(.horizontal, 14)
                             if !errorText.isEmpty {
                                 Text(errorText)
                                     .font(.footnote)
                                     .foregroundStyle(.red)
+                                    .padding(.horizontal, 14)
                             }
                         }
-                        .padding(.horizontal, 14)
                         .padding(.top, 14)
                         .padding(.bottom, 28)
                     }
@@ -42,8 +46,10 @@ extension VodDetailView {
             // **放大只属于横屏**：页面尺寸一变就对着**接口方向**核一次（方向才是权威）——
             // 放大着的时候已经是竖屏了（用户自己转回来 / 系统转回来 / 转屏请求没成功），就收回去：
             // 不收的话留在竖屏上的是一张只剩播放器的空页 + 一整套完整控制条。
-            // 刚点开那一下不算（`expandOrientationGraceSeconds`）：**放大自己就会先把容器变成整屏竖屏**。
-            .onChange(of: proxy.size) { _ in
+            // 刚放大那一下不算（`expandOrientationGraceSeconds`）：给转屏 / 尺寸回调留一段缓冲。
+            .onChange(of: proxy.size) { size in
+                // 竖屏点的 ⤢ 在**容器真的横过来**这一刻落地（见 `expandInlinePlayback`）。
+                applyPendingInlineExpansion(width: size.width, height: size.height)
                 collapseIfPortraitWhileExpanded()
             }
         }
@@ -52,13 +58,15 @@ extension VodDetailView {
     /// 收回「就地放大」：只翻状态，**播放器一个字节都不动**（画面接着播）。
     /// 三处都走它 —— ✕、转回竖屏、转屏没成功，以后再加别的触发（别各写一份 `isInlineExpanded = false`）。
     func collapseInlineExpansion() {
+        // 「竖屏点了 ⤢、还没等到横屏」的那种也一并取消（这次当没点着）。
+        pendingInlineExpand = false
+        expandStartedAt = nil
+        expandCheckTask?.cancel()
+        expandCheckTask = nil
         guard isInlineExpanded else {
             return
         }
         isInlineExpanded = false
-        expandStartedAt = nil
-        expandCheckTask?.cancel()
-        expandCheckTask = nil
     }
 
     /// 点开放大之后先别急着判方向（秒）：**放大自己会先把容器变成整屏竖屏**，
@@ -194,12 +202,38 @@ extension VodDetailView {
     /// 就地那块「放大成全屏」（M27 首验之四）：把状态一翻 —— **同一块画面**跟着铺满整屏，
     /// 播放器一个字节都不重建。翻横屏那颗在控制条上（`fullScreenButton` 里顺手做）。
     ///
+    /// **竖屏时不当场放大，等容器真的横过来再放大（M28 首验之十三）**：同一帧里又重排整页、
+    /// 又开转屏动画，转屏的头几帧要连着吃两次布局 + mpv 两次 VO 重建（竖屏整屏一次、横屏一次）——
+    /// 用户报的「点全屏要卡一下」就是它。改成挂起（``pendingInlineExpand``）之后：布局只重排一次、
+    /// mpv 只重建一次（`applyPendingInlineExpansion` 在尺寸回调里落地）。
+    ///
     /// 转屏这件事**不能一信到底**：`requestGeometryUpdate` 偶尔会被系统拒（首验日志里 15:54:34
     /// 那一次就是：放大 14 毫秒后被收回、窗口还留在竖屏）。所以这里起一个校验（见下）。
     func expandInlinePlayback() {
+        guard PlatformShims.isPlaybackLandscape() != false else {
+            // 竖屏：转屏请求已经在按钮里送出 —— 先挂起，等容器真的横过来再放大（见上）。
+            pendingInlineExpand = true
+            expandStartedAt = Date()
+            scheduleExpandOrientationCheck()
+            return
+        }
+        // 已经是横屏（或者拿不到方向）：直接把状态翻过去。
+        applyInlineExpansion()
+    }
+
+    /// 竖屏点的 ⤢ 在**容器真的横过来**那一刻落地（`compactLayout` 的尺寸回调里调）。
+    func applyPendingInlineExpansion(width: CGFloat, height: CGFloat) {
+        guard pendingInlineExpand, width > height else {
+            return
+        }
+        applyInlineExpansion()
+    }
+
+    /// 真放大：同一块画面铺满整屏 —— 地址 / 内核 / 进度一个都不动，只翻状态。
+    func applyInlineExpansion() {
+        pendingInlineExpand = false
         isInlineExpanded = true
         expandStartedAt = Date()
-        scheduleExpandOrientationCheck()
     }
 
     /// 放大之后校验转屏：0.9 秒还没横过来就**再求一次**；又来 0.9 秒还是竖屏就收回去 ——
@@ -208,14 +242,21 @@ extension VodDetailView {
         expandCheckTask?.cancel()
         expandCheckTask = Task {
             try? await Task.sleep(nanoseconds: 900_000_000)
-            guard !Task.isCancelled, isInlineExpanded, PlatformShims.isPlaybackLandscape() == false else {
+            guard !Task.isCancelled,
+                  isInlineExpanded || pendingInlineExpand,
+                  PlatformShims.isPlaybackLandscape() == false
+            else {
                 return
             }
             PlatformShims.requestPlaybackOrientation(landscape: true)
             try? await Task.sleep(nanoseconds: 900_000_000)
-            guard !Task.isCancelled, isInlineExpanded, PlatformShims.isPlaybackLandscape() == false else {
+            guard !Task.isCancelled,
+                  isInlineExpanded || pendingInlineExpand,
+                  PlatformShims.isPlaybackLandscape() == false
+            else {
                 return
             }
+            // 两次都没转过去：这次 ⤢ 当没点着 —— 挂起的取消、已放大的收回。
             collapseInlineExpansion()
         }
     }
@@ -303,10 +344,14 @@ extension VodDetailView {
     }
 
     /// 「线路」胶囊组：选中那颗主题色填充（参考图同款；原来那排系统分段控件换成胶囊）。
+    ///
+    /// **横向滑动范围顶到屏幕左右边缘（用户口径）**：标题照旧缩进 14，ScrollView **不套页面边距** ——
+    /// 从屏幕最边上就能起手滑、划到头也不被边距截住；内容自己带 14 的左右内边距（首尾与别区对得齐）。
     var compactLineChips: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("线路")
                 .font(.headline)
+                .padding(.horizontal, 14)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
@@ -323,6 +368,7 @@ extension VodDetailView {
                         .buttonStyle(.plain)
                     }
                 }
+                .padding(.horizontal, 14)
                 .padding(.vertical, 2)
             }
         }

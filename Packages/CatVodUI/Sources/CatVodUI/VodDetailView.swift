@@ -61,6 +61,8 @@ public struct VodDetailView: View {
     /// 顺手翻横屏 —— **同一块画面放大**，不重建播放器（重建 = 黑一下 + 重新拉流 / 重解析）。
     /// 控制条右下角那颗 ⤢ 进、✕ 出（出 = 收回那块，接着播）。
     @State var isInlineExpanded = false
+    /// 竖屏点了 ⤢、**等容器真的横过来再放大**（M28 首验之十三：同一帧里又重排又转屏会卡）。
+    @State var pendingInlineExpand = false
     /// 这次「就地放大」是什么时候点的（给转屏校验用，见 ``scheduleExpandOrientationCheck``）。
     @State var expandStartedAt: Date?
     /// 放大的转屏校验任务（点 ⤢ 时起，收回 / 再点就换掉）。
