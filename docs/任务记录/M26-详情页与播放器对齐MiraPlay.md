@@ -64,9 +64,9 @@
 | system 内核的 PiP | **有公开 API**：`AVKit.VideoPlayer` 底层就是 `AVPlayerViewController`，把音频会话设成 `.playback` + 开 `UIBackgroundModes: [audio]`，PiP 与后台出声由**系统**提供（系统播放器控件里就有那颗 PiP 按钮）。本次做的就是这个地基。 |
 | 自绘内核（MPV / FFmpeg）的 PiP | 公开 API 可行（`AVSampleBufferDisplayLayer` + `AVPictureInPictureController.ContentSource`），但要加一条逐帧拷贝层 —— **不做**（2026-10-11 用户拍板：**自研 FFmpeg 内核不再往功能上投**，后续整块换成别的播放器；见第六节）。 |
 | 投屏 | DLNA 全是公开协议、可以自己做；AirPlay 只有 AVPlayer 那条路（切 system 内核就能投）。**未做**。 |
-| 旋转按钮 | iOS 16+ 有公开 API（`UIWindowScene.requestGeometryUpdate`）；**iOS 15 没有 → 那颗按钮在 iOS 15 上不出现**。**未做**。 |
+| 旋转按钮 | iOS 16+ 有公开 API（`UIWindowScene.requestGeometryUpdate`）；**iOS 15 没有 → 那颗按钮在 iOS 15 上不出现**。**已做**（见第六批）。 |
 | 「播放器」（内核切换） | 全公开（重建内核 + 续上进度）。**已做**（见文末）。 |
-| 「视轨」 | mpv 有公开的 `vid`；system 内核没有「选视频轨」的公开 API → 那条路不出现。**未做**。 |
+| 「视轨」 | mpv 有公开的 `vid`；system 内核没有「选视频轨」的公开 API → 那条路不出现。**已做**（见第六批）。 |
 
 ### 第五批（已做）：「播放器」—— 就地换内核
 
@@ -80,9 +80,20 @@
   （三个内核本来就各自有这个方法，只是没上协议）；`+Engine` 拆出去还顺手带走 `retryPlayback()`
   （`PlaybackView.swift` 又贴到 `file_length` 800 的线）。
 
-**还没做**：投屏（DLNA / AirPlay）、顶排「旋转」（只 iOS 16+ 有公开 API）、「视轨」（mpv 有公开 `vid`，
-system 内核没有公开等价物）。**自绘内核的画中画不做** —— 用户拍板：自研 FFmpeg 内核不再投功能，
-后续整块换成别的播放器（见下）。
+### 第六批（已做）：旋转 + 视轨
+
+- **旋转**（顶排那颗，参考同位置）：`PlatformShims` 加三个公开 API 口子 —— `canRequestPlaybackOrientation`
+  （只有 iOS 16+ 为真）、`isPlaybackLandscape()`、`requestPlaybackOrientation(landscape:)`
+  （`UIWindowScene.requestGeometryUpdate` + `setNeedsUpdateOfSupportedInterfaceOrientations`）。
+  **iOS 15 / macOS 拿不到公开 API → 那颗按钮不出现**（UI 规范第 5 条）。
+- **视轨**（底排「视轨」）：MPV 的 `track-list` 早就把 video 轨报上来了（封面图轨在映射层已排除），
+  只是界面一直把它丢掉（`tracksChanged(_, audio, subtitle)`）—— 现在收进 `videoTracks`，信息区「轨道」
+  与底排菜单都能选（落到 mpv 的 `vid`）；系统内核没有「选视频轨」的公开 API，它那条路自然不出现。
+- 顺手把「轨道」那一段（信息区择项 + 三个绑定）拆进 `PlaybackView+Tracks.swift`
+  （`PlaybackView.swift` 又贴到 `file_length` 800 的线）。
+
+**还没做**：**投屏**（DLNA 是公开协议、可以自己做，AirPlay 只有 system 内核那条路）；**自绘内核的画中画不做**
+—— 用户拍板：自研 FFmpeg 内核不再投功能，后续整块换成别的播放器（见下）。
 
 ## 六、播放内核的走向（2026-10-11 用户拍板）
 
