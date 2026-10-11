@@ -210,6 +210,19 @@ public struct HomeView: View {
     /// 分类条 / 筛选行 / 列表**同处一个滚动区**：上滑时三块一起滚出屏幕（整屏滑动，
     /// 「封面列表和分组分类连着」）。
     private var contentScroll: some View {
+        // 诊断分支（只在模拟器生效，见 ``CardDiagnostics``）：
+        // ⑤去监听器 —— 不挂 `scrollTouchObserver`（Tab 栏不跟着收放），其余照旧；
+        // ⑥去下拉刷新 —— 不挂 `.refreshable`，其余照旧。
+        let withoutObserver = CardDiagnostics.isEnabled && cardDiagnostics.mode == .noObserver
+        let withoutRefresh = CardDiagnostics.isEnabled && cardDiagnostics.mode == .noRefresh
+        return scrollBody(
+            observed: !withoutObserver,
+            refreshable: !withoutRefresh
+        )
+    }
+
+    /// 滚动本体；`observed` / `refreshable` 只服务诊断开关（见 ``CardDiagnostics``）。
+    private func scrollBody(observed: Bool, refreshable: Bool) -> some View {
         ScrollView {
             VStack(spacing: 0) {
                 if !result.categories.isEmpty {
@@ -230,31 +243,66 @@ public struct HomeView: View {
             // 「手指碰上屏幕」「往上滑」「松手」三路都由它报，滚动一行没改。
             // 原来那两个「旁听」`simultaneousGesture` 在 iOS 16 上会把滚动吃掉 ——
             // 上滑能收栏、列表却纹丝不动（2026-10-11 iPhone 12 实测后换掉，见 M02P16 第六节）。
-            .scrollTouchObserver(
-                onTouchDown: {
-                    tabBar.touchDown()
-                    frameProbe.begin()
-                },
-                onDragChanged: { translation in
-                    tabBar.dragChanged(
-                        translationX: translation.width,
-                        translationY: translation.height
-                    )
-                    // 每帧一次的节拍（帧探针用它算帧间隔；探针只在模拟器上记账）。
-                    // 下一次测量前**临时关掉**：`tick()` 本身每帧改一次状态，上机帧账里
-                    // 「3 帧 / 拖动 250ms」的形态可能有一部分是探针自己贡献的 —— 先去掉再量。
-                    // frameProbe.tick()
-                },
-                onTouchEnded: {
-                    tabBar.touchEnded()
-                    frameProbe.end()
-                }
+            .modifier(
+                ScrollTouchObserverModifier(
+                    isEnabled: observed,
+                    onTouchDown: {
+                        tabBar.touchDown()
+                        frameProbe.begin()
+                    },
+                    onDragChanged: { translation in
+                        tabBar.dragChanged(
+                            translationX: translation.width,
+                            translationY: translation.height
+                        )
+                    },
+                    onTouchEnded: {
+                        tabBar.touchEnded()
+                        frameProbe.end()
+                    }
+                )
             )
         }
         // 下拉刷新（M28 首验之二十）：动作与删掉的工具栏那颗同一条 —— 回第一页 + 绕过缓存；
         // 横向展示那套分区也一起重来（不然拉一下什么都不会变）。
-        .refreshable {
+        .modifier(RefreshableModifier(isEnabled: refreshable) {
             await refreshHome()
+        })
+    }
+
+    /// 诊断用：`scrollTouchObserver` 的「挂 / 不挂」开关（`ViewModifier` 形式，条件为假时不改任何东西）。
+    private struct ScrollTouchObserverModifier: ViewModifier {
+        let isEnabled: Bool
+        let onTouchDown: () -> Void
+        let onDragChanged: (CGSize) -> Void
+        let onTouchEnded: () -> Void
+
+        func body(content: Content) -> some View {
+            if isEnabled {
+                content.scrollTouchObserver(
+                    onTouchDown: onTouchDown,
+                    onDragChanged: onDragChanged,
+                    onTouchEnded: onTouchEnded
+                )
+            } else {
+                content
+            }
+        }
+    }
+
+    /// 诊断用：`.refreshable` 的「挂 / 不挂」开关。
+    private struct RefreshableModifier: ViewModifier {
+        let isEnabled: Bool
+        let action: () async -> Void
+
+        func body(content: Content) -> some View {
+            if isEnabled {
+                content.refreshable {
+                    await action()
+                }
+            } else {
+                content
+            }
         }
     }
 

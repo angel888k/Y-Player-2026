@@ -20,6 +20,10 @@ final class CardDiagnostics: ObservableObject {
         /// **极简对照组**：整页换成一个最朴素的懒网格（200 个纯色格，无图无监听无导航）——
         /// 它也卡 → 病不在我们的页面内容，而在滚动容器本身或模拟器环境。
         case control
+        /// 去掉**滚动监听器**（`scrollTouchObserver`）：它每帧改 `@State`、整页重建的头号嫌疑。
+        case noObserver
+        /// 去掉 `refreshable`（下拉刷新）。
+        case noRefresh
 
         var id: String { rawValue }
 
@@ -29,6 +33,8 @@ final class CardDiagnostics: ObservableObject {
             case .plain: "纯色块"
             case .noLink: "无导航链接"
             case .control: "极简对照"
+            case .noObserver: "去监听器"
+            case .noRefresh: "去下拉刷新"
             }
         }
     }
@@ -51,6 +57,8 @@ final class CardDiagnostics: ObservableObject {
         case .plain: "2"
         case .noLink: "3"
         case .control: "4"
+        case .noObserver: "5"
+        case .noRefresh: "6"
         }
     }
 
