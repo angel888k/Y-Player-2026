@@ -257,8 +257,12 @@ public struct HomeView: View {
                                         DiscoverPosterCard(
                                             item: item,
                                             style: selectedSite?.style,
-                                            // 尺寸明文递下去：图按这个宽度解码，别拿原始大图铺。
-                                            targetSize: CGSize(width: Self.sectionCardWidth, height: Self.sectionCardWidth),
+                                            // 尺寸明文递下去：宽 + 完整高度（2:3），图按这个子采样 ——
+                                            // 原来给 112x112，图按方框解完再被放大回 168 高，白白糊一截。
+                                            targetSize: CGSize(
+                                                width: Self.sectionCardWidth,
+                                                height: Self.sectionCardWidth / DiscoverPosterCard.aspectRatio,
+                                            ),
                                         )
                                         .frame(width: Self.sectionCardWidth)
                                     }

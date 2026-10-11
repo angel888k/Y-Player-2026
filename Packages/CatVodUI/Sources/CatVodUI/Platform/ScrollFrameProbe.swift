@@ -21,6 +21,7 @@ final class ScrollFrameProbe {
     /// 手指碰上屏幕：开始记账。
     func begin() {
         #if targetEnvironment(simulator)
+        FrameProbeTrace.noteBegan()
         intervals.removeAll(keepingCapacity: true)
         lastTimestamp = 0
         guard link == nil else {
@@ -38,6 +39,7 @@ final class ScrollFrameProbe {
         link?.invalidate()
         link = nil
         guard !intervals.isEmpty else {
+            FrameProbeTrace.noteEmpty()
             return
         }
         // 取中位与最慢一帧（平均会被「偶尔一帧 100ms」抹平，中位看常态）。
@@ -67,6 +69,16 @@ final class ScrollFrameProbe {
 /// 帧探针日志（滚动期间一条）。
 enum FrameProbeTrace {
     static let logger = Logger(subsystem: "com.YPlayer.cat", category: "frame")
+
+    /// 开始记账（拖动真的被我们看到了才会出现 —— 没有这条 = 那条触摸回调没来）。
+    static func noteBegan() {
+        logger.notice("滚动帧：开始记账")
+    }
+
+    /// 松手但一个采样都没有（displayLink 没跑起来 / 拖动太短）。
+    static func noteEmpty() {
+        logger.notice("滚动帧：这次拖动没有采到样本")
+    }
 
     static func note(frames: Int, medianMs: Int, worstMs: Int, slowFrames: Int) {
         logger.notice(

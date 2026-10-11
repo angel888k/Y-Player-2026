@@ -177,10 +177,16 @@ actor ImageMemoryCache {
         }
     }
 
-    /// 像素化目标尺寸（点 × scale）：两层都按 1pt = 1px 走，scale 由调用方乘好。
+    /// 目标尺寸的**归档粒度**（像素，向上取整）：布局量出来的尺寸带小数（同一列在不同帧
+    /// 可能是 349.7 / 350.0 / 350.3 px），不归档就会把同一张图各解一份、各存一条缓存 ——
+    /// 上机日志里同一 URL 连着两条「ok」就是这么来的。归档到 25px 一档，卡与卡之间能共享。
+    static let targetSizeBucket: CGFloat = 25
+
+    /// 像素化目标尺寸（点 × scale）：两层都按 1pt = 1px 走，scale 由调用方乘好；再向上归档。
     private nonisolated static func pixelSize(_ size: CGSize) -> CGSize {
-        let width = max(Int(size.width.rounded()), 1)
-        let height = max(Int(size.height.rounded()), 1)
+        let bucket = targetSizeBucket
+        let width = max(Int((size.width / bucket).rounded(.up) * bucket), Int(bucket))
+        let height = max(Int((size.height / bucket).rounded(.up) * bucket), Int(bucket))
         return CGSize(width: width, height: height)
     }
 
