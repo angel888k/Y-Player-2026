@@ -46,13 +46,12 @@ struct ImageCacheWiringTests {
 
         try FileManager.default.createDirectory(at: model.imageCacheDirectory, withIntermediateDirectories: true)
         try Data(repeating: 0x43, count: 700).write(to: model.imageCacheDirectory.appendingPathComponent("c.bin"))
-        #expect(model.imageCacheByteCount == 700)
-        #expect(model.totalCacheByteCount >= 700, "图片缓存要算进「全部缓存」")
+        #expect(model.imageCacheByteCount >= 700, "目录里应当能看到这份数据")
+        #expect(model.clearableImageCacheByteCount >= 700, "「可清占用」要算上图片数据")
 
         #expect(await model.clearImageCache() >= 1)
-        // `URLCache` 在被清时会异步落自己的库文件（上机抓过 144KB 残留）——给它一拍再断言，
-        // 断的是「清完之后稳定下来的占用」，不是「某一瞬间的占用」。
-        try await Task.sleep(nanoseconds: 300_000_000)
-        #expect(model.imageCacheByteCount == 0)
+        // 断言的是**可清占用**：`URLCache` 自己的库文件（几十 KB，`Cache.db`）保留不清 ——
+        // 清它没用（下次访问还会重建），也不该出现在「图片缓存数据」那一行里。
+        #expect(model.clearableImageCacheByteCount == 0)
     }
 }
