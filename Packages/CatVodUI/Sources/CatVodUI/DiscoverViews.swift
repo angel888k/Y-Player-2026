@@ -152,31 +152,7 @@ struct DiscoverPosterCard: View {
     /// 只影响**解码分辨率**（下采样按最大边，估大一点无妨），不参与排版 —— 排版由外层说了算。
     static let estimatedGridCardWidth: CGFloat = 117
 
-    /// 卡片形态诊断（只在模拟器上可能非 `.normal`，见 ``CardDiagnostics``）。
-    @Environment(\.cardDiagnostics) private var cardDiagnostics
-
     var body: some View {
-        if CardDiagnostics.isEnabled, cardDiagnostics.mode == .plain {
-            plainPoster
-        } else {
-            cardBody
-        }
-    }
-
-    /// 「纯色块」形态：不带图、不带角标，只留比例与片名 —— 用来分辨「病在图片」还是「病在布局」。
-    private var plainPoster: some View {
-        VStack(spacing: 6) {
-            Color.secondary.opacity(0.25)
-                .aspectRatio(cardRatio, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: PlatformShims.cardCornerRadius))
-            Text(item.vodName.isEmpty ? item.vodID : item.vodName)
-                .font(.caption)
-                .lineLimit(1)
-                .multilineTextAlignment(.center)
-        }
-    }
-
-    private var cardBody: some View {
         VStack(spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 // 圆形卡（`oval` / `circle=1`）与圆角矩形分开画：

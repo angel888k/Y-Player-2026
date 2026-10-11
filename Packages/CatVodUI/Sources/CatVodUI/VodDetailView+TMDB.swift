@@ -411,11 +411,11 @@ extension VodDetailView {
                 Color.clear
                     .aspectRatio(Self.episodeStillAspectRatio, contentMode: .fit)
                     .overlay(
-                        AsyncImage(url: imageURL) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
-                            Color.clear
-                        }
+                        CachedImage(
+                            url: imageURL.absoluteString,
+                            targetSize: CGSize(width: 180, height: 0),
+                            aspectRatio: Self.episodeStillAspectRatio
+                        )
                     )
                     .clipShape(RoundedRectangle(cornerRadius: Self.episodeStillCornerRadius))
             }

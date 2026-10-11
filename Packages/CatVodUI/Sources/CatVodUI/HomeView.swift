@@ -62,8 +62,6 @@ public struct HomeView: View {
     @EnvironmentObject private var immersiveTabBar: ImmersiveTabBarState
     /// 滚动帧探针（只在模拟器上生效）：拖动期间记帧、松手出一条日志 —— 「还卡」要有帧账才谈得上修。
     @State private var frameProbe = ScrollFrameProbe()
-    /// 卡片形态诊断（只在模拟器上有开关）：现场切「现状 / 纯色块 / 无导航链接」，定位卡顿病灶。
-    @Environment(\.cardDiagnostics) private var cardDiagnostics
     /// 网页条目（如宿主配置中心）要在 App 内打开的地址；nil = 没开。
     @State private var webEntry: WebEntry?
 
@@ -114,12 +112,7 @@ public struct HomeView: View {
             .adaptiveToolbar {
                 siteSwitcherButton
             } trailing: {
-                HStack(spacing: 12) {
-                    if CardDiagnostics.isEnabled {
-                        cardDiagnosticsButton
-                    }
-                    trailingButtons
-                }
+                trailingButtons
             }
             .task {
                 await syncHomeWithInterface()
@@ -178,26 +171,7 @@ public struct HomeView: View {
     // MARK: - 主体
 
     @ViewBuilder private var content: some View {
-        // 诊断（只在模拟器）：整页换成极简对照组 —— 分辨「病在页面内容」还是「病在滚动容器/环境」。
-        if CardDiagnostics.isEnabled, cardDiagnostics.mode == .control {
-            controlGrid
-        } else {
-            contentBodyStack
-        }
-    }
-
-    /// 极简对照组：一个 `ScrollView` + `LazyVGrid` + 200 个纯色格（无图、无监听、无导航）。
-    @ViewBuilder private var controlGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: posterColumns, spacing: 14) {
-                ForEach(0..<200, id: \.self) { index in
-                    Color.secondary.opacity(index.isMultiple(of: 2) ? 0.25 : 0.4)
-                        .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: PlatformShims.cardCornerRadius))
-                }
-            }
-            .padding(.horizontal, 16)
-        }
+        contentBodyStack
     }
 
     private var contentBodyStack: some View {
@@ -219,21 +193,12 @@ public struct HomeView: View {
     /// 分类条 / 筛选行 / 列表**同处一个滚动区**：上滑时三块一起滚出屏幕（整屏滑动，
     /// 「封面列表和分组分类连着」）。
     private var contentScroll: some View {
-        // 诊断分支（只在模拟器生效，见 ``CardDiagnostics``）：
-        // ⑤去监听器 —— 不挂 `scrollTouchObserver`（Tab 栏不跟着收放），其余照旧；
-        // ⑥去下拉刷新 —— 不挂 `.refreshable`，其余照旧。
-        let withoutObserver = CardDiagnostics.isEnabled && cardDiagnostics.mode == .noObserver
-        let withoutRefresh = CardDiagnostics.isEnabled && cardDiagnostics.mode == .noRefresh
-        return scrollBody(
-            observed: !withoutObserver,
-            refreshable: !withoutRefresh
-        )
+        scrollBody
     }
 
-    /// 滚动本体；`observed` / `refreshable` 只服务诊断开关（见 ``CardDiagnostics``）。
-    private func scrollBody(observed: Bool, refreshable: Bool) -> some View {
-        let _ = ScrollRebuildCounter.noteRebuild()
-        return ScrollView {
+    /// 滚动本体。
+    private var scrollBody: some View {
+        ScrollView {
             VStack(spacing: 0) {
                 if !result.categories.isEmpty {
                     DiscoverCategoryStrip(
@@ -253,38 +218,33 @@ public struct HomeView: View {
             // 「手指碰上屏幕」「往上滑」「松手」三路都由它报，滚动一行没改。
             // 原来那两个「旁听」`simultaneousGesture` 在 iOS 16 上会把滚动吃掉 ——
             // 上滑能收栏、列表却纹丝不动（2026-10-11 iPhone 12 实测后换掉，见 M02P16 第六节）。
-            .modifier(
-                ScrollTouchObserverModifier(
-                    isEnabled: observed,
-                    onTouchDown: {
-                        tabBarGate.touchDown()
-                        frameProbe.begin()
-                        ScrollRebuildCounter.begin()
-                    },
-                    onDragChanged: { translation in
-                        // 监听器给的 translation 是**从手势开始累计**的位移（不是逐帧增量），
-                        // 直接进判定即可 —— 逐帧小位移不用累加。
-                        tabBarGate.dragChanged(
-                            translationX: translation.width,
-                            translationY: translation.height
-                        )
-                        // 每帧一次的节拍（帧探针用它算帧间隔）。`tick()` 只做两个成员变量的
-                        // 读写、不碰任何 SwiftUI 状态 —— 可以放心开着（帧账要它）。
-                        frameProbe.tick()
-                    },
-                    onTouchEnded: {
-                        tabBarGate.touchEnded()
-                        frameProbe.end()
-                        ScrollRebuildCounter.end(reason: "拖动结束")
-                    }
-                )
+            .scrollTouchObserver(
+                onTouchDown: {
+                    tabBarGate.touchDown()
+                    frameProbe.begin()
+                },
+                onDragChanged: { translation in
+                    // 监听器给的 translation 是**从手势开始累计**的位移（不是逐帧增量），
+                    // 直接进判定即可 —— 逐帧小位移不用累加。
+                    tabBarGate.dragChanged(
+                        translationX: translation.width,
+                        translationY: translation.height
+                    )
+                    // 每帧一次的节拍（帧探针用它算帧间隔）。`tick()` 只做两个成员变量的
+                    // 读写、不碰任何 SwiftUI 状态 —— 可以放心开着（帧账要它）。
+                    frameProbe.tick()
+                },
+                onTouchEnded: {
+                    tabBarGate.touchEnded()
+                    frameProbe.end()
+                }
             )
         }
         // 下拉刷新（M28 首验之二十）：动作与删掉的工具栏那颗同一条 —— 回第一页 + 绕过缓存；
         // 横向展示那套分区也一起重来（不然拉一下什么都不会变）。
-        .modifier(RefreshableModifier(isEnabled: refreshable) {
+        .refreshable {
             await refreshHome()
-        })
+        }
     }
 
     @ViewBuilder private var contentBody: some View {
@@ -392,11 +352,7 @@ public struct HomeView: View {
         _ item: VodItem,
         @ViewBuilder label: () -> Label
     ) -> some View {
-        if CardDiagnostics.isEnabled, cardDiagnostics.mode == .noLink {
-            // 诊断形态「无导航链接」：光秃秃的卡片（**点不动**）—— 专门用来分辨
-            // 「NavigationLink 的代价」是不是卡顿来源（见 ``CardDiagnostics``）。
-            label()
-        } else if let url = WebEntryRules.webURL(for: item, site: selectedSite) {
+        if let url = WebEntryRules.webURL(for: item, site: selectedSite) {
             Button {
                 webEntry = WebEntry(url: url)
             } label: {
@@ -528,23 +484,6 @@ public struct HomeView: View {
             Image(systemName: "magnifyingglass")
         }
         .disabled(browsableSites.isEmpty)
-    }
-
-    /// 卡片形态诊断开关（**只在模拟器上出现**）：点一次切一档，档位写进日志。
-    ///
-    /// 用途见 ``CardDiagnostics``：一次构建、现场对比三种卡片形态，定位滚动卡顿到底出在
-    /// 「图片渲染」「导航链接」还是「别的」。
-    private var cardDiagnosticsButton: some View {
-        Button {
-            cardDiagnostics.cycle()
-        } label: {
-            Image(systemName: "rectangle.3.group")
-                .overlay(alignment: .bottomTrailing) {
-                    Text("\(cardDiagnostics.modeShortLabel)")
-                        .font(.system(size: 8, weight: .bold))
-                        .offset(x: 4, y: 2)
-                }
-        }
     }
 
     // MARK: - 站点菜单的弹层与标签

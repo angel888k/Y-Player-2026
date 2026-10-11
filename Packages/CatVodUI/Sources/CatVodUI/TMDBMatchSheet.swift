@@ -178,11 +178,10 @@ struct TMDBMatchSheet: View {
             dismiss()
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                AsyncImage(url: model.tmdbConfig.imageURL(item.posterPath)) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.secondary.opacity(0.15)
-                }
+                CachedImage(
+                    url: model.tmdbConfig.imageURL(item.posterPath),
+                    targetSize: CGSize(width: 46, height: 69)
+                )
                 .frame(width: 46, height: 69)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 

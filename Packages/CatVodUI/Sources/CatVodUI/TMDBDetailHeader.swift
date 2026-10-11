@@ -55,12 +55,14 @@ struct TMDBDetailHeader: View {
                 // 底：深灰。异步图没来时也有形状（与骨架同色），不会是一块纯黑。
                 Rectangle()
                     .fill(Color.secondary.opacity(0.2))
-                if let url = posterURL, let imageURL = URL(string: url) {
-                    AsyncImage(url: imageURL) { phase in
-                        if case let .success(image) = phase {
-                            image.resizable().scaledToFill()
-                        }
-                    }
+                if let url = posterURL {
+                    // M28 首验之二十九：换 ``CachedImage``（内存缓存 + 按尺寸解码；原来 AsyncImage
+                    // 每次出现都重下重解）。尺寸用 GeometryReader 量到的死宽高。
+                    CachedImage(
+                        url: url,
+                        targetSize: proxy.size,
+                        aspectRatio: proxy.size.width / max(proxy.size.height, 1)
+                    )
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
                 }

@@ -40,8 +40,6 @@ public struct RootView: View {
     @StateObject private var liveImmersiveTabBar = ImmersiveTabBarState()
     @StateObject private var libraryImmersiveTabBar = ImmersiveTabBarState()
     @StateObject private var settingsImmersiveTabBar = ImmersiveTabBarState()
-    /// 卡片形态诊断（滚动卡顿的隔离实验；只在模拟器上有开关）。
-    @StateObject private var cardDiagnostics = CardDiagnostics()
     /// 前后台状态：回到前台要把没下完的接着跑（M10h）。
     @Environment(\.scenePhase) private var scenePhase
 
@@ -88,8 +86,6 @@ public struct RootView: View {
         // 图片加载器注入整棵视图树：发现页 / 详情页的 `CachedImage` 都取材于它
         // （内存 + 磁盘缓存、缓存目录与「缓存管理」同根，M28 首验之二十九）。
         .environment(\.cachedImageLoader, model.imageLoader)
-        // 卡片形态诊断开关（只在模拟器上出现，见 ``CardDiagnostics``）。
-        .environment(\.cardDiagnostics, cardDiagnostics)
         .task {
             // 冷启动恢复：本地保存了接口地址就自动加载一次，不必先去「设置 → 源地址」手动点「加载」；
             // 加载完成会自增 `siteCatalogRevision`，首页/搜索/追剧据此拿到站点（见 M02P9）。
