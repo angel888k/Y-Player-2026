@@ -4,6 +4,7 @@ import Testing
 /// 冷启动恢复中的判定（M28 首验之三十一）：发现页在「保存过接口、还没加载完」的窗口里
 /// 显示「站点加载中…」，其余情况不能盖住原有文案。
 @Suite("发现页：冷启动恢复态")
+@MainActor
 struct HomeRestoreStateTests {
     @Test("保存过接口 + 站点还空 + 还没开始加载 → 恢复中（显示「站点加载中…」）")
     func restoring() {
