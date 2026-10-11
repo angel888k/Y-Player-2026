@@ -6,7 +6,9 @@ import SwiftUI
 ///
 /// 只在模拟器（`#if targetEnvironment(simulator)`）打开；真机 / 正式包里 `isEnabled` 恒为 false，
 /// 开关按钮不出现、代码路径也走不到。
-@MainActor
+/// 线程约定：**只在主线程用**（`RootView` 放一份、视图读、按钮切）。
+/// 类本身不标 `@MainActor` 是**故意的**：`EnvironmentKey.defaultValue` 是同步非隔离上下文，
+/// 带隔离的 `init()` 在那儿建不了（上机编译抓过）。
 final class CardDiagnostics: ObservableObject {
     enum Mode: String, CaseIterable, Identifiable {
         /// 现状：图 + 导航链接。
@@ -47,12 +49,14 @@ final class CardDiagnostics: ObservableObject {
         }
     }
 
-    /// 切到下一档（工具栏那颗按钮）。
+    /// 切到下一档（工具栏那颗按钮）。主线程上下文里改状态并落日志。
     func cycle() {
-        let all = Mode.allCases
-        let next = (all.firstIndex(of: mode).map { $0 + 1 } ?? 0) % all.count
-        mode = all[next]
-        cardDiagLogger.notice("卡片诊断模式：\(self.mode.displayName, privacy: .public)")
+        Task { @MainActor in
+            let all = Mode.allCases
+            let next = (all.firstIndex(of: mode).map { $0 + 1 } ?? 0) % all.count
+            mode = all[next]
+            cardDiagLogger.notice("卡片诊断模式：\(self.mode.displayName, privacy: .public)")
+        }
     }
 }
 
