@@ -35,6 +35,10 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
     /// 上一次真正应用过的画面区尺寸：同一个尺寸不重复重建 VO（转屏动画里尺寸可能连报几次，
     /// 重建一次就闪一帧）。
     private var appliedVideoAreaSize: CGSize?
+    /// 还没来得及应用的**最新**尺寸：合并窗口里后到的顶掉先到的（见 ``setVideoAreaSize(_:)``）。
+    private var pendingVideoAreaSize: CGSize?
+    /// 正在收尾的那一批尺寸上报；nil = 没在收尾（新尺寸来了就起一批）。
+    private var videoAreaFlushTask: Task<Void, Never>?
 
     /// 画面层（M03P1 第 3 步的渲染路径）：**引擎要留着它**，除了建会话，还要在画面区变尺寸时
     /// 把新窗口尺寸转告 mpv（见 ``setVideoAreaSize(_:)``）。
@@ -140,24 +144,62 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
     ///
     /// 为什么必须转：`--wid` 嵌的是**这一层**，层变大变小 mpv **不会自己知道** —— 它会一直按
     /// 窗口创建那一刻的尺寸出画（画面小一块、钉在层的左上角；层 / 宿主 / 窗口三处的数值全是对的）。
-    /// `window-size` 是 mpv 认的那个旋钮；随手把 mpv 自己认的 `osd-dimensions` 记一条 ——
-    /// 出了事一眼就能看出它到底按多大在画。
+    ///
+    /// 为什么要**合并 + 串行**（M28 首验之二十六）：每次「重建视频输出」都要把整个 VO 拆掉再建回来，
+    /// 拆建期间 mpv 不产帧 —— 那是**实打实的一停**。而一次「竖屏 → 横屏就地放大」会连着报两次尺寸
+    /// （横屏槽位那一版 + 放大后的最终版）：以前每次回调各起一个 `Task`，命令还会交错下
+    /// （两套 `vo=null` / `vo=gpu-next` 撞在一起，画面停两下）。现在：同一批尺寸只落**最后**那个，
+    /// 一次只收尾一批，收尾期间来的尺寸留给下一批。
     public func setVideoAreaSize(_ size: CGSize) async {
-        guard let session, size.width > 0, size.height > 0 else {
+        guard session != nil, size.width > 0, size.height > 0 else {
             return
         }
-        guard appliedVideoAreaSize != size else {
+        guard appliedVideoAreaSize != size, pendingVideoAreaSize != size else {
             return
         }
-        appliedVideoAreaSize = size
+        pendingVideoAreaSize = size
+        if videoAreaFlushTask == nil {
+            videoAreaFlushTask = Task { await self.flushVideoAreaSizes() }
+        }
+        await videoAreaFlushTask?.value
+    }
+
+    /// 合并窗口（纳秒）：约几帧 —— 转屏 + 就地放大那两次尺寸上报就在这个量级里。
+    ///
+    /// 取小值是**故意的**：这个窗口是「等同一批尺寸到齐」用的，拖长了会让画面晚一拍跟上新尺寸。
+    private static let videoAreaMergeNanoseconds: UInt64 = 80_000_000
+
+    /// 收尾一批尺寸上报：先等一个几帧的合并窗口，再只重建一次 VO —— 落窗口里最后到的那个尺寸。
+    ///
+    /// 循环而不是单次：重建期间又来了新尺寸（比如转屏动画里还有第三版），就用最新那个再落一次。
+    /// 循环尾到头之间**没有 await**，所以「检查完 pending 再清任务句柄」这段不会被打断 ——
+    /// 不会留下一个没人处理的 pending。
+    private func flushVideoAreaSizes() async {
+        defer { videoAreaFlushTask = nil }
+        try? await Task.sleep(nanoseconds: Self.videoAreaMergeNanoseconds)
+        while let next = pendingVideoAreaSize {
+            pendingVideoAreaSize = nil
+            guard session != nil, appliedVideoAreaSize != next else {
+                continue
+            }
+            appliedVideoAreaSize = next
+            await rebuildVideoOutput(size: next)
+        }
+    }
+
+    /// 真重建一次视频输出（`vo` 置空再设回来：mpv 会重新读窗口大小）。
+    ///
+    /// 第一招 `window-size`：mpv 对嵌入式窗口**不吃**（日志实测：发过之后 `osd-dimensions`
+    /// 纹丝不动，还是窗口创建时的 1206x678）。所以走第二招 —— **重建视频输出**：不改播放位置、
+    /// 不重新拉流；随手把 mpv 自己认的 `osd-dimensions` 记一条，出了事一眼就能看出它按多大在画。
+    private func rebuildVideoOutput(size: CGSize) async {
+        guard let session else {
+            return
+        }
         let scale = videoSurface?.layer.contentsScale ?? 2
         let pixelWidth = max(Int((size.width * scale).rounded()), 1)
         let pixelHeight = max(Int((size.height * scale).rounded()), 1)
         let area = "\(pixelWidth)x\(pixelHeight)（点 \(Int(size.width))x\(Int(size.height))）"
-        // 第一招 `window-size`：mpv 对嵌入式窗口**不吃**（日志实测：发过之后 `osd-dimensions`
-        // 纹丝不动，还是窗口创建时的 1206x678）。
-        // 第二招 —— **重建视频输出**：`vo` 置空再设回来，mpv 会把 VO 整个重建，
-        // 重建时会重新读窗口大小（不改播放位置、不重新拉流；空窗只存在一帧，正在转屏时看不出来）。
         session.command(["set", "vo", "null"])
         session.command(["set", "vo", "gpu-next"])
         // 重建是 mpv 自己线程里的事，等它一下再读，读到的才是重建后的数。

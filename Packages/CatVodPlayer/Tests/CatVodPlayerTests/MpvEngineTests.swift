@@ -410,6 +410,53 @@ struct MpvEngineTests {
         #expect(next == .stateChanged(.paused))
     }
 
+    // MARK: - 画面区尺寸（VO 重建的合并 / 串行）
+
+    @Test("画面区尺寸：连着来的两次上报只重建一次 VO，落最后那个（转屏 + 就地放大）")
+    func videoAreaSizeCoalescesBurst() async throws {
+        let (engine, session) = makeEngine()
+        try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
+        func rebuilds() -> Int {
+            session.commands.filter { $0 == ["set", "vo", "null"] }.count
+        }
+        #expect(rebuilds() == 0)
+
+        // 第一条（横屏槽位那一版）先到 —— 只隔一次 actor 跳，睡 20ms 足够。
+        let first = Task { await engine.setVideoAreaSize(CGSize(width: 874, height: 249)) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        // 紧接着第二条（放大后的最终版）：合并窗口里它顶掉第一条。
+        await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
+        await first.value
+
+        #expect(rebuilds() == 1, "同一批尺寸只该重建一次 VO —— 重建一次画面就停一下，停两下就是用户报的「点全屏会顿」")
+        // 落的是**最后**那个：再报一次它不动；报前一个（槽位那版）才重建。
+        await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
+        #expect(rebuilds() == 1)
+        await engine.setVideoAreaSize(CGSize(width: 874, height: 249))
+        #expect(rebuilds() == 2)
+    }
+
+    @Test("画面区尺寸：同一个尺寸重复上报不重建 VO")
+    func videoAreaSizeSkipsIdentical() async throws {
+        let (engine, session) = makeEngine()
+        try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
+
+        await engine.setVideoAreaSize(CGSize(width: 402, height: 226.125))
+        await engine.setVideoAreaSize(CGSize(width: 402, height: 226.125))
+
+        let rebuilds = session.commands.filter { $0 == ["set", "vo", "null"] }.count
+        #expect(rebuilds == 1)
+    }
+
+    @Test("画面区尺寸：没有会话 / 尺寸非法时是安全空操作")
+    func videoAreaSizeWithoutSessionIsSafe() async {
+        let engine = MpvEngine(decoderMode: .hardware, makeSession: { nil })
+        await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
+        await engine.setVideoAreaSize(CGSize(width: 0, height: 402))
+        let state = await engine.currentState()
+        #expect(state == .idle)
+    }
+
     @Test("纯工具：轨道取值与数值格式")
     func helpers() {
         #expect(MpvEngine.trackValue(.auto) == "auto")

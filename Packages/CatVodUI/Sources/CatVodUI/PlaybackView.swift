@@ -561,6 +561,8 @@ public struct PlaybackView: View {
                 }
                 // 画面区尺寸变了：**mpv 得被告知**（它不会自己发现 —— `--wid` 嵌的是那一层，
                 // 层变大变小它不知道，会一直按创建时的尺寸出画；M27 首验之六之十）。
+                // 连着来的尺寸（转屏 + 就地放大）由引擎那边合并成**一次** VO 重建（M28 首验之二十六，
+                // 见 `MpvEngine.setVideoAreaSize`：每次重建画面都要停一下，别停两下）。
                 .onChange(of: proxy.size) { size in
                     guard let mpv = engine as? MpvEngine else {
                         return

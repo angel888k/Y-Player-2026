@@ -11,46 +11,63 @@ extension VodDetailView {
     /// 精简视图（M26 对齐参考的 Normal 页）：**上面一块播放器 + 下面详情** ——
     /// 片名 / 收藏 / 简介 / 「线路」胶囊 / 「剧集」胶囊列表；点一集**就地开播**，不推页面。
     var compactLayout: some View {
-        // 量一次尺寸：顶上那块正常时按 16:9 定高（超屏就封顶），放大时铺满整屏（见 `compactPlayer(width:availableHeight:)`）。
+        // 量一次尺寸：顶上那块正常时按 16:9 定高（超屏就封顶），放大时铺满整屏
+        // （见 `compactPlayer(width:availableHeight:expanded:)`）。
         GeometryReader { proxy in
-            VStack(spacing: 0) {
-                // 播放器**钉在顶上**（与参考的「半屏播放器」同款）：它自己的拖动是调进度 / 音量 / 亮度，
-                // 跟着滚会跟页面滚动抢手势 —— 分开两层，两边都干净。
-                // 放大成全屏（`isInlineExpanded`）时只留它：下面那块整体收掉，播放器自己铺满整屏。
-                compactPlayer(width: proxy.size.width, availableHeight: proxy.size.height)
-                if !isInlineExpanded {
-                    // 列表滑动条藏起来（用户口径）：这块不是主列表，滚动条闪一下反而多余。
-                    // 横向边距从「整块 14」改成**各区自己带**：「线路」那条要全宽（见 `compactLineChips`）。
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 14) {
-                            compactSynopsis
-                                .padding(.horizontal, 14)
-                            if lines.count > 1 {
-                                compactLineChips
-                            }
-                            compactEpisodeSection
-                                .padding(.horizontal, 14)
-                            if !errorText.isEmpty {
-                                Text(errorText)
-                                    .font(.footnote)
-                                    .foregroundStyle(.red)
-                                    .padding(.horizontal, 14)
-                            }
-                        }
-                        .padding(.top, 14)
-                        .padding(.bottom, 28)
-                    }
-                    .background(autoPlayLink)
+            compactLayoutContent(size: proxy.size)
+                // **放大只属于横屏**：页面尺寸一变就对着**接口方向**核一次（方向才是权威）——
+                // 放大着的时候已经是竖屏了（用户自己转回来 / 系统转回来 / 转屏请求没成功），就收回去：
+                // 不收的话留在竖屏上的是一张只剩播放器的空页 + 一整套完整控制条。
+                // 刚放大那一下不算（`expandOrientationGraceSeconds`）：给转屏 / 尺寸回调留一段缓冲。
+                .onChange(of: proxy.size) { size in
+                    // 竖屏点的 ⤢ 在**容器真的横过来**这一刻落地（见 `expandInlinePlayback`）。
+                    applyPendingInlineExpansion(width: size.width, height: size.height)
+                    collapseIfPortraitWhileExpanded()
                 }
-            }
-            // **放大只属于横屏**：页面尺寸一变就对着**接口方向**核一次（方向才是权威）——
-            // 放大着的时候已经是竖屏了（用户自己转回来 / 系统转回来 / 转屏请求没成功），就收回去：
-            // 不收的话留在竖屏上的是一张只剩播放器的空页 + 一整套完整控制条。
-            // 刚放大那一下不算（`expandOrientationGraceSeconds`）：给转屏 / 尺寸回调留一段缓冲。
-            .onChange(of: proxy.size) { size in
-                // 竖屏点的 ⤢ 在**容器真的横过来**这一刻落地（见 `expandInlinePlayback`）。
-                applyPendingInlineExpansion(width: size.width, height: size.height)
-                collapseIfPortraitWhileExpanded()
+        }
+    }
+
+    /// 精简视图那一版的内容（尺寸从外面的 `GeometryReader` 递进来）。
+    ///
+    /// 为什么拆成一个函数：`expanded` 要在 `return` 之前先算好（与 `playerControls(width:minimal:)`
+    /// 同一写法 —— 函数体里先算局部量再 return 视图树）。
+    func compactLayoutContent(size: CGSize) -> some View {
+        // 这一帧按什么版式摆（判定在 `compactPlayerExpanded`，有单测）：
+        // **竖屏点的 ⤢ 挂起中、容器刚横过来**的那一帧就直接按放大摆 —— 中间那版「横屏槽位」
+        // 不会再被摆出来，画面区因此只上报一次尺寸（mpv 少重建一次视频输出，M28 首验之二十六）。
+        let expanded = Self.compactPlayerExpanded(
+            isExpanded: isInlineExpanded,
+            pendingExpand: pendingInlineExpand,
+            size: size
+        )
+        return VStack(spacing: 0) {
+            // 播放器**钉在顶上**（与参考的「半屏播放器」同款）：它自己的拖动是调进度 / 音量 / 亮度，
+            // 跟着滚会跟页面滚动抢手势 —— 分开两层，两边都干净。
+            // 放大成全屏（`expanded`）时只留它：下面那块整体收掉，播放器自己铺满整屏。
+            compactPlayer(width: size.width, availableHeight: size.height, expanded: expanded)
+            if !expanded {
+                // 列表滑动条藏起来（用户口径）：这块不是主列表，滚动条闪一下反而多余。
+                // 横向边距从「整块 14」改成**各区自己带**：「线路」那条要全宽（见 `compactLineChips`）。
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        compactSynopsis
+                            .padding(.horizontal, 14)
+                        if lines.count > 1 {
+                            compactLineChips
+                        }
+                        compactEpisodeSection
+                            .padding(.horizontal, 14)
+                        if !errorText.isEmpty {
+                            Text(errorText)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 14)
+                        }
+                    }
+                    .padding(.top, 14)
+                    .padding(.bottom, 28)
+                }
+                .background(autoPlayLink)
             }
         }
     }
@@ -103,19 +120,31 @@ extension VodDetailView {
     /// 「放大时不定尺」—— 那个 `nil` 不是「不限比例」，而是按视图**自己的固有比例**走：
     /// `Color` 的固有比例是 1:1，于是放大后给出一块**方**槽位、两边露着页面白底（首验截图就是这个）。
     ///
-    /// **放大成全屏**（M27 首验之四）：`isInlineExpanded` 时高度不给（`nil` = 跟着父级铺满）
+    /// **放大成全屏**（M27 首验之四）：`expanded` 时高度不给（`nil` = 跟着父级铺满）
     /// 并忽略安全区 —— **同一块内容**（同一个 `PlaybackView`，引擎照旧在跑）跟着变大，
     /// 不重建播放器（重建要黑一下、还要重新拉流 / 重解析，用户看到的就是「旧状态又来了」）。
-    func compactPlayer(width: CGFloat, availableHeight: CGFloat) -> some View {
+    ///
+    /// `expanded` 由调用方算好递进来（``compactPlayerExpanded(isExpanded:pendingExpand:size:)``）：
+    /// 它比 `isInlineExpanded` 早一帧为真 —— 转屏落地那一帧就直接按放大摆，不再先摆一版横屏槽位。
+    func compactPlayer(width: CGFloat, availableHeight: CGFloat, expanded: Bool) -> some View {
         // 两个值都写明类型：三元塞进长表达式里会让类型检查器罢工（首验踩过
         // `failed to produce diagnostic`），显式一点最稳。
-        let height: CGFloat? = isInlineExpanded ? nil : Self.compactPlayerHeight(width: width, availableHeight: availableHeight)
-        let regions: SafeAreaRegions = isInlineExpanded ? .all : []
+        let height: CGFloat? = expanded ? nil : Self.compactPlayerHeight(width: width, availableHeight: availableHeight)
+        let regions: SafeAreaRegions = expanded ? .all : []
         return Color.black
             .frame(height: height)
-            .overlay { compactPlayerContent }
+            .overlay { compactPlayerContent(expanded: expanded) }
             .clipped()
             .ignoresSafeArea(regions, edges: .all)
+    }
+
+    /// 这一帧顶上那块按不按「放大」摆（**纯函数**，有单测）。
+    ///
+    /// 三种情况：真放大（`isExpanded`）；**竖屏点的 ⤢ 挂起中、容器已经横过来**（挂起落地的那一帧，
+    /// 直接按放大摆 —— 中间那版「横屏槽位」不再被摆出来，画面区因此只上报一次尺寸，
+    /// mpv 少重建一次 VO，M28 首验之二十六）；其余都不放大。
+    static func compactPlayerExpanded(isExpanded: Bool, pendingExpand: Bool, size: CGSize) -> Bool {
+        isExpanded || (pendingExpand && size.width > size.height)
     }
 
     /// 不放大时那块槽位的高度（**纯函数**，有单测）：16:9 定高，但**不超过可用高度的那一档**
@@ -127,12 +156,12 @@ extension VodDetailView {
 
     /// 槽位里的内容（尺寸跟着上面的黑底走）。
     @ViewBuilder
-    var compactPlayerContent: some View {
+    func compactPlayerContent(expanded: Bool) -> some View {
         if let target = inlinePlayback {
-            inlinePlayer(for: target)
+            inlinePlayer(for: target, expanded: expanded)
                 .id(target.index)
         } else if let target = inlineSitePlayback {
-            inlineSitePlayer(for: target)
+            inlineSitePlayer(for: target, expanded: expanded)
                 .id(target.index)
         } else {
             compactPlayerPlaceholder
@@ -142,7 +171,7 @@ extension VodDetailView {
     /// 站点换地址那种（type=3 CatSpider / type=4）：整块交给 ``SitePlayEpisodeView`` ——
     /// 它自己「换地址 → 直链就播 / 说要解析就转解析链 / 失败给原因」，我们只负责把它挂在顶上。
     @ViewBuilder
-    func inlineSitePlayer(for target: PlaybackTarget) -> some View {
+    func inlineSitePlayer(for target: PlaybackTarget, expanded: Bool) -> some View {
         if let site {
             SitePlayEpisodeView(
                 model: model,
@@ -163,13 +192,13 @@ extension VodDetailView {
                 // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）；
                 // 放大成全屏后回到完整版（那边要 ✕ 才能收回来）。
                 playerAreaMinHeight: 0,
-                minimalControls: !isInlineExpanded
+                minimalControls: !expanded
             )
         }
     }
 
     /// 就地播放那块播放器：与推页那条**同一份参数**，多了「关掉这块画面」与「转全屏」两个回传。
-    func inlinePlayer(for target: PlaybackTarget) -> some View {
+    func inlinePlayer(for target: PlaybackTarget, expanded: Bool) -> some View {
         destination(
             for: target.episode,
             at: target.index,
@@ -181,7 +210,7 @@ extension VodDetailView {
             // 控制条走极简版（竖屏只摆徽标 / 进度 / 播放暂停 / 全屏，M27 首验之二）；
             // 放大成全屏后回到完整版（那边要 ✕ 才能收回来）。
             playerAreaMinHeight: 0,
-            minimalControls: !isInlineExpanded
+            minimalControls: !expanded
         )
     }
 
@@ -214,6 +243,10 @@ extension VodDetailView {
     /// 又开转屏动画，转屏的头几帧要连着吃两次布局 + mpv 两次 VO 重建（竖屏整屏一次、横屏一次）——
     /// 用户报的「点全屏要卡一下」就是它。改成挂起（``pendingInlineExpand``）之后：布局只重排一次、
     /// mpv 只重建一次（`applyPendingInlineExpansion` 在尺寸回调里落地）。
+    ///
+    /// 落地那一帧的版式由 ``compactPlayerExpanded(isExpanded:pendingExpand:size:)`` 说了算：
+    /// 挂起 + 容器已横过来时**直接按放大摆**，中间那版「横屏槽位」不摆出来（M28 首验之二十六；
+    /// 那一版会多报一次画面区尺寸，mpv 就要多重建一次 VO —— 每次重建画面停一下）。
     ///
     /// 转屏这件事**不能一信到底**：`requestGeometryUpdate` 偶尔会被系统拒（首验日志里 15:54:34
     /// 那一次就是：放大 14 毫秒后被收回、窗口还留在竖屏）。所以这里起一个校验（见下）。

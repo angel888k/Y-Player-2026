@@ -18,6 +18,34 @@ struct CompactPlayerLayoutTests {
         #expect(abs(height - 226.125) < 0.001)
     }
 
+    @Test("竖屏点的 ⤢：容器一横过来就直接按放大摆（中间那版横屏槽位不摆出来 —— 少一次尺寸上报）")
+    func pendingExpansionLandsInOneStep() {
+        // 挂起中 + 容器已经横过来：直接按放大摆（`applyPendingInlineExpansion` 在同一次回调里翻状态，
+        // 版式不再变 —— 画面区因此只上报一次尺寸，mpv 少重建一次 VO）。
+        #expect(VodDetailView.compactPlayerExpanded(
+            isExpanded: false,
+            pendingExpand: true,
+            size: CGSize(width: 874, height: 402)
+        ))
+        // 挂起中 + 还是竖屏：照旧按槽位摆（不抢先铺满竖屏 —— M28 首验之十三 的口径）。
+        #expect(!VodDetailView.compactPlayerExpanded(
+            isExpanded: false,
+            pendingExpand: true,
+            size: CGSize(width: 402, height: 874)
+        ))
+        // 没挂起：只有真放大才算放大。
+        #expect(!VodDetailView.compactPlayerExpanded(
+            isExpanded: false,
+            pendingExpand: false,
+            size: CGSize(width: 874, height: 402)
+        ))
+        #expect(VodDetailView.compactPlayerExpanded(
+            isExpanded: true,
+            pendingExpand: false,
+            size: CGSize(width: 402, height: 874)
+        ))
+    }
+
     @Test("横屏：封顶在可用高度的 0.62 —— 视频完整、下面那截留得住")
     func landscape() {
         let height = VodDetailView.compactPlayerHeight(width: 874, availableHeight: 402)
