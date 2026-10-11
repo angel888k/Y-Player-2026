@@ -22,11 +22,20 @@ struct SystemVideoView: UIViewRepresentable {
         let view = LayerHostView()
         view.backgroundColor = .black
         view.attach(surface.layer, sizedTo: size)
+        // 画面比例（M28 首验之十九）：比例档要重排「内容盒」——引擎换比例时回调过来；
+        // 回调可能不在主线程（自研内核），回主线程再动视图。
+        surface.onScaleModeChanged = { [weak view] mode in
+            Task { @MainActor in
+                view?.setContentAspect(mode.forcedAspect)
+            }
+        }
+        view.setContentAspect(surface.scaleMode.forcedAspect)
         return view
     }
 
     func updateUIView(_ view: LayerHostView, context: Context) {
         view.attach(surface.layer, sizedTo: size)
+        view.setContentAspect(surface.scaleMode.forcedAspect)
     }
 }
 
@@ -44,11 +53,20 @@ struct SystemVideoView: NSViewRepresentable {
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.black.cgColor
         view.attach(surface.layer, sizedTo: size)
+        // 画面比例（M28 首验之十九）：比例档要重排「内容盒」——引擎换比例时回调过来；
+        // 回调可能不在主线程（自研内核），回主线程再动视图。
+        surface.onScaleModeChanged = { [weak view] mode in
+            Task { @MainActor in
+                view?.setContentAspect(mode.forcedAspect)
+            }
+        }
+        view.setContentAspect(surface.scaleMode.forcedAspect)
         return view
     }
 
     func updateNSView(_ view: LayerHostView, context: Context) {
         view.attach(surface.layer, sizedTo: size)
+        view.setContentAspect(surface.scaleMode.forcedAspect)
     }
 }
 #endif

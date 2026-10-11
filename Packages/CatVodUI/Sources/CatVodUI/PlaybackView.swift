@@ -14,7 +14,7 @@ import SwiftUI
 ///
 /// 系统内核原来是 `AVKit.VideoPlayer`：它自带控件与手势，既跟叠层控制条打架、两边按钮也对不上 ——
 /// M27 换成自建宿主之后这条路消失（见 ``SystemVideoSurface`` 与 `docs/任务记录/M27-*.md`）。
-/// 内核各自做不到的那几项照旧不摆（画面比例 / 视轨 / 音频增益 / 画中画见 `PlaybackScaleMode` 那张表）。
+/// 内核各自做不到的那几项照旧不摆（视轨 / 音频增益见 `PlaybackScaleMode` 那张表）。
 /// 状态区与错误提示保持不变。
 @MainActor
 public struct PlaybackView: View {
@@ -984,8 +984,8 @@ extension PlaybackView {
         }
     }
 
-    /// 画面比例（M03P9）：只列**当前内核真的支持**的档位 —— 系统内核一档都不支持，整行不出现；
-    /// 自研 FFmpeg 只有 gravity 三态（三档）。不做「点了没反应」的开关。
+    /// 画面比例（M03P9）：只列**当前内核真的支持**的档位 —— M28 首验之十九起三个内核都全
+    /// （比例档走「内容盒 + resize」，见 ``PlaybackScaleMode/forcedAspect``）。不做「点了没反应」的开关。
     @ViewBuilder private var scaleSection: some View {
         let modes = PlaybackScaleMode.supportedModes(by: engineKind)
         if !modes.isEmpty {

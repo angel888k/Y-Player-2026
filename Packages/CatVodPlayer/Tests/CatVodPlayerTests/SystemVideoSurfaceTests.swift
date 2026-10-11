@@ -16,16 +16,20 @@ struct SystemVideoSurfaceTests {
         engine.finishEvents()
     }
 
-    @Test("画面比例：设一档就落到 videoGravity；映射不出来的档位保持原样")
+    @Test("画面比例：三态落到 videoGravity；比例档固定 resize 并回调（内容盒由界面层摆）")
     func gravityApplies() {
         let surface = SystemVideoSurface()
+        var notified: [PlaybackScaleMode] = []
+        surface.onScaleModeChanged = { notified.append($0) }
         surface.setScaleMode(.crop)
         #expect(surface.layer.videoGravity == .resizeAspectFill)
         surface.setScaleMode(.stretch)
         #expect(surface.layer.videoGravity == .resize)
-        // 16:9 表达不了：不动它（不静默改成「适应」）。
+        // 比例档：gravity 单独表达不了 —— 固定 resize（内容盒由界面层按 `forcedAspect` 摆）。
         surface.setScaleMode(.ratio16x9)
         #expect(surface.layer.videoGravity == .resize)
+        #expect(notified == [.crop, .stretch, .ratio16x9])
+        #expect(surface.scaleMode == .ratio16x9)
     }
 
     @Test("引擎的 setScaleMode 真的写到这层上（界面那颗「画面比例」按钮走的就是这条路）")

@@ -133,8 +133,8 @@ public actor FFmpegEngine: PlayerEngine, PlaybackStatsProviding {
         await session.selectTrack(selection, for: kind)
     }
 
-    /// 画面比例（M03P9）：自研内核只有 `videoGravity` 三态，16:9 / 4:3 这两档什么都不做
-    /// （播放页对自研内核不列它们，见 `PlaybackScaleMode.supportedModes(by:)`）。
+    /// 画面比例（M03P9；M28 首验之十九补齐比例档）：三态走 `videoGravity`，比例档由画面层
+    /// 「内容盒 + resize」表达（见 `FFmpegVideoSurface/setScaleMode`）。
     public func setScaleMode(_ mode: PlaybackScaleMode) async {
         videoSurface?.setScaleMode(mode)
     }

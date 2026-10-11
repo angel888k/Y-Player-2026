@@ -1,6 +1,29 @@
 import QuartzCore
 import SwiftUI
 
+/// 画面层的**内容盒**（纯函数，有单测）—— 系统 / 自研内核的「强制比例」就靠它：
+/// 画面层缩成宽高比为 `aspect` 的**最大内接盒**（居中），再配 `videoGravity = .resize`
+/// 把内容拉进盒里（观感对齐 mpv 的 `video-aspect-override`）。`nil` = 铺满宿主
+/// （适应 / 裁剪 / 拉伸三态照旧走 gravity 自己留边）。
+///
+/// MPV 不经过它（mpv 在整层里自己 letterbox）。
+enum LayerContentBox {
+    static func rect(in size: CGSize, aspect: CGFloat?) -> CGRect {
+        guard let aspect, aspect > 0, size.width > 0, size.height > 0 else {
+            return CGRect(origin: .zero, size: size)
+        }
+        let fitted: CGSize = size.width / size.height > aspect
+            ? CGSize(width: size.height * aspect, height: size.height)
+            : CGSize(width: size.width, height: size.width / aspect)
+        return CGRect(
+            x: (size.width - fitted.width) / 2,
+            y: (size.height - fitted.height) / 2,
+            width: fitted.width,
+            height: fitted.height
+        )
+    }
+}
+
 #if os(iOS)
 import UIKit
 
@@ -19,6 +42,20 @@ final class LayerHostView: UIView {
     private var hostedSize: CGSize?
     /// 复查层的任务（只有一次，新的来了就换掉）。
     private var verifyTask: Task<Void, Never>?
+
+    /// 画面层的**内容盒**比例（宽 ÷ 高）：nil = 铺满宿主（适应 / 裁剪 / 拉伸走 gravity 自己留边）；
+    /// 有值 = 层缩成目标比例的居中盒（``LayerContentBox``）、内容用 `resize` 拉进盒 —— 强制比例五档。
+    /// MPV 不设它（mpv 在整层里自己 letterbox）。
+    private var contentAspect: CGFloat?
+
+    /// 设内容盒比例并立即重排（界面层在画面比例的 `onScaleModeChanged` 回调里调；同值不重排）。
+    func setContentAspect(_ aspect: CGFloat?) {
+        guard contentAspect != aspect else {
+            return
+        }
+        contentAspect = aspect
+        syncFrame()
+    }
 
     /// 挂层 + 明确尺寸（`size` 来自画面区的 `GeometryReader`）。
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
@@ -127,11 +164,12 @@ final class LayerHostView: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let size = hostedSize ?? bounds.size
-        let target = CGRect(origin: .zero, size: size)
+        // 内容盒（M28）：nil = 铺满；比例档 = 目标比例的居中盒（见 ``setContentAspect(_:)``）。
+        let box = LayerContentBox.rect(in: size, aspect: contentAspect)
         // 只改 frame，**不重挂**：重挂是为了试「AVPlayerLayer 的渲染几何卡住」那条猜想加的，
         // 后来查明那段毛病出在别处（MPV 的 drawableSize / 窗口尺寸），而重挂会让两种内核
         // 在起播和放大那一下各卡一帧（用户报「正常播放会卡顿一下」）。
-        attachedLayer.frame = target
+        attachedLayer.frame = box
         let scale = window?.screen.scale ?? UIScreen.main.scale
         attachedLayer.contentsScale = scale
         // **Metal 那一层还得自己报「画布」尺寸**（M27 首验之六之九，就是它把整件事拖了这么多轮）：
@@ -173,6 +211,19 @@ final class LayerHostView: NSView {
     private var hostedSize: CGSize?
     /// 复查层的任务（只有一次，新的来了就换掉）。
     private var verifyTask: Task<Void, Never>?
+
+    /// 画面层的**内容盒**比例（宽 ÷ 高）：nil = 铺满宿主；有值 = 目标比例的居中盒（`LayerContentBox`）。
+    /// MPV 不设它（mpv 在整层里自己 letterbox）。
+    private var contentAspect: CGFloat?
+
+    /// 设内容盒比例并立即重排（界面层在画面比例的 `onScaleModeChanged` 回调里调；同值不重排）。
+    func setContentAspect(_ aspect: CGFloat?) {
+        guard contentAspect != aspect else {
+            return
+        }
+        contentAspect = aspect
+        syncFrame()
+    }
 
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
         wantsLayer = true
@@ -251,9 +302,10 @@ final class LayerHostView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let size = hostedSize ?? bounds.size
-        let target = CGRect(origin: .zero, size: size)
+        // 内容盒（M28）：nil = 铺满；比例档 = 目标比例的居中盒（见 ``setContentAspect(_:)``）。
+        let box = LayerContentBox.rect(in: size, aspect: contentAspect)
         // 只改 frame，不重挂（理由见 iOS 那一支的注释）。
-        attachedLayer.frame = target
+        attachedLayer.frame = box
         let scale = window?.backingScaleFactor ?? 2
         attachedLayer.contentsScale = scale
         // Metal 那一层要自己报画布尺寸（理由见 iOS 那一支的注释）。

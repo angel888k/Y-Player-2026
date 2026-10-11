@@ -20,20 +20,26 @@ public final class FFmpegVideoSurface: @unchecked Sendable {
 
     public init() { }
 
-    /// 画面比例（M03P9）：只有 `videoGravity` 三态。比例档（4:3 / 5:4 / 16:9 / 21:9 / 2.39:1）
-    /// 映射不出来（``avVideoGravity`` 是 nil）—— 那些档这里**什么都不做**：静默改成「适应屏幕」
-    /// 才是说谎；界面本来也不会对自研内核列它们（见 `PlaybackScaleMode.supportedModes(by:)`）。
+    /// 当前画面比例（M28 首验之十九）：界面层建宿主时先按它把「内容盒」套一次。
+    public private(set) var scaleMode: PlaybackScaleMode = .fit
+    /// 界面层挂的回调：比例变了自己重排「内容盒」（宿主视图 ``LayerHostView/setContentAspect(_:)``）。
+    /// 本引擎是 actor：这条回调可能**不在主线程** —— 界面层收尾时要回主线程再动视图。
+    public var onScaleModeChanged: ((PlaybackScaleMode) -> Void)?
+
+    /// 画面比例（M03P9；M28 首验之十九补齐比例档）：三态落到 `videoGravity`；比例档 gravity
+    /// 单独表达不了 —— 固定 `resize`，由界面层把画面层缩成目标比例的**内容盒**（`LayerContentBox`）
+    /// 把内容拉进盒里，观感对齐 mpv 的 `video-aspect-override`。
     public func setScaleMode(_ mode: PlaybackScaleMode) {
-        guard let gravity = mode.avVideoGravity else {
-            return
-        }
-        layer.videoGravity = gravity
+        scaleMode = mode
+        layer.videoGravity = mode.avVideoGravity ?? .resize
+        onScaleModeChanged?(mode)
     }
 }
 
 extension PlaybackScaleMode {
     /// 画面层的 `videoGravity` 对应值（M27 起 `AVSampleBufferDisplayLayer` 与 `AVPlayerLayer`
-    /// 共用这一份）；`nil` = 这一档 gravity 表达不了。
+    /// 共用这一份）；`nil` = gravity 单独表达不了（比例档 —— 靠「内容盒 + `.resize`」组合表达，
+    /// 见 ``PlaybackScaleMode/forcedAspect``）。
     var avVideoGravity: AVLayerVideoGravity? {
         switch self {
         case .fit: .resizeAspect

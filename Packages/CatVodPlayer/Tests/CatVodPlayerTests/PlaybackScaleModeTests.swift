@@ -7,11 +7,11 @@ import Testing
 /// 以及引擎真的下命令。
 @Suite("画面比例")
 struct PlaybackScaleModeTests {
-    @Test("支持矩阵：MPV 全支持；自研 FFmpeg 与系统内核（M27 起）只有 gravity 三态")
+    @Test("支持矩阵：三个内核都全支持（M28 首验之十九：比例档靠「内容盒 + resize」补齐）")
     func supportMatrix() {
         #expect(PlaybackScaleMode.supportedModes(by: .mpv) == PlaybackScaleMode.allCases)
-        #expect(PlaybackScaleMode.supportedModes(by: .ffmpeg) == [.fit, .crop, .stretch])
-        #expect(PlaybackScaleMode.supportedModes(by: .system) == [.fit, .crop, .stretch])
+        #expect(PlaybackScaleMode.supportedModes(by: .system) == PlaybackScaleMode.allCases)
+        #expect(PlaybackScaleMode.supportedModes(by: .ffmpeg) == PlaybackScaleMode.allCases)
     }
 
     @Test("从存档串还原：认得出就用，空串 / 认不出回落「适应」（M03P19）")
@@ -60,7 +60,7 @@ struct PlaybackScaleModeTests {
         #expect(PlaybackScaleMode.fit.mpvCommands[0] == ["set", "video-aspect-override", "no"])
     }
 
-    @Test("自研 FFmpeg：gravity 三态；16:9 / 4:3 映射不出来（nil，不静默改成适应）")
+    @Test("gravity：三态有值；比例档映射不出来（nil —— 靠「内容盒 + resize」组合表达）")
     func avGravity() {
         #expect(PlaybackScaleMode.fit.avVideoGravity == .resizeAspect)
         #expect(PlaybackScaleMode.crop.avVideoGravity == .resizeAspectFill)
@@ -72,16 +72,39 @@ struct PlaybackScaleModeTests {
         #expect(PlaybackScaleMode.ratio239.avVideoGravity == nil)
     }
 
-    @Test("自研内核的画面层：设一档就落到 videoGravity；映射不出来的档位保持原样")
+    @Test("强制比例：五档给宽高比；前三档 nil（走 gravity 自己留边）")
+    func forcedAspect() {
+        #expect(PlaybackScaleMode.fit.forcedAspect == nil)
+        #expect(PlaybackScaleMode.crop.forcedAspect == nil)
+        #expect(PlaybackScaleMode.stretch.forcedAspect == nil)
+        // 比数留容差：字面量在编译器里折出来的值可能和运行时差最后一位（交接坑 35）。
+        func near(_ aspect: CGFloat?, _ expected: CGFloat) -> Bool {
+            guard let aspect else {
+                return false
+            }
+            return abs(aspect - expected) < 0.0001
+        }
+        #expect(near(PlaybackScaleMode.ratio4x3.forcedAspect, 4.0 / 3.0))
+        #expect(near(PlaybackScaleMode.ratio5x4.forcedAspect, 5.0 / 4.0))
+        #expect(near(PlaybackScaleMode.ratio16x9.forcedAspect, 16.0 / 9.0))
+        #expect(near(PlaybackScaleMode.ratio21x9.forcedAspect, 21.0 / 9.0))
+        #expect(near(PlaybackScaleMode.ratio239.forcedAspect, 2.39))
+    }
+
+    @Test("自研内核的画面层：三态落到 videoGravity；比例档固定 resize 并把回调打出去")
     func surfaceAppliesGravity() {
         let surface = FFmpegVideoSurface()
+        var notified: [PlaybackScaleMode] = []
+        surface.onScaleModeChanged = { notified.append($0) }
         surface.setScaleMode(.crop)
         #expect(surface.layer.videoGravity == .resizeAspectFill)
         surface.setScaleMode(.stretch)
         #expect(surface.layer.videoGravity == .resize)
-        // 16:9 表达不了：不动它（不静默改成「适应」）。
+        // 比例档：gravity 单独表达不了 —— 固定 resize（内容盒由界面层按 `forcedAspect` 摆）。
         surface.setScaleMode(.ratio16x9)
         #expect(surface.layer.videoGravity == .resize)
+        #expect(notified == [.crop, .stretch, .ratio16x9])
+        #expect(surface.scaleMode == .ratio16x9)
     }
 
     @Test("MPV 引擎：load 之后 setScaleMode 真的把命令下给会话")
