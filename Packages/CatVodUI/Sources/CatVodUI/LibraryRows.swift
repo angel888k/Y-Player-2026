@@ -24,13 +24,9 @@ struct PosterThumbnail: View {
     let url: String
 
     var body: some View {
-        AsyncImage(url: URL(string: url)) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Color.secondary.opacity(0.15)
-        }
-        .frame(width: 60, height: 84)
-        .clipShape(RoundedRectangle(cornerRadius: PlatformShims.cardCornerRadius))
+        CachedImage(url: url, targetSize: CGSize(width: 60, height: 84))
+            .frame(width: 60, height: 84)
+            .clipShape(RoundedRectangle(cornerRadius: PlatformShims.cardCornerRadius))
     }
 }
 

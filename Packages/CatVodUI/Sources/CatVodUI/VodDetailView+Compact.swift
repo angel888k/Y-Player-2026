@@ -217,12 +217,8 @@ extension VodDetailView {
     /// 还没开播时那块内容：站点海报铺底（黑场由槽位给）+ 中间一颗播放按钮
     /// （点了从「该播的那一集」开播）。
     var compactPlayerPlaceholder: some View {
-        AsyncImage(url: URL(string: detail.artwork)) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Color.clear
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        CachedImage(url: detail.artwork)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(Color.black.opacity(0.25))
         .overlay(
             Image(systemName: "play.circle.fill")

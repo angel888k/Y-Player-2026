@@ -509,6 +509,9 @@ public final class AppModel: ObservableObject {
     let sessionTransport: URLSessionTransport
     /// 详情缓存（进程内共享）。
     let detailCache = DetailCache()
+    /// 图片加载器（内存 + 磁盘缓存，M28 首验之二十九）：`RootView` 把它注入视图环境，
+    /// 缓存目录与「缓存管理」同根（见 ``AppModel+ImageCache``）。
+    public let imageLoader: ImageLoader
 
     /// TMDB 元信息的**会话缓存**（键 = 片名；只活进程内，不落盘）：详情页顶部与选集卡片共用同一次刮削。
     ///
@@ -619,6 +622,7 @@ public final class AppModel: ObservableObject {
     ) {
         let base = cacheDirectory ?? Self.defaultCacheDirectory()
         self.cacheDirectory = base
+        imageLoader = ImageLoader(cacheDirectory: base.appendingPathComponent("Images", isDirectory: true))
         self.downloadDirectory = downloadDirectory ?? Self.downloadDirectory
         downloadTransportOverride = downloadTransport
         tmdbTransportOverride = tmdbTransport

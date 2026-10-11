@@ -281,6 +281,7 @@ struct SettingsCacheView: View {
         case source
         case home
         case epg
+        case images
         case all
 
         var confirmTitle: String {
@@ -288,6 +289,7 @@ struct SettingsCacheView: View {
             case .source: "确定清空源缓存？"
             case .home: "确定清空首页缓存？"
             case .epg: "确定清空直播节目单缓存？"
+            case .images: "确定清空图片缓存？"
             case .all: "确定清空全部缓存？"
             }
         }
@@ -300,8 +302,10 @@ struct SettingsCacheView: View {
                 "首页与分类列表要重新请求一次。收藏、播放进度与站点配置都不受影响。"
             case .epg:
                 "下次进直播页要重新下节目单（文件形态的源可能要下几 MB）。追剧与播放进度不受影响。"
+            case .images:
+                "海报与封面要重新下载一次（浏览时要重新攒）。收藏、播放进度与站点配置都不受影响。"
             case .all:
-                "接口配置、首页数据与直播节目单都要重新拉取一次。收藏、播放进度与站点配置不受影响。"
+                "接口配置、首页数据、直播节目单与图片都要重新拉取一次。收藏、播放进度与站点配置不受影响。"
             }
         }
     }
@@ -352,10 +356,11 @@ struct SettingsCacheView: View {
             .map { "源缓存 \($0.entryCount) 个文件、\($0.formattedTotalSize)" } ?? "源缓存目录不可读"
         let homePart = model.homeCacheSummary()
             .map { "首页缓存 \($0.entryCount) 个文件、\($0.formattedSize)" } ?? "首页缓存目录不可读"
+        let imagePart = "图片缓存 \(SourceCacheStore.Summary.format(byteCount: model.imageCacheByteCount))"
         return "源缓存时间：接口配置在有效期内**直接读本地、不联网**，过期或手动「刷新接口」才重新下载"
             + "（js2p 接口例外：每次加载只拉几十字节的 `.md5` 摘要，变了才重下 bundle —— 上游给的就是增量更新）；"
             + "首页缓存时间：首页与分类列表在有效期内直接读本地缓存。"
-            + "当前 \(sourcePart)；\(homePart)。详情缓存仍是内存缓存（M02P5），不在这里管理。"
+            + "当前 \(sourcePart)；\(homePart)；\(imagePart)。详情缓存仍是内存缓存（M02P5），不在这里管理。"
     }
 
     /// 本地存储（M08b）：落库路径与最近失败 —— 「存不上」必须能被看到，而不是静默丢数据。
@@ -408,6 +413,9 @@ struct SettingsCacheView: View {
             // 直播节目单（文件形态，M07d7）：清掉只是下次进直播页重下 —— 与上面两行同一套「看得见、清得掉」。
             clearRow(title: "直播节目单缓存", target: .epg, isEnabled: model.liveEPGCacheByteCount > 0)
 
+            // 图片缓存（M28 首验之二十九）：海报/封面的内存 + 磁盘缓存，与上面同一套「看得见、清得掉」。
+            clearRow(title: "图片缓存数据", target: .images, isEnabled: model.imageCacheByteCount > 0)
+
             clearRow(
                 title: "全部缓存 (\(model.formattedTotalCacheSize))",
                 target: .all,
@@ -440,6 +448,9 @@ struct SettingsCacheView: View {
     }
 
     /// 执行二次确认后的清理。
+    ///
+    /// 图片那份要连带清内存缓存（`clearImageCache` 是 async），所以走 `Task` 起一段；
+    /// `actionMessage` 在回主线程后写（视图状态只在主线程动）。
     private func performClear() {
         switch clearTarget {
         case .source:
@@ -448,8 +459,16 @@ struct SettingsCacheView: View {
             actionMessage = "已清理首页缓存 \(model.clearHomeCache()) 个文件"
         case .epg:
             actionMessage = "已清理直播节目单缓存 \(model.clearLiveEPGCache()) 个文件"
+        case .images:
+            Task {
+                let removed = await model.clearImageCache()
+                actionMessage = "已清理图片缓存 \(removed) 个文件"
+            }
         case .all:
-            actionMessage = "已清理全部缓存 \(model.clearAllCaches()) 个条目"
+            Task {
+                let removed = await model.clearAllCaches()
+                actionMessage = "已清理全部缓存 \(removed) 个条目"
+            }
         }
     }
 }

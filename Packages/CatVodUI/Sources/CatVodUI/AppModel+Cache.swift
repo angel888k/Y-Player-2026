@@ -70,10 +70,10 @@ public extension AppModel {
         liveEPGCache.clear()
     }
 
-    /// 三处缓存的合计 —— 参考图里「全部缓存 (42.34MB)」的口径就是它们之和
+    /// 四处缓存的合计 —— 参考图里「全部缓存 (42.34MB)」的口径就是它们之和
     /// （下载占用属于下载管理，本地库属于存储，都不算在缓存里）。
     var totalCacheByteCount: Int64 {
-        sourceCacheByteCount + homeCacheByteCount + liveEPGCacheByteCount
+        sourceCacheByteCount + homeCacheByteCount + liveEPGCacheByteCount + imageCacheByteCount
     }
 
     /// 「全部缓存」的展示文本。
@@ -81,10 +81,14 @@ public extension AppModel {
         SourceCacheStore.Summary.format(byteCount: totalCacheByteCount)
     }
 
-    /// 清空全部缓存（接口 + 首页 + 节目单），返回删除的条目数。
+    /// 清空全部缓存（接口 + 首页 + 节目单 + 图片），返回删除的条目数。
+    ///
+    /// 图片那份要连带清内存（见 ``clearImageCache()``），所以它是 `async` —— 其余三处是纯文件操作。
     @discardableResult
-    func clearAllCaches() -> Int {
-        clearSourceCache() + clearHomeCache() + clearLiveEPGCache()
+    func clearAllCaches() async -> Int {
+        let files = clearSourceCache() + clearHomeCache() + clearLiveEPGCache()
+        let images = await clearImageCache()
+        return files + images
     }
 
     // MARK: - 接口（源配置）缓存

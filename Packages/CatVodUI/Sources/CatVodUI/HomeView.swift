@@ -250,8 +250,13 @@ public struct HomeView: View {
                             LazyHStack(spacing: 10) {
                                 ForEach(section.items) { item in
                                     posterLink(item) {
-                                        DiscoverPosterCard(item: item, style: selectedSite?.style)
-                                            .frame(width: Self.sectionCardWidth)
+                                        DiscoverPosterCard(
+                                            item: item,
+                                            style: selectedSite?.style,
+                                            // 尺寸明文递下去：图按这个宽度解码，别拿原始大图铺。
+                                            targetSize: CGSize(width: Self.sectionCardWidth, height: Self.sectionCardWidth),
+                                        )
+                                        .frame(width: Self.sectionCardWidth)
                                     }
                                 }
                             }
@@ -297,6 +302,8 @@ public struct HomeView: View {
         LazyVGrid(columns: posterColumns, spacing: 14) {
             ForEach(result.list) { item in
                 posterLink(item) {
+                    // 弹性列的宽度由布局说了算：`targetSize` 不传，卡片里的 `CachedImage`
+                    // 用 `GeometryReader` 读到实际格宽再按它解码（下采样保持比例）。
                     DiscoverPosterCard(item: item, style: selectedSite?.style)
                 }
             }

@@ -298,13 +298,9 @@ private struct LiveChannelRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: URL(string: row.logo)) { image in
-                image.resizable().scaledToFit()
-            } placeholder: {
-                Color.secondary.opacity(0.12)
-            }
-            .frame(width: 34, height: 34)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            CachedImage(url: row.logo, targetSize: CGSize(width: 34, height: 34), contentMode: .fit)
+                .frame(width: 34, height: 34)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)

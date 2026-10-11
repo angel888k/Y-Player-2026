@@ -332,13 +332,9 @@ struct VodRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            AsyncImage(url: URL(string: item.vodPic)) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Color.secondary.opacity(0.15)
-            }
-            .frame(width: 60, height: 84)
-            .clipShape(RoundedRectangle(cornerRadius: PlatformShims.cardCornerRadius))
+            CachedImage(url: item.vodPic, targetSize: CGSize(width: 60, height: 84))
+                .frame(width: 60, height: 84)
+                .clipShape(RoundedRectangle(cornerRadius: PlatformShims.cardCornerRadius))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.vodName.isEmpty ? item.vodID : item.vodName)

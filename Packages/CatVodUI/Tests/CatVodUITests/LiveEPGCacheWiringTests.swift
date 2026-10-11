@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct LiveEPGCacheWiringTests {
     @Test("节目单缓存进「全部缓存」的合计；清空后归零")
-    func byteCountAndClear() throws {
+    func byteCountAndClear() async throws {
         let fixture = try AppModelFixture()
         defer { fixture.tearDown() }
         let model = fixture.model
@@ -19,8 +19,8 @@ struct LiveEPGCacheWiringTests {
         #expect(model.liveEPGCacheByteCount == 2048)
         #expect(model.totalCacheByteCount >= 2048)
 
-        // 「清空全部」也把它清掉（三个清空按钮共用一次确认，数据面得一起动）。
-        #expect(model.clearAllCaches() >= 1)
+        // 「清空全部」也把它清掉（几个清空按钮共用一次确认，数据面得一起动）。
+        #expect(await model.clearAllCaches() >= 1)
         #expect(model.liveEPGCacheByteCount == 0)
         #expect(cache.read("https://live.example.com/epg/cctv.xml") == nil)
     }
