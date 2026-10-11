@@ -169,12 +169,19 @@ struct SettingsPlayerControlView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                Picker("单击屏幕两边", selection: $control.singleTapSides) {
-                    ForEach(PlaybackTapAction.options, id: \.self) { action in
-                        Text(action.title).tag(action)
+                if AdaptiveTapShim.supportsTapLocation {
+                    Picker("单击屏幕两边", selection: $control.singleTapSides) {
+                        ForEach(PlaybackTapAction.options, id: \.self) { action in
+                            Text(action.title).tag(action)
+                        }
                     }
+                    .pickerStyle(.menu)
                 }
-                .pickerStyle(.menu)
+            } footer: {
+                if !AdaptiveTapShim.supportsTapLocation {
+                    Text("这个系统拿不到点按落点（要 iOS 16 起）：点按一律按「屏幕中间」处理，"
+                        + "「屏幕两边」这一档不出现。")
+                }
             }
 
             Section("双击手势") {
@@ -184,12 +191,14 @@ struct SettingsPlayerControlView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                Picker("双击屏幕两边", selection: $control.doubleTapSides) {
-                    ForEach(PlaybackTapAction.options, id: \.self) { action in
-                        Text(action.title).tag(action)
+                if AdaptiveTapShim.supportsTapLocation {
+                    Picker("双击屏幕两边", selection: $control.doubleTapSides) {
+                        ForEach(PlaybackTapAction.options, id: \.self) { action in
+                            Text(action.title).tag(action)
+                        }
                     }
+                    .pickerStyle(.menu)
                 }
-                .pickerStyle(.menu)
             }
 
             Section("滑动手势") {

@@ -114,33 +114,24 @@ extension PlaybackView {
             .scaleEffect(zoomScale)
             .clipped()
             .contentShape(Rectangle())
-            // 触摸落点：`TapGesture` 不给位置，`SpatialTapGesture` 又要 iOS 16+ ——
-            // 用一条**零距离拖动**把起点记下来（公开 API，iOS 15 也吃），单击 / 双击的
-            // 「中间一半 / 两侧」分区靠它（M28）。它只记位置、`onEnded` 什么都不做，
-            // 点按与拖动照旧各走各的。
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in tapStartLocation = value.startLocation }
-                    .onEnded { _ in }
-            )
-            .gesture(
-                TapGesture(count: 2)
-                    .onEnded { _ in
-                        // 双击干什么由设置给（M28）；锁上之后不做（M03P21，上游 onDoubleTap 同款早退）。
-                        guard Self.lockedGesturePolicy(isLocked: isLocked) == .all, !shouldSwallowTap() else {
-                            return
-                        }
-                        handleTap(doubleTap: true, width: size.width)
+            // 点按（双击优先）+ **落点**：版本分支在基础件里（`Platform/AdaptiveTap.swift`）——
+            // iOS 16+ 是 `SpatialTapGesture`（有落点），iOS 15 回落 `TapGesture`（落点 nil，
+            // 按「中间」那一档处理）。**不要**为了记落点另挂「旁听」手势：首验踩过 —— 零距离拖动
+            // 照样进手势竞争，点按被吃掉、长按加速被挂死（点屏幕没反应 + `2.0x` 常亮）。
+            .adaptiveTapGesture(
+                onDoubleTap: { location in
+                    // 双击干什么由设置给（M28）；锁上之后不做（M03P21，上游 onDoubleTap 同款早退）。
+                    guard Self.lockedGesturePolicy(isLocked: isLocked) == .all, !shouldSwallowTap() else {
+                        return
                     }
-                    .exclusively(
-                        before: TapGesture(count: 1)
-                            .onEnded { _ in
-                                guard !shouldSwallowTap() else {
-                                    return
-                                }
-                                handleTap(doubleTap: false, width: size.width)
-                            }
-                    )
+                    handleTap(doubleTap: true, at: location, width: size.width)
+                },
+                onSingleTap: { location in
+                    guard !shouldSwallowTap() else {
+                        return
+                    }
+                    handleTap(doubleTap: false, at: location, width: size.width)
+                }
             )
             // 长按加速与点按**同时**识别：不用 `exclusively`，那会把正常单击也一起赔进去；
             // 长按松手后补发的那次点按由 `shouldSwallowTap()` 吞掉（见它的说明）。
@@ -332,8 +323,11 @@ extension PlaybackView {
     /// 一次点按该干什么：动作从设置取（``PlaybackControlSettings/tapAction``），
     /// 分区判定**复用「纵甩切集」那条**（中间一半 = 中间，两侧四分之一 = 两边）——
     /// 手上不按屏幕分区，规则就必须是同一份。
-    func handleTap(doubleTap: Bool, width: CGFloat) {
-        let startX = tapStartLocation?.x
+    ///
+    /// `location`：点按的落点（iOS 16+ 由 `SpatialTapGesture` 给；iOS 15 那条路给 nil，
+    /// 按「中间」处理）。
+    func handleTap(doubleTap: Bool, at location: CGPoint?, width: CGFloat) {
+        let startX = location?.x
         let isCenter = Self.isCenterTap(startX: startX, width: width)
         switch controlSettings.tapAction(doubleTap: doubleTap, isCenter: isCenter) {
         case .toggleControls:

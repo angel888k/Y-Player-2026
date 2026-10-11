@@ -131,9 +131,6 @@ public struct PlaybackView: View {
     /// 播放控制设置（M28）：单击 / 双击各干什么、四条滑动开不开、震动与控制中心要不要 ——
     /// **三个内核同一份**，进页时从存档读一次（与「播放内核 / 解码方式」同一口径，M24P1）。
     @State var controlSettings: PlaybackControlSettings
-    /// 这次触摸的落点（点按分区要用）：`TapGesture` 不给位置，由 `interactiveLayer` 那条
-    /// 零距离拖动记下来（见 `PlaybackView+Gestures`）。
-    @State var tapStartLocation: CGPoint?
     /// 三条震动刻度闸（亮度 / 音量 / 进度各记各的；纯逻辑在 `PlaybackHapticGates`）。
     @State var hapticGates = PlaybackHapticGates()
     /// 控制中心那一条上次发布的整秒：同一秒里只发一次（进度条不需要每帧都刷）。
