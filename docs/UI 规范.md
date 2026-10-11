@@ -9,6 +9,10 @@
    差异统一收敛到 `Packages/CatVodUI/Sources/CatVodUI/Platform/`。
 3. **iOS 15 是下限**：凡 iOS 15 缺失的 API，必须提供该版本的**原生等价实现**（而不是自绘替代）。
 4. **macOS 用 macOS 的外观**：不使用 iOS 专属样式（如 `.stack` 导航样式、`ToolbarItemPlacement.topBarLeading`）。
+5. **没有公开 API 的能力就不做**（2026-10-11 用户拍板）：某个系统上缺**公开 API** 时，这个能力在那个系统上
+   **不出现** —— 不摆假开关、不用私有 API、不去摸系统控件的内部实现。有公开 API 的版本照常做
+   （分支仍只写在基础件里）。已按这条办的例子：iOS 15 的「按视图隐藏 Tab 栏」（M02P16，明着空操作）、
+   iOS 15 的屏幕方向请求（要 iOS 16+ 的 `requestGeometryUpdate`）。
 
 ## 二、版本/平台映射（基础件已实现）
 
