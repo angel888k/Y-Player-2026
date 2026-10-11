@@ -46,6 +46,10 @@ public struct VodDetailView: View {
     @State var isEpisodeDrawerPresented = false
     /// 「⋯」→ 手动匹配元信息（M11 片 5）的面板是否打开。
     @State var isShowingMetadataMatch = false
+    /// 简介是否展开（对齐参考的 Emby 视图：默认 2 行，点一下展开 / 收起）。
+    @State var isSynopsisExpanded = false
+    /// 选集网格量到的可用宽度（算列数用；见 `VodDetailView+TMDB.swift` 的 `episodeGridColumnCount`）。
+    @State var episodeGridWidth: CGFloat = 0
     /// 「整部下载（逐集换地址）」是否正在跑：按钮据此置灰，避免点两遍并行换地址。
     @State var isResolvingDownloads = false
     /// 上面那件事的进度 / 结果文案（换地址串行做，一格一格更新）。

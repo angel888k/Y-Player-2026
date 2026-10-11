@@ -29,10 +29,10 @@ extension VodDetailView {
             skeletonBlock(width: 96, height: 14)
             // 播放条
             skeletonBlock(width: nil, height: 44)
-            // 选集：一排占位，形状跟真卡片（竖幅图 + 文件名）对齐
-            HStack(spacing: 10) {
-                skeletonBlock(width: Self.episodeCardWidth, height: Self.episodeCardImageHeight)
-                skeletonBlock(width: Self.episodeCardWidth, height: Self.episodeCardImageHeight)
+            // 选集：两列 16:9 占位，形状跟真卡片（剧照 + 文件名）对齐
+            HStack(alignment: .top, spacing: 6) {
+                skeletonBlock(width: nil, height: 96)
+                skeletonBlock(width: nil, height: 96)
             }
         }
     }
@@ -107,14 +107,14 @@ extension VodDetailView {
                 destination(for: slot.episode, at: slot.index)
             } label: {
                 VStack(spacing: 8) {
-                    // 大按钮：**主色底 + 反白字** —— 深色下就是参考图的白色按钮，
-                    // 浅色下自动变成黑底白字，跟随系统外观（不写死白底）。
+                    // 大按钮：**浅底深字**（`Color.primary` 的低透明度当底、主色当字）—— 浅色外观下
+                    // 就是参考图里那块浅色按钮，深色外观自动翻成深底白字（不写死颜色）。
                     Label(actionTitle, systemImage: "play.fill")
                         .font(.headline)
-                        .foregroundStyle(.background)
+                        .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .background(Color.primary, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.vertical, 14)
+                        .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
                     if !subtitle(of: slot.episode).isEmpty {
                         Text(subtitle(of: slot.episode))
                             .font(.caption2)
@@ -179,12 +179,12 @@ extension VodDetailView {
                         lineName: currentLine?.name ?? "",
                         mode: model.tmdbPosterMode
                     )
-                    VStack(spacing: 16) {
+                    VStack(spacing: 18) {
                         playButtonRow
                         iconRow
                         tmdbOverview
                         tmdbEpisodeHeader
-                        tmdbEpisodeStrip
+                        tmdbEpisodeGrid
                         wholeLineDownloadsRow
                         if !errorText.isEmpty {
                             Text(errorText)
@@ -193,8 +193,8 @@ extension VodDetailView {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 14)
                     .padding(.bottom, 28)
                 }
             }
@@ -226,6 +226,8 @@ extension VodDetailView {
     }
 
     /// 简介（参考图里图标行下面那段）：TMDB overview 优先，没刮到回落到站点的 vodContent。
+    ///
+    /// 默认只露两行、**点一下展开 / 收起**（对齐参考的 Emby 视图 `_synopsisExpanded`）；
     /// 原先「影片」分区里那些说明字段（备注 / 类型 / 年份 / 进度文案）不再单列 ——
     /// 标题、线路名、简介已各就各位；进度在播放按钮下面那行里。
     @ViewBuilder
@@ -233,12 +235,36 @@ extension VodDetailView {
         let overview = episodeMetadata?.overview ?? ""
         let text = overview.isEmpty ? (vod?.vodContent ?? "") : overview
         if !text.isEmpty {
-            Text(text)
-                .font(.footnote)
-                .foregroundStyle(.primary)
-                .lineLimit(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(text)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .lineLimit(isSynopsisExpanded ? nil : 2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if showsSynopsisToggle {
+                    Text(isSynopsisExpanded ? "收起" : "展开")
+                        .font(.caption2)
+                        .foregroundStyle(PlatformShims.accent)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSynopsisExpanded.toggle()
+                }
+            }
+            .accessibilityHint("点一下展开或收起简介")
         }
+    }
+
+    /// 简介要不要给「展开 / 收起」：**够短就别摆**（两行放得下的文案，点了也不会有变化）。
+    ///
+    /// 判定按字数粗筛、不按排版量（真量要拿到渲染宽度，代价不值）：参考页里简介都是一整段，
+    /// 超两行是常态；这里用「超过 40 字」当门槛，短简介不摆多余那一行。
+    var showsSynopsisToggle: Bool {
+        let overview = episodeMetadata?.overview ?? ""
+        let text = overview.isEmpty ? (vod?.vodContent ?? "") : overview
+        return text.count > 40
     }
 
     /// 选集区头（参考图）：「线路名 ▾」（点开切线路）+ 上一集 / 下一集 + 更多（剧集列表抽屉）。
@@ -303,79 +329,64 @@ extension VodDetailView {
         }
     }
 
-    /// 选集横滑（参考图下半）：卡片一屏约两张，当前集滚到正中。
+    /// 选集网格（对齐参考的 Emby 视图）：16:9 剧照、圆角 14、卡间距 6，列数按可用宽度算。
+    ///
+    /// 列数口径来自参考实现字面池的判读（剧照卡基准 210×118、卡间距 6、页面内边距 14）：
+    /// `columns = clamp(⌊(W + 6) / (210 + 6)⌋, 2, 5)` —— 手机 2 列、iPad 4~5 列。
     @ViewBuilder
-    var tmdbEpisodeStrip: some View {
+    var tmdbEpisodeGrid: some View {
         if episodes.isEmpty {
             if isLoading {
-                HStack(spacing: 10) {
-                    skeletonBlock(width: Self.episodeCardWidth, height: Self.episodeCardImageHeight)
-                    skeletonBlock(width: Self.episodeCardWidth, height: Self.episodeCardImageHeight)
+                HStack(alignment: .top, spacing: 6) {
+                    skeletonBlock(width: nil, height: 96)
+                    skeletonBlock(width: nil, height: 96)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text("没有可用线路")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         } else {
-            ScrollView(.horizontal, showsIndicators: false) {
-                ScrollViewReader { proxy in
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(Array(episodes.enumerated()), id: \.element.id) { index, episode in
-                            NavigationLink {
-                                destination(for: episode, at: index)
-                            } label: {
-                                tmdbEpisodeCard(episode, at: index)
-                            }
-                            .buttonStyle(.borderless)
-                            .id(index)
-                        }
+            LazyVGrid(columns: episodeGridColumns, spacing: 14) {
+                ForEach(Array(episodes.enumerated()), id: \.element.id) { index, episode in
+                    NavigationLink {
+                        destination(for: episode, at: index)
+                    } label: {
+                        tmdbEpisodeCard(episode, at: index)
                     }
-                    .padding(.vertical, 2)
-                    .onAppear { centerCurrentEpisode(on: proxy) }
-                    .onChange(of: selectedLineIndex) { _ in centerCurrentEpisode(on: proxy) }
+                    .buttonStyle(.borderless)
                 }
             }
+            // 量一次可用宽度算列数：宽变（转屏 / iPad 分栏）跟着重算。
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { episodeGridWidth = proxy.size.width }
+                        .onChange(of: proxy.size.width) { width in
+                            episodeGridWidth = width
+                        }
+                }
+            )
         }
     }
 
-    /// 选集卡片尺寸（参考图里一屏约两张）：宽度 / 竖幅图高度。
-    static let episodeCardWidth: CGFloat = 168
-    static let episodeCardImageHeight: CGFloat = 224
-
-    /// 单张选集卡片（参考图：竖幅图 + 文件名两行，图下面不要卡片底）。
-    ///
-    /// 没有取图集时（未配 key / 没搜到 / 刮削关）退化成纯文字卡 —— 不给「永远灰着」的图块。
-    func tmdbEpisodeCard(_ episode: PlaylistParser.Episode, at index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let imageURL = episodePosterURL(at: index) {
-                AsyncImage(url: imageURL) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.secondary.opacity(0.15)
-                }
-                .frame(width: Self.episodeCardWidth, height: Self.episodeCardImageHeight)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-            }
-            HStack(alignment: .top, spacing: 4) {
-                Text(episode.name.isEmpty ? "第 \(index + 1) 集" : episode.name)
-                    .font(.caption2)
-                    .lineLimit(3)
-                if showsUnsupportedBadge(for: episode) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
-                }
-            }
-            if isLastWatched(index) {
-                Text("上次看到")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: Self.episodeCardWidth, alignment: .leading)
+    /// 网格列数（量到的可用宽度；还没量到时先按 2 列，量到后下一帧就换过来）。
+    var episodeGridColumns: [GridItem] {
+        let count = Self.episodeGridColumnCount(forWidth: episodeGridWidth)
+        return Array(repeating: GridItem(.flexible(), spacing: 6, alignment: .top), count: count)
     }
+
+    /// 列数：卡宽下限 210 + 间距 6，夹在 2...5（口径见参考字面池的判读）。
+    static func episodeGridColumnCount(forWidth width: CGFloat) -> Int {
+        guard width > 0 else {
+            return 2
+        }
+        return min(max(Int((width + 6) / 216), 2), 5)
+    }
+
+    /// 剧集剧照：16:9（参考实现的卡基准 210×118 就是 16:9），圆角 14（同参考字面池）。
+    static let episodeStillAspectRatio: CGFloat = 16.0 / 9.0
+    static let episodeStillCornerRadius: CGFloat = 14
 
     /// 这张卡片该显示的图：`step` 用下标、`seed` 加下标打散 —— 各卡片各取一张、每次进来一样
     /// （取图规则见 ``PosterPicker``；这里不另立一套）。
@@ -390,24 +401,40 @@ extension VodDetailView {
         return fallback.isEmpty ? nil : URL(string: fallback)
     }
 
-    /// 把「该播的那一集」滚到横滑正中 —— 参考视频里当前集在中间，不在左端。
+    /// 单张选集卡片（对齐参考的 Emby 视图）：16:9 剧照 + 文件名，图下面不要卡片底。
     ///
-    /// 两处刻意的写法：
-    /// 1. 先 `Task.sleep` 一小会儿再滚：进页面时卡片还没布局完，立刻滚会滚不动
-    ///    （`ScrollViewReader` 的常见坑）；
-    /// 2. 换线路也滚一次（`selectedLineIndex`）：集数变了，位置不该留在上一条线路的地方。
-    ///
-    /// `onChange` 用的是单参数闭包版本 —— 双参数版要 iOS 17，本目标的底线是 iOS 15。
-    func centerCurrentEpisode(on proxy: ScrollViewProxy) {
-        guard let slot = playSlot else {
-            return
-        }
-        Task {
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            withAnimation(.easeInOut(duration: 0.25)) {
-                proxy.scrollTo(slot.index, anchor: .center)
+    /// 没有取图集时（未配 key / 没搜到 / 刮削关）退化成纯文字卡 —— 不给「永远灰着」的图块。
+    func tmdbEpisodeCard(_ episode: PlaylistParser.Episode, at index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let imageURL = episodePosterURL(at: index) {
+                Color.clear
+                    .aspectRatio(Self.episodeStillAspectRatio, contentMode: .fit)
+                    .overlay(
+                        AsyncImage(url: imageURL) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Color.clear
+                        }
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: Self.episodeStillCornerRadius))
+            }
+            HStack(alignment: .top, spacing: 4) {
+                Text(episode.name.isEmpty ? "第 \(index + 1) 集" : episode.name)
+                    .font(.caption2)
+                    .lineLimit(4)
+                if showsUnsupportedBadge(for: episode) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+            if isLastWatched(index) {
+                Text("上次看到")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// 卡片取图集的加载键：片名 / 取图模式变了才重拉（缓存与合流在 `AppModel` 那层）。

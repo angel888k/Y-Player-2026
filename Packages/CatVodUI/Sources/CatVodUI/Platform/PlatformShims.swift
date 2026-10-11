@@ -65,6 +65,18 @@ public enum PlatformShims {
     /// 跨平台颜色（`Color` 在两平台同名，这里只留扩展点）。
     public static let accent = Color.accentColor
 
+    /// 页面底色（iOS 的 `systemBackground` / macOS 的 `windowBackgroundColor`）。
+    ///
+    /// 谁在用：TMDB 头图的**底部融合渐变**（对齐参考的 Emby 视图）—— 图往「页面底色」融，
+    /// 而不是往死黑融：深色外观下就是黑、浅色下是白，跟着系统走，不写死。
+    public static var pageBackground: Color {
+        #if os(iOS)
+        return Color(uiColor: .systemBackground)
+        #else
+        return Color(nsColor: .windowBackgroundColor)
+        #endif
+    }
+
     /// 卡片圆角。
     public static let cardCornerRadius: CGFloat = 10
 }

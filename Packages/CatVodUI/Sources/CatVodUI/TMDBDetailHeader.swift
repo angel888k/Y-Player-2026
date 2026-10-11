@@ -24,8 +24,11 @@ struct TMDBDetailHeader: View {
     /// 取图策略（顶部与卡片共用同一套，见 ``PosterPicker``）。
     let mode: PosterMode
 
-    /// 全幅高度：参考图里海报大约铺到屏幕的一半。
-    static let heroHeight: CGFloat = 440
+    /// 全幅头图的宽高比（宽 : 高 = 1 : 1）—— 参考图里头图从顶铺到约屏宽那么高。
+    ///
+    /// 用比例而不是固定高度：iPad / 横屏下头图跟着宽度长，不会缩成一条。
+    /// `.aspectRatio(_:contentMode: .fit)` 在 `ScrollView` 里给出的就是「宽度定高」。
+    static let heroAspectRatio: CGFloat = 1
 
     @State private var posterSet: TMDBPosterSet?
     @State private var metadata: TMDBMetadata?
@@ -61,38 +64,42 @@ struct TMDBDetailHeader: View {
                     .frame(width: proxy.size.width, height: proxy.size.height)
                     .clipped()
                 }
-                // 底部渐变压暗：图与页面的黑底无缝衔接，标题直接叠在图上。
+                // 底部融合：图往**页面底色**融（不是往死黑融）—— 浅色外观下是白、深色下是黑，
+                // 与下面那截正文无缝接上。参考图里就是「图慢慢化进页面」，不是压一条黑边。
                 LinearGradient(
                     stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black.opacity(0.65), location: 0.55),
-                        .init(color: .black, location: 1),
+                        .init(color: PlatformShims.pageBackground.opacity(0), location: 0.45),
+                        .init(color: PlatformShims.pageBackground.opacity(0.8), location: 0.8),
+                        .init(color: PlatformShims.pageBackground, location: 1),
                     ],
-                    startPoint: .center,
+                    startPoint: .top,
                     endPoint: .bottom
                 )
                 VStack(spacing: 6) {
                     Text(displayTitle)
-                        .font(.title2.bold())
+                        .font(.title.bold())
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
+                        .shadow(color: .black.opacity(0.45), radius: 6, y: 1)
                     if !lineName.isEmpty {
                         Text(lineName)
-                            .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.85))
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.95))
+                            .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
                     }
                     if !noticeText.isEmpty {
                         Text(noticeText)
                             .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.6))
+                            .foregroundStyle(.white.opacity(0.8))
                             .multilineTextAlignment(.center)
+                            .shadow(color: .black.opacity(0.45), radius: 4, y: 1)
                     }
                 }
                 .padding(.horizontal, 24)
-                .padding(.bottom, 16)
+                .padding(.bottom, 18)
             }
         }
-        .frame(height: Self.heroHeight)
+        .aspectRatio(Self.heroAspectRatio, contentMode: .fit)
         .clipped()
         .task(id: loadKey) {
             await load()
