@@ -1,18 +1,20 @@
 import CatVodPlayer
 import SwiftUI
 
-/// 播放页自绘内核的**叠层控制条**（M03P6 起；M26 按参考的全屏播放器重排）。
+/// 播放页的**叠层控制条**（M03P6 起；M26 按参考的全屏播放器重排；M27 起三个内核共用）。
 ///
 /// 排布对齐参考截图：
-/// - 顶排：关闭（✕）· 画面比例 —— 右侧：弹幕 · 倍速 · 锁定；
+/// - 顶排：关闭（✕）· 画面比例 —— 右侧：画中画 · 弹幕 · 倍速 · 锁定；
 /// - 底排：参数徽标（`HW HDR H265 4K 25FPS 5.6Mbps`，**只报读得到的**）+「当前时间 · 进度条 · 总时长」，
-///   再一行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧四个文字按钮「字幕 / 音轨 / 片头片尾 / 选集」。
+///   再一行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧文字按钮「播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集」。
 ///
-/// 参考里还有投屏 / 画中画 / 「播放器（内核切换）」/「视轨」四组我们**没有**的控件，
-/// 照「不摆假开关」的规矩不出现（换内核在设置里、也没有视频轨选择）。
+/// 参考里还有投屏（DLNA / AirPlay）与画质（滤镜）两组我们**没有**的控件，照「不摆假开关」的规矩
+/// 不出现（投屏的结论见 M26 第七节）。各按钮自带能力判定：内核做不到的整颗不出现
+/// （画面比例 / 视轨 / 音频增益 / 画中画），拿不到的数据不占位（参数徽标）。
 ///
-/// 为什么必须自绘：系统内核的控件是 `VideoPlayer` 自带的；自绘内核（MPV / 自研 FFmpeg）只有一层画面层，
-/// 没有这条就只能看，不能停、不能拖。
+/// 为什么三个内核共用一条（M27）：系统内核的画面也换成了自建宿主（``SystemVideoView``，
+/// 一层 `AVPlayerLayer`）—— `AVKit.VideoPlayer` 自带的那套控件与手势会跟这条打架；
+/// 换掉之后，三个内核的按钮与手势才真的一致（见 `docs/任务记录/M27-*.md`）。
 ///
 /// 锁屏（M03P21）也落在这一条上：锁上之后**常规内容整块藏起来，只剩锁按钮** —— 上游 `control.right.lock` 同款。
 ///
@@ -63,7 +65,7 @@ extension PlaybackView {
         (min(110, height * 0.35), min(180, height * 0.55))
     }
 
-    /// 顶排：关闭 · 画面比例 —— 弹幕 · 倍速 · 锁定。
+    /// 顶排：关闭 · 画面比例 —— 画中画 · 弹幕 · 倍速 · 锁定。
     private var topIconRow: some View {
         HStack(spacing: 24) {
             barIcon("xmark", label: "关闭播放") {
@@ -77,6 +79,7 @@ extension PlaybackView {
                 }
             }
             Spacer(minLength: 0)
+            pipButton
             danmakuMenu
             speedMenu
             lockButton
@@ -250,6 +253,24 @@ extension PlaybackView {
                 let landscape = PlatformShims.isPlaybackLandscape() ?? true
                 PlatformShims.requestPlaybackOrientation(landscape: !landscape)
             }
+        }
+    }
+
+    /// 画中画（M27，对齐参考顶排那颗）—— **只有系统内核有公开 API 能做**：画面是自建的
+    /// `AVPlayerLayer` 宿主，`AVPictureInPictureController` 从它起（见 `Platform/PlaybackPip.swift`）。
+    /// MPV / 自研 FFmpeg 要一条逐帧拷贝层，按拍板不做（M26 第六节）。
+    ///
+    /// 设备不支持、或画面层还没建起来时整颗不出现；「现在起不了」（加载中）时置灰 ——
+    /// 不摆点了没反应的开关。
+    @ViewBuilder
+    private var pipButton: some View {
+        if engineKind == .system, systemSurface != nil, PlaybackPipController.isSupported {
+            let enabled = pipController.isActive || pipController.isPossible
+            barIcon(pipController.isActive ? "pip.exit" : "pip.enter", label: pipController.isActive ? "退出画中画" : "画中画") {
+                pipController.toggle()
+            }
+            .disabled(!enabled)
+            .opacity(enabled ? 1 : 0.35)
         }
     }
 

@@ -7,10 +7,10 @@ import Foundation
 ///
 /// | 档位 | MPV | 自研 FFmpeg | 系统内核 |
 /// | --- | --- | --- | --- |
-/// | 适应 / 裁剪铺满 / 拉伸铺满 | ✅ | ✅（`videoGravity` 三态） | ❌ |
+/// | 适应 / 裁剪铺满 / 拉伸铺满 | ✅ | ✅（`videoGravity` 三态） | ✅（M27 起：`AVPlayerLayer.videoGravity`） |
 /// | 16:9 / 4:3 | ✅（`video-aspect-override`） | ❌ | ❌ |
 ///
-/// 界面只列**当前内核真的支持**的档位（``supportedModes(by:)``）—— 系统内核整行不出现，
+/// 界面只列**当前内核真的支持**的档位（``supportedModes(by:)``）—— 内核整行都不支持时这一项不出现，
 /// 不摆点了没反应的开关（「解码方式对系统内核无效」那条是标注，这个干脆不显示）。
 public enum PlaybackScaleMode: String, Sendable, CaseIterable, Hashable {
     /// 适应（默认）：保持比例，留黑边。
@@ -47,7 +47,9 @@ public enum PlaybackScaleMode: String, Sendable, CaseIterable, Hashable {
     public func isSupported(by engine: PlayerEngineKind) -> Bool {
         switch engine {
         case .system:
-            false
+            // 系统内核（M27）：画面换成自建 `AVPlayerLayer` 宿主之后，三态 gravity 也有了 ——
+            // 「强制某个比例」仍表达不了（要自己算层的 frame，与自研内核同一口径）。
+            self == .fit || self == .crop || self == .stretch
         case .mpv:
             true
         case .ffmpeg:

@@ -32,7 +32,8 @@ public final class FFmpegVideoSurface: @unchecked Sendable {
 }
 
 extension PlaybackScaleMode {
-    /// `AVSampleBufferDisplayLayer.videoGravity` 对应值；`nil` = 这一档 gravity 表达不了。
+    /// 画面层的 `videoGravity` 对应值（M27 起 `AVSampleBufferDisplayLayer` 与 `AVPlayerLayer`
+    /// 共用这一份）；`nil` = 这一档 gravity 表达不了。
     var avVideoGravity: AVLayerVideoGravity? {
         switch self {
         case .fit: .resizeAspect

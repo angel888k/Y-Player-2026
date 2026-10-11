@@ -184,9 +184,9 @@ struct DanmakuRenderPlan {
 /// 描边用 0.8 半径的阴影近似：`GraphicsContext` 没有描边文字，而上游的 `shadow` 本来就是
 /// 「文字周围一圈」（``DanmakuLine/shadowColor``）。
 ///
-/// 已知粗糙处：系统内核的控制条由 `VideoPlayer` 自己画，它在**这一层下面** ——
-/// 点开控制条时弹幕会从控件上划过去。换成自绘控制层（M3/M4 的 MPV / FFmpeg 内核）后
-/// 这个问题自然消失，先不为它绕路。
+/// 历史（M27 已消）：系统内核原来用 `AVKit.VideoPlayer`，它的控件画在**这一层下面** ——
+/// 点开控制条时弹幕会从控件上划过去；M27 换成自建宿主之后，三个内核的控制条都画在弹幕之后
+/// （叠层最上），这段留着备查。
 struct DanmakuOverlay: View {
     let plan: DanmakuPlan
     let style: DanmakuResolvedStyle

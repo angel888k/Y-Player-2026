@@ -3,14 +3,15 @@ import AVFoundation
 import Foundation
 import Testing
 
-/// 画面比例（M03P9）：支持矩阵、mpv 三条属性、自研内核的 gravity 映射，以及引擎真的下命令。
+/// 画面比例（M03P9；M27 起系统内核也有一档）：支持矩阵、mpv 三条属性、两个 gravity 内核的映射，
+/// 以及引擎真的下命令。
 @Suite("画面比例")
 struct PlaybackScaleModeTests {
-    @Test("支持矩阵：MPV 全支持；自研 FFmpeg 只有 gravity 三态；系统内核没有这个能力")
+    @Test("支持矩阵：MPV 全支持；自研 FFmpeg 与系统内核（M27 起）只有 gravity 三态")
     func supportMatrix() {
         #expect(PlaybackScaleMode.supportedModes(by: .mpv) == PlaybackScaleMode.allCases)
         #expect(PlaybackScaleMode.supportedModes(by: .ffmpeg) == [.fit, .crop, .stretch])
-        #expect(PlaybackScaleMode.supportedModes(by: .system).isEmpty)
+        #expect(PlaybackScaleMode.supportedModes(by: .system) == [.fit, .crop, .stretch])
     }
 
     @Test("从存档串还原：认得出就用，空串 / 认不出回落「适应」（M03P19）")

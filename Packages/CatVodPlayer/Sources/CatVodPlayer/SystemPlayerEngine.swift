@@ -13,12 +13,19 @@ import Foundation
 /// - 只支持系统可解复用/可解码的容器与编码；
 /// - HTTP header 通过 `AVURLAssetHTTPHeaderFieldsKey` 注入，对分片/密钥请求覆盖有限，M6 改为本地代理统一注入；
 /// - **不提供强制硬解/软解开关**：`decoderMode` 仅被记录，实际由系统决定（UI 需如实说明）。
+///
+/// 画面（M27）：不再交给 `AVKit.VideoPlayer` —— 本类持有一层自建的 ``SystemVideoSurface``
+/// （`AVPlayerLayer`），界面层把它挂进播放页的宿主视图。这样系统内核与 MPV / 自研 FFmpeg
+/// **共用同一条控制条与同一套手势**；画面比例（`videoGravity`）与画中画也从这层起。
 @MainActor
 public final class AVPlayerEngine: PlayerEngine {
     nonisolated public let kind: PlayerEngineKind = .system
     nonisolated public let events: AsyncStream<PlayerEvent>
     /// 用户选择的解码方式（系统内核不支持强制切换，仅记录以便设置页如实展示）。
     nonisolated public let decoderMode: DecoderMode
+    /// 画面层（M27）：换掉 `AVKit.VideoPlayer` 后的自建宿主 —— 界面层把它挂进视图层级，
+    /// 画面比例（`videoGravity`）与画中画（`AVPictureInPictureController(playerLayer:)`）都从这层起。
+    public let videoSurface = SystemVideoSurface()
 
     // 说明：以下存储属性为模块内可见（非 private），因为就绪轮询与事件观测放在
     // `SystemPlayerEngine+Monitoring.swift`（`private` 是文件作用域，跨文件无法访问）。
@@ -42,13 +49,18 @@ public final class AVPlayerEngine: PlayerEngine {
         let stream = AsyncStream<PlayerEvent> { captured = $0 }
         events = stream
         continuation = captured
+        // 画面层挂上播放器（M27）：一个引擎实例一层（换内核 = 换引擎 = 换层）。
+        videoSurface.layer.player = player
     }
 
     public func currentState() async -> PlayerState {
         state
     }
 
-    /// 供系统播放器 UI（`AVKit.VideoPlayer`）绑定的 `AVPlayer` 实例。
+    /// 底层 `AVPlayer` 实例。
+    ///
+    /// M27 起界面用的是 ``videoSurface`` 的画面层（不再有 `AVKit.VideoPlayer` 要绑）；
+    /// 这个方法留给测试与排查（音量 / 倍速这类的断言都读它）。
     public func systemPlayer() -> AVPlayer {
         player
     }
@@ -144,10 +156,12 @@ public final class AVPlayerEngine: PlayerEngine {
         applyTrackSelection(selection, for: kind)
     }
 
+    /// 画面比例（M03P9 / M27）：画面是自建的 `AVPlayerLayer` 宿主，写它的 `videoGravity`。
+    ///
+    /// 三态之外（16:9 / 4:3）映射不出来，`SystemVideoSurface.setScaleMode` 里静默不动 ——
+    /// 界面本来也不会对本内核列那两档（见 `PlaybackScaleMode.supportedModes(by:)`）。
     public func setScaleMode(_ mode: PlaybackScaleMode) async {
-        // 系统内核（SwiftUI `VideoPlayer`）没有对外接口能改画面比例 —— 空实现是**如实的**：
-        // 播放页对它根本不显示这一项（`PlaybackScaleMode.supportedModes(by: .system)` 为空）。
-        _ = mode
+        videoSurface.setScaleMode(mode)
     }
 
     public func teardown() async {

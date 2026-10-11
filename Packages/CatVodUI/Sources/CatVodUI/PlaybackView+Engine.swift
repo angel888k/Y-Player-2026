@@ -25,7 +25,8 @@ extension PlaybackView {
         await persist(force: true)
         let previous = engine
         engine = nil
-        player = nil
+        systemSurface = nil
+        pipController.detach()
         mpvSurface = nil
         ffmpegSurface = nil
         eventTask?.cancel()

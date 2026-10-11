@@ -1,4 +1,3 @@
-import AVKit
 import CatVodCore
 import CatVodPlayer
 import CatVodStore
@@ -7,11 +6,16 @@ import SwiftUI
 
 /// 播放页。
 ///
-/// 使用**系统原生播放器 UI**（`AVKit.VideoPlayer`）承载 `.system` 内核：
-/// 按 `docs/UI 规范.md`，各系统版本使用各自的原生控件与手势，不自绘播放控件。
-/// **系统内核**用 `AVKit.VideoPlayer`；**MPV 内核**用自绘的 `MpvVideoView`（MoltenVK → Metal）、
-/// **自研 FFmpeg 内核**（M04P13）用 `FFmpegVideoView`（`AVSampleBufferDisplayLayer`），
-/// 都配同一条最小控制条与手势。状态区与错误提示保持不变。
+/// **三个内核算一套按钮、一套手势**（M27）：画面各走各的宿主视图 ——
+/// **系统内核**（`AVPlayer`）走自建的 `SystemVideoView`（一层 `AVPlayerLayer`）、
+/// **MPV 内核**走 `MpvVideoView`（MoltenVK → Metal）、**自研 FFmpeg 内核**（M04P13）走
+/// `FFmpegVideoView`（`AVSampleBufferDisplayLayer`）；三者共用同一条控制条
+/// （`PlaybackView+Controls`）与同一套画面手势（`PlaybackView+Gestures`）。
+///
+/// 系统内核原来是 `AVKit.VideoPlayer`：它自带控件与手势，既跟叠层控制条打架、两边按钮也对不上 ——
+/// M27 换成自建宿主之后这条路消失（见 ``SystemVideoSurface`` 与 `docs/任务记录/M27-*.md`）。
+/// 内核各自做不到的那几项照旧不摆（画面比例 / 视轨 / 音频增益 / 画中画见 `PlaybackScaleMode` 那张表）。
+/// 状态区与错误提示保持不变。
 @MainActor
 public struct PlaybackView: View {
     /// 当前正在播的资源：**换集时会换**（见 `switchEpisode(to:)`），所以是 `@State`。
@@ -88,7 +92,12 @@ public struct PlaybackView: View {
     let onPlaybackStats: ((PlaybackStats) -> Void)?
 
     @State var engine: (any PlayerEngine)?
-    @State var player: AVPlayer?
+    /// 系统内核的画面层（M27）：一层自建的 `AVPlayerLayer`（`SystemVideoView` 把它挂进画面区）。
+    /// 换掉 `AVKit.VideoPlayer` 就是为了让系统内核与另外两个内核共用同一套控制条与手势。
+    @State var systemSurface: SystemVideoSurface?
+    /// 画中画（M27，只有系统内核有公开 API 能做）：模型随播放页创建，
+    /// 画面层在 `start()` 里挂上去（`attach(layer:)`）—— 见 `Platform/PlaybackPip.swift`。
+    @StateObject var pipController = PlaybackPipController()
     /// MPV 的画面层（只有选了 MPV 才有）：引擎拿它当 `wid`，`MpvVideoView` 把它挂进画面区。
     @State var mpvSurface: MpvVideoSurface?
     /// 自研 FFmpeg 内核的画面层（只有选了它才有）：会话往这层喂样本，`FFmpegVideoView` 把它挂进画面区。
@@ -99,7 +108,7 @@ public struct PlaybackView: View {
     @State var isScrubbing = false
     /// 最近一次读到的播放信息：只有报得出来的内核（MPV 与自研 FFmpeg 都认这个协议）才有这一块。
     @State var playbackStats: PlaybackStats?
-    /// 内核上报的轨道（系统内核现在不上报，只有 MPV 会报，见 M03P3/M03P5）。
+    /// 内核上报的轨道（三个内核都会报：系统内核 M03P7、MPV M03P3/M03P5、自研 FFmpeg M04P16/M04P19）。
     /// 视轨（M26）：MPV 会报（`track-list` 里的 video，封面图轨已在映射层排除），系统内核一般没有。
     @State var videoTracks: [PlayerTrack] = []
     @State var audioTracks: [PlayerTrack] = []
@@ -121,7 +130,7 @@ public struct PlaybackView: View {
     @State var gestureSwipe = PlaybackSwipeTracker()
     /// 手势提示条（进度预览 / 音量 / 亮度 / 长按倍速）；空 = 不显示。
     @State var gestureHint = ""
-    /// 当前音量（0...1）：自绘内核的手势改的是它；系统内核不碰（音量交给硬件键）。
+    /// 当前音量（0...1）：纵拖调的是它（M27 起三个内核同一条手势；系统内核落在 `AVPlayer.volume` 上）。
     @State var volume: Double = 1
     /// 长按临时加速的目标倍速（M03P13：可调，初值在 `start()` 里从存档读）—— 跨文件扩展要读。
     @State var longPressSpeed: Float = SpeedSetting.longPress
@@ -429,6 +438,8 @@ public struct PlaybackView: View {
         .onDisappear {
             // 与 `.task` 里的 `activate()` 配对：计数归零才还原会话。
             PlaybackAudioSession.deactivate()
+            // 画中画（M27）：页面没了就别把 PiP 挂在一个已经拆掉的内核上。
+            pipController.detach()
             eventTask?.cancel()
             eventTask = nil
             // 控制条的自动收起计时也别留着（离开页面后没人需要它）。
@@ -445,9 +456,14 @@ public struct PlaybackView: View {
         }
     }
 
+    /// 画面区是不是已经有东西可放（三个内核任一：系统 `AVPlayerLayer` / MPV / 自研 FFmpeg）。
+    var hasVideoSurface: Bool {
+        systemSurface != nil || mpvSurface != nil || ffmpegSurface != nil
+    }
+
     @ViewBuilder
     private var playerArea: some View {
-        if player != nil || mpvSurface != nil || ffmpegSurface != nil {
+        if hasVideoSurface {
             GeometryReader { proxy in
                 ZStack {
                     // 纯黑衬底：视频按 aspect-fit 居中，留边永远是黑（不是页面底色）。
@@ -475,9 +491,8 @@ public struct PlaybackView: View {
                         )
                         .clipped()
                     }
-                    // 自绘内核（MPV / 自研 FFmpeg）没有系统播放器控件：补一条最小控制条。
-                    // 显隐由「单击画面」切换、播放中自动收起（M03P10）。
-                    if mpvSurface != nil || ffmpegSurface != nil, isControlsVisible {
+                    // 叠层控制条（M27 起三个内核共用）：显隐由「单击画面」切换、播放中自动收起（M03P10）。
+                    if hasVideoSurface, isControlsVisible {
                         playerControls
                             .transition(.opacity)
                     }
@@ -515,14 +530,15 @@ public struct PlaybackView: View {
         }
     }
 
-    /// 画面本体：系统内核走系统播放器控件；自绘内核（MPV / 自研 FFmpeg）走各自的层宿主视图。
+    /// 画面本体：三个内核各走各的宿主视图，**手势与叠层控制条完全共用**
+    /// （`interactiveLayer`，见 `PlaybackView+Gestures.swift`）。
     ///
-    /// 手势**只挂在自绘内核这边**（`interactiveLayer`，见 `PlaybackView+Gestures.swift`）：
-    /// 系统内核的画面是 `VideoPlayer`，它自带一整套手势，我们再叠一层只会互相打架。
+    /// M27 之前系统内核的画面是 `AVKit.VideoPlayer`（自带控件与手势，所以那时只有自绘内核挂得上去）；
+    /// 现在是自建的 ``SystemVideoView`` —— 一个没有自带手势的 `AVPlayerLayer` 宿主。
     @ViewBuilder
     private func videoLayer(size: CGSize) -> some View {
-        if let player {
-            VideoPlayer(player: player)
+        if let systemSurface {
+            interactiveLayer(SystemVideoView(surface: systemSurface), size: size)
         } else if let mpvSurface {
             interactiveLayer(MpvVideoView(surface: mpvSurface), size: size)
         } else if let ffmpegSurface {
@@ -631,7 +647,11 @@ extension PlaybackView {
 
         engine = created
         if let systemEngine = created as? AVPlayerEngine {
-            player = systemEngine.systemPlayer()
+            // 画面层（M27）：挂进画面区的是引擎自己那层 `AVPlayerLayer`；
+            // 画中画控制器跟着这层建 —— 起 PiP 与「可不可能」都由它自己回传。
+            let surface = systemEngine.videoSurface
+            systemSurface = surface
+            pipController.attach(layer: surface.layer)
         }
         eventTask = Task { await consume(created) }
 
