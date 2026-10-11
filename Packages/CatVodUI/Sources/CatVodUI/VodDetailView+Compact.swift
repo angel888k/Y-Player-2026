@@ -38,20 +38,28 @@ extension VodDetailView {
 
     /// 精简视图顶部那块播放器：**16:9 黑场**里挂 `PlaybackView`（只画面 + 叠层控制条）。
     ///
-    /// 三种形态：直链集就地播 → 站点换地址的集（type=3 / 4）也就地播（换地址在
-    /// `SitePlayEpisodeView` 里做，转圈与失败原因由它如实显示）→ 还没开播时摆海报 + 播放按钮。
-    @ViewBuilder
+    /// 三种形态（见 ``compactPlayerContent``）：直链集就地播 → 站点换地址的集（type=3 / 4）也就地播
+    /// （换地址在 `SitePlayEpisodeView` 里做，转圈与失败原因由它如实显示）→ 还没开播时摆海报 + 播放按钮。
+    ///
+    /// **尺寸由这块黑底说了算**（定尺 16:9），内容铺在它上面 —— 不能反过来（内容 + `.aspectRatio`）：
+    /// `aspectRatio` 只是「提议」，子视图报多大就是多大 —— 转圈 / 文案这类**自带固有尺寸**的内容
+    /// 会把槽位塌成一小块（M27 首验录屏里的「正在向站点请求播放地址…」小框就是这么来的）。
     var compactPlayer: some View {
+        Color.black
+            .aspectRatio(Self.compactPlayerAspect, contentMode: .fit)
+            .overlay { compactPlayerContent }
+            .clipped()
+    }
+
+    /// 槽位里的内容（尺寸跟着上面的黑底走）。
+    @ViewBuilder
+    var compactPlayerContent: some View {
         if let target = inlinePlayback {
             inlinePlayer(for: target)
                 .id(target.index)
-                .aspectRatio(Self.compactPlayerAspect, contentMode: .fit)
-                .background(Color.black)
         } else if let target = inlineSitePlayback {
             inlineSitePlayer(for: target)
                 .id(target.index)
-                .aspectRatio(Self.compactPlayerAspect, contentMode: .fit)
-                .background(Color.black)
         } else {
             compactPlayerPlaceholder
         }
@@ -103,28 +111,26 @@ extension VodDetailView {
         )
     }
 
-    /// 还没开播时那块画面：站点海报铺底（黑场）+ 中间一颗播放按钮（点了从「该播的那一集」开播）。
+    /// 还没开播时那块内容：站点海报铺底（黑场由槽位给）+ 中间一颗播放按钮
+    /// （点了从「该播的那一集」开播）。
     var compactPlayerPlaceholder: some View {
-        Color.black
-            .aspectRatio(Self.compactPlayerAspect, contentMode: .fit)
-            .overlay(
-                AsyncImage(url: URL(string: detail.artwork)) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.clear
-                }
-            )
-            .overlay(Color.black.opacity(0.25))
-            .overlay(
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 54))
-                    .foregroundStyle(.white.opacity(0.92))
-            )
-            .clipped()
-            .contentShape(Rectangle())
-            .onTapGesture {
-                startInlinePlaybackFromSlot()
-            }
+        AsyncImage(url: URL(string: detail.artwork)) { image in
+            image.resizable().scaledToFill()
+        } placeholder: {
+            Color.clear
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(Color.black.opacity(0.25))
+        .overlay(
+            Image(systemName: "play.circle.fill")
+                .font(.system(size: 54))
+                .foregroundStyle(.white.opacity(0.92))
+        )
+        .clipped()
+        .contentShape(Rectangle())
+        .onTapGesture {
+            startInlinePlaybackFromSlot()
+        }
     }
 
     /// 播放器那块画面的比例：16:9（与参考那张「视频在上、详情在下」一致）。

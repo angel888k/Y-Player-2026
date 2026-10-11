@@ -22,17 +22,22 @@ import SwiftUI
 /// 与 `+Speed` / `+Gestures` / `+OpeningEnding` / `+Lines` 同一套做法。
 extension PlaybackView {
     /// 整条叠层：顶排图标 + 底排（锁上时只剩锁按钮）。
-    var playerControls: some View {
-        VStack(spacing: 10) {
+    ///
+    /// `width`：画面区的可用宽度 —— 窄（竖屏 iPhone，< ``barCompactWidth``）时整条换**图标版**：
+    /// 底排那排文字按钮（播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集）在 390pt 放不下，
+    /// 之前会被压成「播…」「…」（M27 首验录屏里就是它）—— 窄了换图标，动作与菜单内容一模一样。
+    func playerControls(width: CGFloat) -> some View {
+        let compact = width < Self.barCompactWidth
+        return VStack(spacing: 10) {
             if isLocked {
                 HStack {
                     Spacer(minLength: 0)
                     lockButton
                 }
             } else {
-                topIconRow
+                topIconRow(compact: compact)
                 Spacer(minLength: 0)
-                bottomControls
+                bottomControls(compact: compact)
             }
         }
         .padding(.horizontal, 14)
@@ -65,9 +70,17 @@ extension PlaybackView {
         (min(110, height * 0.35), min(180, height * 0.55))
     }
 
+    /// 控制条窄到放不下文字按钮的宽度线。
+    ///
+    /// 宽版底排要 ~541pt（3 颗图标 90 + 六颗文字按钮 225 + 九个间隔 198 + 内边距 28）——
+    /// 横屏（~844）与 iPad 都在线上；竖屏 iPhone（390 / 402 / 375）在线下。
+    static let barCompactWidth: CGFloat = 560
+    /// 窄版的间距（10：9 颗 30pt 图标 + 8 个间隔 + 两侧内边距 ≈ 378pt，留得住 390 / 402）。
+    static let barCompactSpacing: CGFloat = 10
+
     /// 顶排：关闭 · 画面比例 —— 画中画 · 弹幕 · 倍速 · 锁定。
-    private var topIconRow: some View {
-        HStack(spacing: 24) {
+    private func topIconRow(compact: Bool) -> some View {
+        HStack(spacing: compact ? Self.barCompactSpacing : 24) {
             barIcon("xmark", label: "关闭播放") {
                 closePlayback()
             }
@@ -87,13 +100,13 @@ extension PlaybackView {
     }
 
     /// 底排：参数徽标 + 进度 + 动作行。
-    private var bottomControls: some View {
+    private func bottomControls(compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if !statBadges.isEmpty {
                 badgesRow
             }
             progressRow
-            transportRow
+            transportRow(compact: compact)
         }
     }
 
@@ -136,9 +149,9 @@ extension PlaybackView {
         }
     }
 
-    /// 动作行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧文字按钮。
-    private var transportRow: some View {
-        HStack(spacing: 22) {
+    /// 动作行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧菜单（播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集）。
+    private func transportRow(compact: Bool) -> some View {
+        HStack(spacing: compact ? Self.barCompactSpacing : 22) {
             barIcon(playerState.isPlaying ? "pause.fill" : "play.fill", label: playerState.isPlaying ? "暂停" : "播放") {
                 Task { await togglePlayback() }
             }
@@ -151,13 +164,13 @@ extension PlaybackView {
                 Task { await engine?.stepFrame() }
             }
             Spacer(minLength: 0)
-            engineMenu
-            subtitleMenu
-            videoMenu
-            audioMenu
-            openingEndingMenu
+            engineMenu(compact: compact)
+            subtitleMenu(compact: compact)
+            videoMenu(compact: compact)
+            audioMenu(compact: compact)
+            openingEndingMenu(compact: compact)
             if playlist != nil {
-                barTextButton("选集") {
+                barTextButton("选集", icon: "list.bullet", compact: compact) {
                     isEpisodeDrawerPresented = true
                 }
             }
@@ -277,9 +290,9 @@ extension PlaybackView {
     /// 「播放器」：就地换内核（参考底排第一颗）。**只列现在真能用的**那一档以上 ——
     /// 一个可用内核都没有时整颗按钮不出现（不摆假选项，也不自动降级）。
     @ViewBuilder
-    private var engineMenu: some View {
+    private func engineMenu(compact: Bool) -> some View {
         if availableEngineKinds.count > 1 {
-            barMenu("播放器") {
+            barMenu("播放器", icon: "play.rectangle", compact: compact) {
                 Picker("播放器", selection: enginePickerBinding) {
                     ForEach(availableEngineKinds, id: \.self) { kind in
                         Text(kind.displayName).tag(kind)
@@ -306,9 +319,9 @@ extension PlaybackView {
 
     /// 字幕：轨列表 + 关闭（**内核报了字幕轨才出现** —— 不做「点不动的假菜单」）。
     @ViewBuilder
-    private var subtitleMenu: some View {
+    private func subtitleMenu(compact: Bool) -> some View {
         if !subtitleTracks.isEmpty {
-            barMenu("字幕") {
+            barMenu("字幕", icon: "captions.bubble", compact: compact) {
                 Picker("字幕", selection: subtitleSelectionBinding) {
                     Text("自动").tag(TrackSelection.auto)
                     Text("关闭").tag(TrackSelection.disabled)
@@ -322,9 +335,9 @@ extension PlaybackView {
 
     /// 视轨（M26）：只在内核报了视轨时出现 —— MPV 会报（含多视频轨的片源），系统内核一般没有。
     @ViewBuilder
-    private var videoMenu: some View {
+    private func videoMenu(compact: Bool) -> some View {
         if !videoTracks.isEmpty {
-            barMenu("视轨") {
+            barMenu("视轨", icon: "rectangle.on.rectangle", compact: compact) {
                 Picker("视轨", selection: videoSelectionBinding) {
                     Text("自动").tag(TrackSelection.auto)
                     ForEach(videoTracks) { track in
@@ -337,9 +350,9 @@ extension PlaybackView {
 
     /// 音轨：同上，只在内核报了音轨时出现。
     @ViewBuilder
-    private var audioMenu: some View {
+    private func audioMenu(compact: Bool) -> some View {
         if !audioTracks.isEmpty {
-            barMenu("音轨") {
+            barMenu("音轨", icon: "waveform", compact: compact) {
                 Picker("音轨", selection: audioSelectionBinding) {
                     Text("自动").tag(TrackSelection.auto)
                     ForEach(audioTracks) { track in
@@ -352,9 +365,9 @@ extension PlaybackView {
 
     /// 片头片尾：标记 / 清除（没有进度记录或时长未知时不出现，与信息区那条同一口径）。
     @ViewBuilder
-    private var openingEndingMenu: some View {
+    private func openingEndingMenu(compact: Bool) -> some View {
         if activeProgressContext != nil, latestDuration > 0 {
-            barMenu("片头片尾") {
+            barMenu("片头片尾", icon: "bookmark", compact: compact) {
                 if openingMark > 0 {
                     Button("清除片头") {
                         clearOpening()
@@ -430,29 +443,46 @@ extension PlaybackView {
             .frame(width: 30, height: 30)
     }
 
-    /// 一个文字按钮（底排右侧那四个）。
-    private func barTextButton(_ title: String, action: @escaping () -> Void) -> some View {
+    /// 一个按钮（底排右侧）—— 宽版给文字、窄版给图标（动作一样）。
+    private func barTextButton(_ title: String, icon: String, compact: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            barTextLabel(title)
+            barMenuLabel(title, icon: icon, compact: compact)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
     }
 
-    /// 文字菜单（底排右侧那四个里的菜单）。
-    private func barMenu<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    /// 一个菜单（底排右侧）—— 宽版给文字、窄版给图标（菜单内容一样）。
+    private func barMenu<Content: View>(
+        _ title: String,
+        icon: String,
+        compact: Bool,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         Menu {
             content()
         } label: {
-            barTextLabel(title)
+            barMenuLabel(title, icon: icon, compact: compact)
         }
         .accessibilityLabel(title)
     }
 
-    /// 文字按钮 / 文字菜单共用的 label。
+    /// 菜单 / 按钮共用的 label：宽版文字、窄版图标（窄版靠 `accessibilityLabel` 说名字）。
+    @ViewBuilder
+    private func barMenuLabel(_ title: String, icon: String, compact: Bool) -> some View {
+        if compact {
+            barIconLabel(icon)
+        } else {
+            barTextLabel(title)
+        }
+    }
+
+    /// 宽版的文字 label（窄不下来先别硬撑 —— 该走图标版；这里只兜一层轻微缩放）。
     private func barTextLabel(_ title: String) -> some View {
         Text(title)
             .font(.subheadline)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .foregroundStyle(.white)
             .frame(height: 30)
     }

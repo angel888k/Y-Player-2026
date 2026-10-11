@@ -492,8 +492,10 @@ public struct PlaybackView: View {
                         .clipped()
                     }
                     // 叠层控制条（M27 起三个内核共用）：显隐由「单击画面」切换、播放中自动收起（M03P10）。
+                    // 宽度要传进去：竖屏（~390pt）放不下底排那排文字按钮 —— 窄了换图标版
+                    // （见 `playerControls(width:)`）。
                     if hasVideoSurface, isControlsVisible {
-                        playerControls
+                        playerControls(width: proxy.size.width)
                             .transition(.opacity)
                     }
                     // 手势提示（进度预览 / 音量）：只显示、不拦触摸。
