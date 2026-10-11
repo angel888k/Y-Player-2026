@@ -146,11 +146,13 @@ final class LayerHostView: NSView {
                 return
             }
             let layer = attachedLayer
+            // AppKit 这边没有 `UIWindow` 那套：`NSWindow` 不是 `NSView`，`convert(_:to:)` 只认视图 ——
+            // 拿它的 `contentView` 当坐标系（iOS 那边窗口本身就是视图，直接用）。
             VideoHostTrace.noteLayerCheck(
                 attached: layer?.superlayer === self.layer,
                 frame: layer?.frame,
-                windowFrame: window.map { convert(bounds, to: $0) },
-                windowSize: window?.bounds.size
+                windowFrame: window?.contentView.map { convert(bounds, to: $0) },
+                windowSize: window?.contentView?.bounds.size
             )
         }
     }
