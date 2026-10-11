@@ -8,6 +8,9 @@ import SwiftUI
 /// - **搜索页**（关键词来自搜索框）；
 /// - **详情页图标行的 🔍**（关键词 = 这部片的片名）。
 /// 站点范围由 `AppModel.searchEnabledSites` 决定（含「筛选站源」的开关），本视图只画。
+///
+/// 展示口径（M28 首验之二十三，用户口径）：**逐站上墙** —— 谁先回来先显示谁，慢站点 /
+/// 连不上的站点不拖住整面墙；**失败不上墙** —— 只显示搜到的站点。
 @MainActor
 struct AggregateSearchWall: View {
     @ObservedObject var model: AppModel
@@ -23,12 +26,10 @@ struct AggregateSearchWall: View {
     /// 选中的站点；nil = 「全部」。
     @State private var selectedSiteKey: String?
     @State private var isLoading = true
-    /// 这一轮实际搜了几个站点（左栏「全部」那一行与空态都要用）。
+    /// 这一轮参与搜索的站点数（左栏「全部」那一行与空态都要用）。
     @State private var searchedCount = 0
-    /// 失败站点的可读原因（`站点名：原因`）。
-    @State private var failures: [String] = []
-    /// 首轮（索引站点）零命中后是否补搜了其余可搜站点（空态据此把话说全）。
-    @State private var didFallBackToAllSites = false
+    /// 已回报的站点数（含失败）——「已回 n/m」的进度分子（M28 首验之二十三）。
+    @State private var reportedCount = 0
     /// 发起过多少轮搜索：只认最后发起的那一轮（见 ``load()`` 里的竞态说明）。
     @State private var loadGeneration = 0
 
@@ -69,14 +70,6 @@ struct AggregateSearchWall: View {
                     ForEach(sections) { section in
                         row(name: section.siteName, trailing: "\(section.count)", key: section.site.key)
                     }
-                }
-                if !sections.isEmpty, !failures.isEmpty {
-                    // 有结果也要把失败说出来：不然「这个站怎么没上墙」只能靠猜。
-                    Text("另有 \(failures.count) 个站点失败")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.top, 8)
                 }
             }
             .padding(.vertical, 8)
@@ -119,16 +112,39 @@ struct AggregateSearchWall: View {
 
     private var resultPane: some View {
         ScrollView {
-            if isLoading {
-                placeholder("正在各站点搜索…", showsSpinner: true)
-            } else if visibleEntries.isEmpty {
-                placeholder(emptyHint, showsSpinner: false, showsRetry: true)
-            } else {
+            if !sections.isEmpty {
+                // 有结果就先上墙：还在搜的站点逐站补进来（M28 首验之二十三）。
                 grid
+                if isLoading {
+                    searchingFooter
+                }
+            } else if isLoading {
+                placeholder(searchingHint, showsSpinner: true)
+            } else {
+                placeholder(emptyHint, showsSpinner: false, showsRetry: true)
             }
         }
         .refreshable { await load() }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// 还没上墙时的加载文案：带上「已回 n/m」—— 让人知道它在动，不是卡死。
+    private var searchingHint: String {
+        reportedCount > 0
+            ? "正在各站点搜索…（已回 \(reportedCount)/\(searchedCount)）"
+            : "正在各站点搜索…"
+    }
+
+    /// 结果已上墙、还有站点没回来的脚注。
+    private var searchingFooter: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+            Text("还在搜…（已回 \(reportedCount)/\(searchedCount)）")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
     }
 
     /// 海报网格：右栏宽度只够 2 列（左栏已经吃掉一块），卡片复用发现页/搜索页那张。
@@ -184,25 +200,14 @@ struct AggregateSearchWall: View {
         }
     }
 
-    /// 空态要把「为什么空」说清：**没有参与搜索的站点 / 站点全失败 / 搜到了但零命中**是三件事，
-    /// 含糊成一句「没找到」最耽误排查。
+    /// 空态（M28 首验之二十三，用户口径：连不上的站点不上墙、只显示搜到的）：
+    /// 说到底就三种 —— 没有站点 / 没有站点参与 / 搜了但零命中。
     private var emptyHint: String {
         if model.sites.isEmpty {
             return "还没有可用站点：请先在「设置 → 源地址」里加载配置。"
         }
         if searchedCount == 0 {
             return "没有参与搜索的站点：在「筛选站源」里打开几个（站点自己也要能搜：能跑 + 配置没关搜索）。"
-        }
-        if failures.count >= searchedCount {
-            return "\(searchedCount) 个站点都没搜成功：\n" + failures.prefix(3).joined(separator: "\n")
-        }
-        if didFallBackToAllSites {
-            return failures.isEmpty
-                ? "索引站点没搜到，「\(keyword)」在其余可搜站点里也没有。"
-                : "索引站点没搜到，其余可搜站点也没有；其中 \(failures.count) 个站点搜索失败。"
-        }
-        if !failures.isEmpty {
-            return "各站点都没有搜到「\(keyword)」。\n另有 \(failures.count) 个站点搜索失败。"
         }
         return "各站点都没有搜到「\(keyword)」。"
     }
@@ -211,21 +216,34 @@ struct AggregateSearchWall: View {
         loadGeneration &+= 1
         let generation = loadGeneration
         isLoading = true
-        let outcome = await model.searchAcrossSites(keyword: keyword)
-        // 搜索途中关键词 / 筛选站源又变了：`.task(id:)` 会取消旧任务，但**旧任务可能已经跑完**，
-        // 放任它写回就会用旧结果盖掉新结果。只认最后发起的那一轮。
+        // 新的一轮从头来：别把上一轮的残余留在墙上。
+        sections = []
+        searchedCount = 0
+        reportedCount = 0
+        // 逐站上墙（M28 首验之二十三）：每站回来先贴一次 —— 慢站点 / 连不上的站点不拖住整面墙；
+        // 流转完（离开 / 换关键词）生产侧随之取消。
+        for await outcome in model.searchAcrossSites(keyword: keyword) {
+            // 搜索途中关键词 / 筛选站源又变了：只认最后发起的那一轮（旧流可能还会吐一份）。
+            guard generation == loadGeneration else {
+                return
+            }
+            apply(outcome)
+        }
         guard generation == loadGeneration else {
             return
         }
-        sections = outcome.sections
-        searchedCount = outcome.searchedCount
-        failures = outcome.failures
-        didFallBackToAllSites = outcome.didFallBackToAllSites
         // 选中的站点这一轮没命中（或站点清单 / 开关变过）：回落「全部」，别停在一张空网格上。
         if let key = selectedSiteKey, !sections.contains(where: { $0.id == key }) {
             selectedSiteKey = nil
         }
         isLoading = false
+    }
+
+    /// 把一份结果（**部分**或最终）贴到界面上。
+    private func apply(_ outcome: AggregateSearchOutcome) {
+        sections = outcome.sections
+        searchedCount = outcome.searchedCount
+        reportedCount = outcome.reportedCount
     }
 
     /// 右栏的一格：条目 + 它属于哪个站点（点进详情要用站点）。
