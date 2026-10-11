@@ -420,6 +420,8 @@ public struct PlaybackView: View {
         .navigationTitle(activeTitle)
         // 播放页同样登记为沉浸页；详情 → 播放会叠两层，登记簿按计数算（见 Platform/AdaptiveTabBar.swift）。
         .immersiveTabBarPage()
+        // 选集面板（M28 首验之三十 · 自绘破例，口径见 ``EpisodePanel``）。
+        .overlay { episodePanelOverlay }
         .sheet(isPresented: $isDanmakuSettingsPresented) {
             PlaybackDanmakuSettings(config: danmakuSettingsBinding)
                 // 上游那张面板就是半屏（`DanmakuSettingDialog` 的 `getMaxHeight() = 屏高 / 2`）——
@@ -430,17 +432,6 @@ public struct PlaybackView: View {
             if let danmakuSwitcher {
                 PlaybackDanmakuPicker(switcher: danmakuSwitcher, request: danmaku)
                     .adaptiveHalfSheet()
-            }
-        }
-        .sheet(isPresented: $isEpisodeDrawerPresented) {
-            if let playlist {
-                EpisodeListDrawer(episodes: playlist.episodes, currentIndex: currentEpisodeIndex) { index in
-                    isEpisodeDrawerPresented = false
-                    Task { await switchEpisode(to: index) }
-                }
-                // 选集走「侧抽屉」形态：占屏高约 1/3（用户口径「三分之一屏」，
-                // iOS 15 无该原生 API，回落整页 —— 见 `adaptiveSideSheet`）。
-                .adaptiveSideSheet()
             }
         }
         .onChange(of: scenePhase) { phase in
