@@ -116,13 +116,27 @@ actor ImageMemoryCache {
     private(set) var hits = 0
     private(set) var misses = 0
 
-    /// 在途请求登记：`Task` 包装一下才进字典（`Task<T, Error>` 自己不是 `Sendable`；
-    /// 这里只读它的 `.value`，包一层 `@unchecked` 是安全的）。
-    private struct InFlight {
+    /// 在途请求登记：`Task` 包一层才进字典（`Task` 是 struct，不能拿 `ObjectIdentifier` 认它，
+    /// 用自增的 `token` 认领）。
+    ///
+    /// 类而不是结构体：`Task` 自己的闭包里要引用「这份登记」（撤销时认领 `token`），
+    /// 结构体进闭包会拷一份 —— 改的就成了副本，认领永远对不上。
+    private final class InFlight {
         let task: Task<PlatformImage, Error>
+        /// 这份登记的唯一号（``forget(url:token:)`` 认它，防止把新顶上的任务误删）。
+        let token: Int
         /// 还在等这个 URL 的人（含发起者）。归零 = 没人要了，取消。
         var waiters: Int
+
+        init(task: Task<PlatformImage, Error>, token: Int, waiters: Int) {
+            self.task = task
+            self.token = token
+            self.waiters = waiters
+        }
     }
+
+    /// 登记号的下一个值（只增不减，够用）。
+    private var nextToken = 0
 
     init(capacity: Int) {
         cache.totalCostLimit = capacity
@@ -191,41 +205,40 @@ actor ImageMemoryCache {
         size: CGSize,
         fetch: @Sendable (String, CGSize) async throws -> PlatformImage
     ) -> Task<PlatformImage, Error> {
-        if var entry = result[url] {
+        if let entry = result[url] {
             entry.waiters += 1
-            result[url] = entry
             return entry.task
         }
+        // 先取号：`Task` 的闭包里要拿它认领自己那一份（token 定死再进闭包，登记随建随存）。
+        nextToken += 1
+        let token = nextToken
         let cache = self
         // `Task.detached`：**在途任务不继承发起者的取消** —— 发起者可能只是滚动回收的一个卡片，
         // 还有别人在等这份结果（谁都不等时由 ``leave(url:)`` 明确取消，不动别人）。
-        // 闭包里不能引用 `task` 自己（Swift 拒绝「声明前捕获」），要认领登记就用它的 `ObjectIdentifier`。
         let task = Task<PlatformImage, Error>.detached {
             do {
                 let image = try await fetch(url, size)
                 await cache.store(image, key: key, url: url)
                 return image
             } catch {
-                // 撤销登记要**认准自己那一份**：这中间可能已经有新的同名任务顶上（见 ``forget(url:id:)``）。
-                await cache.forget(url: url, id: ObjectIdentifier(task))
+                // 撤销登记要**认准自己那一份**：这中间可能已经有新的同名任务顶上（见 ``forget(url:token:)``）。
+                await cache.forget(url: url, token: token)
                 throw error
             }
         }
-        result[url] = InFlight(task: task, waiters: 1)
+        result[url] = InFlight(task: task, token: token, waiters: 1)
         return task
     }
 
     /// 一个等位离场（`.value` 返回或抛错之后都算）。
     func leave(url: String) {
-        guard var entry = result[url] else {
+        guard let entry = result[url] else {
             return
         }
         entry.waiters -= 1
         if entry.waiters <= 0 {
             entry.task.cancel()
             result[url] = nil
-        } else {
-            result[url] = entry
         }
     }
 
@@ -237,10 +250,10 @@ actor ImageMemoryCache {
         result[url] = nil
     }
 
-    /// 下载失败：撤销登记 —— 只有当前登记的还是**我这个任务**时才撤
+    /// 下载失败：撤销登记 —— 只有当前登记的**还是我这份（token 对得上）**时才撤
     /// （失败前可能已被 `leave` 摘掉、或有新任务顶上，别把别人的登记误删）。
-    private func forget(url: String, id: ObjectIdentifier) {
-        guard let entry = result[url], ObjectIdentifier(entry.task) == id else {
+    private func forget(url: String, token: Int) {
+        guard let entry = result[url], entry.token == token else {
             return
         }
         result[url] = nil
