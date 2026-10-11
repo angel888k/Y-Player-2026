@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 
 // 发现页的**诊断件**（M28 首验之二十九）：`scrollTouchObserver` / `.refreshable` 的「挂 / 不挂」
