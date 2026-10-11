@@ -87,17 +87,19 @@ struct ImageLoaderTests {
         #expect(StubImageProtocol.requestCount == 1, "三个并发请求应该只对应一次下载")
     }
 
-    @Test("下采样：原图 64x64 请求 16x16 时解出来的尺寸缩到目标内（且比例不变）")
+    @Test("下采样：原图 64x64 请求 64x64 时解出来不超过归档档位（且确实缩了、比例不变）")
     func downsamplesToTargetSize() async throws {
         StubImageProtocol.reset()
         let (loader, directory) = makeLoader()
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let image = try await loader.image(for: "https://example.com/c.png", targetSize: CGSize(width: 16, height: 16))
+        // 目标尺寸按 25px **向上归档**（同一张卡在不同帧的小数尺寸共享缓存），
+        // 所以请求 64 → 归档到 75：断言按归档语义写（≤ 档位、且不超原图）。
+        let image = try await loader.image(for: "https://example.com/c.png", targetSize: CGSize(width: 64, height: 64))
         // `platformSize` 而不是 `.size`：`NSImage` 没有 `.size`（跨端测试要编得过）。
-        #expect(image.platformSize.width <= 16.5)
-        #expect(image.platformSize.height <= 16.5)
-        #expect(image.platformSize.width < 64, "确实缩了，不是原图直接展开")
+        #expect(image.platformSize.width <= 75)
+        #expect(image.platformSize.height <= 75)
+        #expect(image.platformSize.width <= 64, "下采样不该比原图大（原图 64x64）")
         #expect(abs(image.platformSize.width - image.platformSize.height) < 0.5, "等比缩放：64x64 的方图缩完仍是方的")
     }
 

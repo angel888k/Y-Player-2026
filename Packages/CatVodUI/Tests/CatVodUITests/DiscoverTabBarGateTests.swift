@@ -12,7 +12,7 @@ struct DiscoverTabBarGateTests {
     func publishesOnlyOnFlip() {
         let gate = DiscoverTabBarGate()
         var changes: [Bool] = []
-        let cancellable = gate.$isHidden.sink { changes.append($0) }
+        let cancellable = gate.$isHidden.dropFirst().sink { changes.append($0) }
         defer { cancellable.cancel() }
 
         gate.touchDown()
@@ -31,7 +31,7 @@ struct DiscoverTabBarGateTests {
     func noPublishForDownwardOrHorizontal() {
         let gate = DiscoverTabBarGate()
         var changes: [Bool] = []
-        let cancellable = gate.$isHidden.sink { changes.append($0) }
+        let cancellable = gate.$isHidden.dropFirst().sink { changes.append($0) }
         defer { cancellable.cancel() }
 
         gate.touchDown()
@@ -46,7 +46,7 @@ struct DiscoverTabBarGateTests {
     func revealPublishesWhenHidden() {
         let gate = DiscoverTabBarGate()
         var changes: [Bool] = []
-        let cancellable = gate.$isHidden.sink { changes.append($0) }
+        let cancellable = gate.$isHidden.dropFirst().sink { changes.append($0) }
         defer { cancellable.cancel() }
 
         gate.touchDown()

@@ -26,12 +26,13 @@ struct ImageArrivalCoalescerTests {
                 flushes += 1
             }
         }
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        // 第二簇与第一簇同步到缓冲窗口**之内**（50ms 窗）：两簇各一拍，共 2 拍。
+        // 隔得太远（>100ms）会触发「单张立即刷」策略、多出一拍 —— 那是设计，不是本用例要验的。
         coalescer.notifyWaiting(url: "e")
         coalescer.notifyWaiting(url: "f")
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 400_000_000)
         counter.cancel()
-        #expect(flushes <= 2, "两次通知只能对应一拍（实际 \(flushes) 拍）——多出来的每一拍都是一轮多余渲染")
+        #expect(flushes == 2, "两簇各一拍（实际 \(flushes) 拍）——多出来的每一拍都是一轮多余渲染")
     }
 
     @Test("每个订阅者都会收到刷新（fan-out）：一张卡拿到、别的不能干等")
