@@ -24,6 +24,8 @@ public final class ImageLoader: @unchecked Sendable {
     /// HTTP 磁盘缓存（「缓存管理 → 图片缓存」的清理要同时清它 —— 只删目录的话，
     /// 进程内这份还会把已删的响应继续喂回来）。
     let diskCache: URLCache
+    /// 到达合流器（为什么：见 ``ImageArrivalCoalescer``）—— `CachedImage` 监听它的刷新信号。
+    @MainActor let arrival: ImageArrivalCoalescer
 
     /// - Parameters:
     ///   - memoryCapacity: 内存缓存上限（字节，默认 128 MB —— 几十 KB 一张的缩略图能装几千张）；
@@ -52,6 +54,7 @@ public final class ImageLoader: @unchecked Sendable {
         session = URLSession(configuration: configuration)
         diskCache = urlCache
         memory = ImageMemoryCache(capacity: memoryCapacity)
+        arrival = ImageArrivalCoalescer()
     }
 
     /// 清空缓存（磁盘 + 内存）：与「缓存管理」里清目录同一件事，内存那份不清会立刻「复活」刚删的图。
@@ -79,6 +82,8 @@ public final class ImageLoader: @unchecked Sendable {
         guard let requestURL = URL(string: url) else {
             throw ImageLoadError.invalidURL
         }
+        // 表个意向：这张图到达时合着别人一起刷（MS 级一簇的情况不再是一簇刷新）。
+        await arrival.notifyWaiting(url: url)
         return try await memory.image(for: url, targetSize: targetSize) { [session] _, size in
             let (data, response) = try await session.data(from: requestURL)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {

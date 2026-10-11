@@ -39,6 +39,15 @@ struct CachedImage: View {
             .task(id: taskKey(displaySize)) {
                 await load(displaySize)
             }
+            // 到达合流（M28 首验之二十九）：一簇图一起下完时只在刷新的那一拍显示，
+            // 不再「一张一个 `@State` → 一轮渲染」——那是滚动掉帧的元凶（帧账见的 55~110ms 停顿）。
+            .task {
+                for await _ in loader.arrival.subscribe() {
+                    if let cached = loader.memory.cachedImage(for: url, targetSize: displaySize) {
+                        image = cached
+                    }
+                }
+            }
         }
     }
 
