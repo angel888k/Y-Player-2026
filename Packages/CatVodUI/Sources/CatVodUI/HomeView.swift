@@ -55,6 +55,8 @@ public struct HomeView: View {
     @EnvironmentObject private var immersiveTabBar: ImmersiveTabBarState
     /// 滚动帧探针（只在模拟器上生效）：拖动期间记帧、松手出一条日志 —— 「还卡」要有帧账才谈得上修。
     @State private var frameProbe = ScrollFrameProbe()
+    /// 卡片形态诊断（只在模拟器上有开关）：现场切「现状 / 纯色块 / 无导航链接」，定位卡顿病灶。
+    @Environment(\.cardDiagnostics) private var cardDiagnostics
     /// 网页条目（如宿主配置中心）要在 App 内打开的地址；nil = 没开。
     @State private var webEntry: WebEntry?
 
@@ -105,7 +107,12 @@ public struct HomeView: View {
             .adaptiveToolbar {
                 siteSwitcherButton
             } trailing: {
-                trailingButtons
+                HStack(spacing: 12) {
+                    if CardDiagnostics.isEnabled {
+                        cardDiagnosticsButton
+                    }
+                    trailingButtons
+                }
             }
             .task {
                 await syncHomeWithInterface()
@@ -333,7 +340,11 @@ public struct HomeView: View {
         _ item: VodItem,
         @ViewBuilder label: () -> Label
     ) -> some View {
-        if let url = WebEntryRules.webURL(for: item, site: selectedSite) {
+        if CardDiagnostics.isEnabled, cardDiagnostics.mode == .noLink {
+            // 诊断形态「无导航链接」：光秃秃的卡片（**点不动**）—— 专门用来分辨
+            // 「NavigationLink 的代价」是不是卡顿来源（见 ``CardDiagnostics``）。
+            label()
+        } else if let url = WebEntryRules.webURL(for: item, site: selectedSite) {
             Button {
                 webEntry = WebEntry(url: url)
             } label: {
@@ -465,6 +476,23 @@ public struct HomeView: View {
             Image(systemName: "magnifyingglass")
         }
         .disabled(browsableSites.isEmpty)
+    }
+
+    /// 卡片形态诊断开关（**只在模拟器上出现**）：点一次切一档，档位写进日志。
+    ///
+    /// 用途见 ``CardDiagnostics``：一次构建、现场对比三种卡片形态，定位滚动卡顿到底出在
+    /// 「图片渲染」「导航链接」还是「别的」。
+    private var cardDiagnosticsButton: some View {
+        Button {
+            cardDiagnostics.cycle()
+        } label: {
+            Image(systemName: "rectangle.3.group")
+                .overlay(alignment: .bottomTrailing) {
+                    Text("\(cardDiagnostics.modeShortLabel)")
+                        .font(.system(size: 8, weight: .bold))
+                        .offset(x: 4, y: 2)
+                }
+        }
     }
 
     // MARK: - 站点菜单的弹层与标签
