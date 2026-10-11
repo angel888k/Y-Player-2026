@@ -25,7 +25,7 @@ fail() { printf '\033[31m✗ %s\033[0m\n' "$1"; exit 1; }
 
 step "0/7 工具链"
 for tool in xcodegen swiftlint swiftformat python3; do
-  command -v "$tool" >/dev/null || fail "缺少 $tool（brew install xcodegen swiftlint swiftformat）"
+  command -v "$tool" >/dev/null || fail "缺少 ${tool}（brew install xcodegen swiftlint swiftformat）"
 done
 xcodebuild -version
 swift --version
