@@ -2,10 +2,12 @@ import CatVodCore
 import SwiftUI
 
 /// 剧集列表抽屉（M11 · 选集区头「更多」的落点）：整屏文件列表、当前集高亮、可滚动 ——
-/// 以半屏 sheet 叠加在详情页上。
+/// 以半屏 sheet 叠加在详情页 / 播放页上。
 ///
-/// 排布对齐参考的「更多」弹层：标题「剧集列表」+ 右上两个图标按钮（展开 / 收起、正序 / 倒序），
-/// 一行一个**胶囊**（当前集底色更亮）。
+/// 行还是参考的「更多」弹层那样：一行一个**胶囊**，当前集底色更亮。**抽屉这条头归系统**
+/// （M28 首验之二十五）：标题走 `navigationTitle`、右上两个开关（展开 / 收起、正序 / 倒序）
+/// 走工具栏 —— 原先那条自绘头（`HStack` + 标题 + 图标按钮）就是「自绘导航栏」，
+/// 与 `docs/UI 规范.md` 总则一冲突（同一个头在 iOS 15 / iOS 16+ / macOS 上长得一模一样）。
 ///
 /// 刻意保持「纯展示 + 一个回调」：数据与跳转都在 `VodDetailView` —— 点一集回传下标，
 /// 由那边关抽屉并走**与点卡片同一条**的隐藏导航链进播放页（不另开一条跳转路径）。
@@ -22,9 +24,7 @@ struct EpisodeListDrawer: View {
     @State private var expanded = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
+        AdaptiveNavigationContainer {
             // 胶囊行自己是完整的「一行」：用 `ScrollView + LazyVStack` 而不是 `List` ——
             // 行间距 / 行底色全由这里定，也免得用上 macOS 没有的 list row 修饰符。
             ScrollView {
@@ -36,6 +36,13 @@ struct EpisodeListDrawer: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
+            .navigationTitle("剧集列表")
+            .adaptiveInlineNavigationTitle()
+            .adaptiveToolbar {
+                EmptyView()
+            } trailing: {
+                headerButtons
+            }
         }
     }
 
@@ -44,12 +51,10 @@ struct EpisodeListDrawer: View {
         return descending ? Array(indices.reversed()) : indices
     }
 
-    /// 抽屉头：标题 + 右上两个图标按钮（展开 / 收起、正序 / 倒序）—— 形状照参考的「更多」弹层。
-    private var header: some View {
-        HStack(spacing: 22) {
-            Text("剧集列表")
-                .font(.headline)
-            Spacer()
+    /// 右上两个开关（展开 / 收起文件名、正序 / 倒序）：走**工具栏**（原生位置），
+    /// 不再自绘一条头（M28 首验之二十五）。两个都只是**开关**，动作与原来一模一样。
+    private var headerButtons: some View {
+        HStack(spacing: 16) {
             Button {
                 expanded.toggle()
             } label: {
@@ -65,8 +70,6 @@ struct EpisodeListDrawer: View {
             }
             .accessibilityLabel(descending ? "改成正序" : "改成倒序")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     /// 一行：文件名（空名回落「第 N 集」）—— 胶囊底，**当前集底色更亮**（对齐参考的「更多」弹层）。

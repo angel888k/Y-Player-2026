@@ -4,7 +4,8 @@ import SwiftUI
 /// 播放页的「选择弹幕」面板（M03P25，对齐上游 `DanmakuDialog` + `DanmakuSearchDialog`）。
 ///
 /// 三块：状态一行、候选列表（第一条是「自动」）、换关键词重搜。
-/// 与「弹幕设置」（``PlaybackDanmakuSettings``）同一形态：半屏 sheet —— 上游这两张也都是 bottom sheet。
+/// 与「弹幕设置」（``PlaybackDanmakuSettings``）同一形态：半屏 sheet + **系统原生头**
+/// （标题走 `navigationTitle`、「完成」走工具栏，M28 首验之二十五）—— 上游这两张也都是 bottom sheet。
 ///
 /// 纯展示 + 三个回调（`switcher` 里那对 `select` / `search`）：面板不认识 `AppModel`，
 /// 候选与动作都由播放页从宿主那儿递进来（见 ``PlaybackDanmakuSwitcher``）。
@@ -20,9 +21,7 @@ struct PlaybackDanmakuPicker: View {
     @State private var searchNote = ""
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
+        AdaptiveNavigationContainer {
             List {
                 if !switcher.status.isEmpty {
                     Section {
@@ -50,27 +49,21 @@ struct PlaybackDanmakuPicker: View {
                 }
             }
             .adaptiveListStyle()
+            .navigationTitle("选择弹幕")
+            .adaptiveInlineNavigationTitle()
+            .adaptiveToolbar {
+                EmptyView()
+            } trailing: {
+                Button("完成") {
+                    dismiss()
+                }
+            }
         }
         .onAppear {
             // 预填这一集原本的片名 / 集名（用户可以改 —— 上游那个搜索框也是可改的）。
             name = request?.name ?? ""
             episode = request?.episode ?? ""
         }
-    }
-
-    /// 面板头：标题 + 完成（与「弹幕设置」面板同一形态）。
-    private var header: some View {
-        HStack {
-            Text("选择弹幕")
-                .font(.headline)
-            Spacer()
-            Button("完成") {
-                dismiss()
-            }
-            .font(.footnote.weight(.semibold))
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     /// 换关键词重搜：只换上面的候选列表，不动正在播的那份（选哪条由用户点）。
