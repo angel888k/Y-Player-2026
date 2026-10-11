@@ -24,22 +24,38 @@ step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 fail() { printf '\033[31m✗ %s\033[0m\n' "$1"; exit 1; }
 
 step "0/7 工具链"
-for tool in xcodegen swiftlint swiftformat python3; do
-  command -v "$tool" >/dev/null || fail "缺少 ${tool}（brew install xcodegen swiftlint swiftformat）"
+for tool in xcodegen python3; do
+  command -v "$tool" >/dev/null || fail "缺少 ${tool}（brew install xcodegen 或从 Xcode 里取）"
 done
 xcodebuild -version
 swift --version
-swiftformat --version
-swiftlint version
+# swiftlint / swiftformat 在 CI 是**阻断项**，这里「有就全跑、没有就退到仓库自带闸门 + 明说」——
+# 这台机器没装 Homebrew 时不该因为一把 linter 卡住出包（CI 仍会补跑真 lint）。
+HAVE_SWIFTFORMAT=1; command -v swiftformat >/dev/null || HAVE_SWIFTFORMAT=0
+HAVE_SWIFTLINT=1; command -v swiftlint >/dev/null || HAVE_SWIFTLINT=0
+if [ "$HAVE_SWIFTFORMAT" = 1 ]; then swiftformat --version; else echo "⚠︎ 没有 swiftformat —— 本地跳过（CI 会跑）"; fi
+if [ "$HAVE_SWIFTLINT" = 1 ]; then swiftlint version; else echo "⚠︎ 没有 swiftlint —— 本地跳过（CI 会跑）"; fi
 
 step "1/7 生成工程（XcodeGen）"
 python3 Scripts/fetch_nodejs_mobile.py
 xcodegen generate
 
-step "2/7 Lint（与 CI 同款，阻断）"
-swiftformat --lint . --config .swiftformat \
-  --exclude .build,DerivedData,ThirdParty,Tools,.swiftpm,Packages/*/.build,build
-swiftlint lint --config .swiftlint.yml
+step "2/7 Lint（有 swiftlint / swiftformat 就按 CI 全跑；没有则退到仓库自带闸门）"
+if [ "$HAVE_SWIFTFORMAT" = 1 ]; then
+  swiftformat --lint . --config .swiftformat \
+    --exclude .build,DerivedData,ThirdParty,Tools,.swiftpm,Packages/*/.build,build
+else
+  echo "— 跳过 swiftformat（未安装）"
+fi
+if [ "$HAVE_SWIFTLINT" = 1 ]; then
+  swiftlint lint --config .swiftlint.yml
+else
+  echo "— 跳过 swiftlint（未安装），改跑仓库自带的模式闸门："
+  python3 Scripts/check_lint.py
+  python3 Scripts/check_braces.py
+  python3 Scripts/check_visibility.py
+  python3 Scripts/audit_duplicate_types.py
+fi
 python3 Scripts/check_app_icons.py
 
 step "3/7 单测（7 个包，与 CI 同款）"
