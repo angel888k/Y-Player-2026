@@ -88,9 +88,11 @@ public enum PlatformShims {
         guard #available(iOS 16.0, *), let scene = activeWindowScene else {
             return false
         }
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: landscape ? .landscapeRight : .portrait))
         // iOS 16 起系统会重新问一遍 `supportedInterfaceOrientations` —— SwiftUI 这边就这一个公开钩子。
+        // **先请它更新、再提请求**（Apple 样例的顺序）：反过来容易拿到一份还没更新的支持集合，
+        // 请求就被系统悄悄拒掉（M27 首验之六之六：日志里有一次转屏请求没落地）。
         scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: landscape ? .landscapeRight : .portrait))
         return true
         #else
         return false

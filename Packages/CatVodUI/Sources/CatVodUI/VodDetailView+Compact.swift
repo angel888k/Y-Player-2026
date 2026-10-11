@@ -39,34 +39,43 @@ extension VodDetailView {
                     .background(autoPlayLink)
                 }
             }
-            // **放大只属于横屏**：转回竖屏（用户自己转回来 / 系统转回来）就把「就地放大」收回去 ——
-            // 不收的话留在竖屏上的是一张只剩播放器的空页 + 一整套完整控制条
-            // （用户看到的「多出来的竖屏、上面还一堆按钮」）。
-            .onChange(of: proxy.size) { size in
-                collapseIfRotatedBackToPortrait(size)
+            // **放大只属于横屏**：页面尺寸一变就对着**接口方向**核一次（方向才是权威）——
+            // 放大着的时候已经是竖屏了（用户自己转回来 / 系统转回来 / 转屏请求没成功），就收回去：
+            // 不收的话留在竖屏上的是一张只剩播放器的空页 + 一整套完整控制条。
+            // 刚点开那一下不算（`expandOrientationGraceSeconds`）：**放大自己就会先把容器变成整屏竖屏**。
+            .onChange(of: proxy.size) { _ in
+                collapseIfPortraitWhileExpanded()
             }
         }
     }
 
     /// 收回「就地放大」：只翻状态，**播放器一个字节都不动**（画面接着播）。
-    /// 三处都走它 —— ✕、转回竖屏、以后再加别的触发（别各写一份 `isInlineExpanded = false`）。
+    /// 三处都走它 —— ✕、转回竖屏、转屏没成功，以后再加别的触发（别各写一份 `isInlineExpanded = false`）。
     func collapseInlineExpansion() {
         guard isInlineExpanded else {
             return
         }
         isInlineExpanded = false
+        expandStartedAt = nil
+        expandCheckTask?.cancel()
+        expandCheckTask = nil
     }
 
-    /// 画面区尺寸变了：**从横屏翻回竖屏**就把「就地放大」收回去。
-    ///
-    /// 为什么不能只看「现在是不是竖屏」（M27 首验之六之五，日志里踩过）：
-    /// **放大自己就会先把容器变成整屏竖屏**（402×226 → 402×874），那一步不是「转回来」——
-    /// 收了的话，刚点开的放大 31 毫秒就被撤掉，横屏上只剩一块槽位 + 一排导航按钮。
-    /// 只有「上一次是横屏（宽 > 高）、这一次是竖屏」才是真的转回来。
-    func collapseIfRotatedBackToPortrait(_ size: CGSize) {
-        let wasLandscape = compactLayoutWasLandscape
-        compactLayoutWasLandscape = size.width > size.height
-        guard isInlineExpanded, wasLandscape, size.height > size.width else {
+    /// 点开放大之后先别急着判方向（秒）：**放大自己会先把容器变成整屏竖屏**，
+    /// 那一步不是「转回来了」；转屏请求也要几百毫秒才落地（M27 首验之六之五/之六的日志里都踩过）。
+    static let expandOrientationGraceSeconds: TimeInterval = 1.2
+
+    /// 放大着的时候**接口方向**已经是竖屏 → 把放大的收回（页面尺寸一变就核一次）。
+    func collapseIfPortraitWhileExpanded() {
+        guard isInlineExpanded else {
+            return
+        }
+        guard let startedAt = expandStartedAt,
+              Date().timeIntervalSince(startedAt) > Self.expandOrientationGraceSeconds
+        else {
+            return
+        }
+        guard PlatformShims.isPlaybackLandscape() == false else {
             return
         }
         collapseInlineExpansion()
@@ -184,8 +193,31 @@ extension VodDetailView {
 
     /// 就地那块「放大成全屏」（M27 首验之四）：把状态一翻 —— **同一块画面**跟着铺满整屏，
     /// 播放器一个字节都不重建。翻横屏那颗在控制条上（`fullScreenButton` 里顺手做）。
+    ///
+    /// 转屏这件事**不能一信到底**：`requestGeometryUpdate` 偶尔会被系统拒（首验日志里 15:54:34
+    /// 那一次就是：放大 14 毫秒后被收回、窗口还留在竖屏）。所以这里起一个校验（见下）。
     func expandInlinePlayback() {
         isInlineExpanded = true
+        expandStartedAt = Date()
+        scheduleExpandOrientationCheck()
+    }
+
+    /// 放大之后校验转屏：0.9 秒还没横过来就**再求一次**；又来 0.9 秒还是竖屏就收回去 ——
+    /// 宁可当这次 ⤢ 没点着，也不留一张「竖屏上只剩播放器」的空页（用户报过）。
+    func scheduleExpandOrientationCheck() {
+        expandCheckTask?.cancel()
+        expandCheckTask = Task {
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled, isInlineExpanded, PlatformShims.isPlaybackLandscape() == false else {
+                return
+            }
+            PlatformShims.requestPlaybackOrientation(landscape: true)
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            guard !Task.isCancelled, isInlineExpanded, PlatformShims.isPlaybackLandscape() == false else {
+                return
+            }
+            collapseInlineExpansion()
+        }
     }
 
     /// 「转全屏」的回传：**已经放大（就是全屏）时给 nil** —— 控制条那颗 ⤢ 也就不出现（不摆没用的开关）。
