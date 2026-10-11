@@ -64,18 +64,14 @@ struct DiscoverSiteGroupTests {
         #expect(DiscoverSiteList.groups(sites: sites, tags: tags).isEmpty)
     }
 
-    @Test("接口规则一起参与抽标签；被关掉的内置规则不再出标签")
-    func interfaceRulesAndDisabledBuiltin() {
-        let sites = [makeSite(key: "a", name: "[主力]站点A")]
-        let extra = GroupRule.user(name: "井号", regex: "#(.+)$")
+    @Test("接口规则一起参与抽标签；没给内置时内置就不参与")
+    func interfaceRulesParticipate() {
+        let sites = [makeSite(key: "a", name: "某站#新组")]
+        let extra = GroupRule(id: "hash", name: "井号", regex: "#(.+)$", source: GroupRule.sourceInterface)
 
-        #expect(DiscoverSiteList.tags(sites: sites, input: input(rules: rules + [extra]))["a"] == ["主力"])
-
-        let disabled = DiscoverSiteList.tags(
-            sites: sites,
-            input: input(disabledIDs: [GroupRuleConfig.builtinBracket])
-        )
-        #expect(disabled["a"] == nil)
+        #expect(DiscoverSiteList.tags(sites: sites, input: input(rules: rules + [extra]))["a"] == ["新组"])
+        #expect(DiscoverSiteList.tags(sites: sites, input: input(rules: [extra]))["a"] == ["新组"])
+        #expect(DiscoverSiteList.tags(sites: sites, input: input())["a"] == nil)
     }
 
     @Test("面板给的上移/下移回调算出的新顺序：隐藏的分组不会被挤到末尾")
@@ -145,40 +141,12 @@ struct DiscoverSiteGroupTests {
         #expect(result.map(\.key) == ["a"])
     }
 
-    @Test("自建规则参与抽标签；关掉某条规则后它抽的标签立刻消失")
-    func userRulesAndDisableChangeGroupBar() {
-        let piped = [makeSite(key: "a", name: "某站|4K")]
-        let tilde = [makeSite(key: "b", name: "某站~杂谈")]
-        let userRule = GroupRule.user(name: "波浪号", regex: "~(.+)$")
-
-        // 自建规则抽出来的标签进分组条
-        #expect(DiscoverSiteList.tags(sites: tilde, input: input(userRules: [userRule]))["b"] == ["杂谈"])
-
-        // 关掉它：这个站点就没标签了
-        let withoutUser = input(userRules: [userRule], disabledIDs: [userRule.id])
-        #expect(DiscoverSiteList.tags(sites: tilde, input: withoutUser)["b"] == nil)
-
-        // 关掉内置的竖线规则：`某站|4K` 不再属于 4K 分组
-        #expect(DiscoverSiteList.tags(sites: piped, input: input())["a"] == ["4K"])
-        #expect(DiscoverSiteList.tags(
-            sites: piped,
-            input: input(disabledIDs: [GroupRuleConfig.builtinPipe])
-        )["a"] == nil)
-    }
-
-    /// 造面板输入（默认就是「四条内置、全开、无改名」）—— M06g 起抽标签的入口统一走 `input:`。
+    /// 造面板输入（默认就是「四条内置、无改名」）—— 抽标签的入口统一走 `input:`。
     private func input(
         rules: [GroupRule] = GroupRuleConfig.builtins,
-        userRules: [GroupRule] = [],
-        disabledIDs: Set<String> = [],
         names: [String: String] = [:]
     ) -> DiscoverSiteRuleInput {
-        DiscoverSiteRuleInput(
-            interfaceRules: rules,
-            userRules: userRules,
-            disabledIDs: disabledIDs,
-            names: names
-        )
+        DiscoverSiteRuleInput(interfaceRules: rules, names: names)
     }
 
     private func rows(

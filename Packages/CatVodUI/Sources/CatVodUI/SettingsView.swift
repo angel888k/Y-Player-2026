@@ -7,6 +7,10 @@ import SwiftUI
 ///
 /// 分区与顺序对齐参考图：源地址 / 首页 / 播放 / 数据（参考图里还有「iCloud 同步」——
 /// **不做就不摆**：2026-10-10 拍板跨设备同步不做，那一区整块删掉，连标题也不留）。
+///
+/// 同一条规矩后来还用在了两处（2026-10-11 拍板）：「站点分组 → 分组规则」与「播放 → 广告清理规则」
+/// 两份管理页整块删除 —— 规则本身照旧生效（分组条吃内置 + 接口的 `groupRules`，`/m3u8` 吃接口的
+/// `hlsRules` 与解析规则的 `exclude`），只是不再提供「在这里开关 / 自建规则」的界面。
 /// 每一项都是**导航行**，点进去才是具体设置页 —— 与系统设置一致的原生形态。
 ///
 /// 诚实原则（`docs/UI 规范.md` + `docs/任务记录/M02P11-设置页与追剧页.md`）：
@@ -28,7 +32,6 @@ public struct SettingsView: View {
             sourceSection
             homeSection
             playbackSection
-            siteGroupSection
             dataSection
             aboutSection
         }
@@ -95,37 +98,6 @@ public struct SettingsView: View {
         model.configURL.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - 站点分组规则
-
-    /// 站点分组：分组条（抽标签）与它的规则从哪来、怎么关。
-    ///
-    /// 放在「播放」之后、有独立页面（``SiteGroupRulesView``）：分组条只在站点面板里看得见，
-    /// 但「为什么这个分组没了」的答案在规则里 —— 两者挨着放，找起来不用跳。
-    private var siteGroupSection: some View {
-        Section("站点分组") {
-            NavigationLink {
-                SiteGroupRulesView(model: model)
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("分组规则")
-                    Text(siteGroupSummary)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-            }
-        }
-    }
-
-    /// 一行摘要：现在有几条规则在生效、当前接口给了几条、自己加了几条。
-    private var siteGroupSummary: String {
-        let entries = model.siteGroupRuleEntries
-        let enabled = entries.filter(\.isEnabled).count
-        let userCount = entries.filter { $0.rule.source == GroupRule.sourceUser }.count
-        let interfaceCount = entries.filter { $0.rule.source == GroupRule.sourceInterface }.count
-        return "已启用 \(enabled) / \(entries.count) 条；接口给 \(interfaceCount) 条，自建 \(userCount) 条"
-    }
-
     // MARK: - 首页
 
     private var homeSection: some View {
@@ -173,11 +145,6 @@ public struct SettingsView: View {
             } label: {
                 InfoRow(title: "字幕显示", value: subtitleDisplaySummary)
             }
-            NavigationLink {
-                HLSAdRulesView(model: model)
-            } label: {
-                InfoRow(title: "广告清理规则", value: adRuleSummary)
-            }
         }
     }
 
@@ -194,17 +161,6 @@ public struct SettingsView: View {
             return "已关闭"
         }
         return "\(String(format: "%.1f×", display.fontScale)) · \(display.position.title) · \(display.background.title)"
-    }
-
-    /// 广告清理那一行的摘要：内置 + 接口各几条、当前几条生效。
-    private var adRuleSummary: String {
-        let entries = model.hlsAdRuleEntries
-        let builtin = model.hlsBuiltinRuleEntries
-        guard !entries.isEmpty || !builtin.isEmpty else {
-            return "没有规则"
-        }
-        let enabled = (entries + builtin).filter(\.isEnabled).count
-        return "\(enabled) / \(entries.count + builtin.count) 条生效"
     }
 
     /// 解析器（弹幕 API）数量摘要。

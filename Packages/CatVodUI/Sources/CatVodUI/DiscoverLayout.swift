@@ -113,17 +113,15 @@ struct DiscoverSiteRow: Identifiable, Equatable {
     var id: String { key }
 }
 
-/// 站点面板做「抽标签 / 显示名 / 搜索」需要的**全部输入**（M06g）。
+/// 站点面板做「抽标签 / 显示名 / 搜索」需要的**全部输入**。
 ///
 /// 打包成一个 `Hashable` 值，是为了让面板能用 `.task(id:)` 一处盯住所有会影响标签的输入：
-/// 改自定义名、开关某条规则、加一条自建规则 —— 任一变化都要重抽标签（抽标签要跑正则，不能每次渲染都算）。
+/// 改自定义名、换接口（另一套 `groupRules`）—— 任一变化都要重抽标签（抽标签要跑正则，不能每次渲染都算）。
+///
+/// 「本地开关 / 自建规则」那两个输入**已随设置页那份管理界面一起删除**（2026-10-11）。
 struct DiscoverSiteRuleInput: Hashable {
     /// 接口配置里的规则（`SourceConfig.groupRules`）。
     var interfaceRules: [GroupRule] = []
-    /// 用户自建规则。
-    var userRules: [GroupRule] = []
-    /// 被本地关掉的规则 id。
-    var disabledIDs: Set<String> = []
     /// 站点自定义名（站点 key → 名字）。
     var names: [String: String] = [:]
 }
@@ -208,9 +206,7 @@ enum DiscoverSiteList {
             let values = SiteNameRules.groups(
                 rawName: site.name,
                 customName: input.names[site.key] ?? "",
-                interfaceRules: input.interfaceRules,
-                userRules: input.userRules,
-                disabledIDs: input.disabledIDs
+                interfaceRules: input.interfaceRules
             )
             if !values.isEmpty {
                 result[site.key] = values

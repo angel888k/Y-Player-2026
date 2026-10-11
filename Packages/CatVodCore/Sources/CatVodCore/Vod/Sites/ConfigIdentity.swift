@@ -3,7 +3,7 @@ import Foundation
 /// 接口地址的**本地标识摘要**（对齐上游 `PlaybackConfigIdentity.keyForUrl`）。
 ///
 /// 为什么不用明文地址当键：接口地址经常带 token，而「按接口分桶」的本地偏好（分组顺序、站点自定义名…）
-/// 是要落盘的 —— 明文就等于把 token 留在磁盘上。这里与 `HLSAdRuleState` 的处理一致：先摘要再进键。
+/// 是要落盘的 —— 明文就等于把 token 留在磁盘上。所以先摘要再进键（与站点名书 / 分组顺序书同一考虑）。
 public enum ConfigIdentity {
     /// 摘要前缀：一眼能看出这是「接口标识」，而不是原始地址。
     static let prefix = "cfg:"

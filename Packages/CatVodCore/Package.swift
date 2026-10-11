@@ -11,7 +11,6 @@ let package = Package(
     targets: [
         .target(
             name: "CatVodCore",
-            resources: [.copy("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(

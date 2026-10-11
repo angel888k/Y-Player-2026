@@ -46,11 +46,9 @@ public final class AppModel: ObservableObject {
         static let liveSwipeInvert = "yplayer.liveSwipeInvert"
         static let siteGroupOrder = "yplayer.siteGroupOrder"
         static let siteNames = "yplayer.siteNames"
-        static let siteGroupRules = "yplayer.siteGroupRules"
         static let discoverSiteKey = "yplayer.discoverSiteKey"
         static let searchSiteKey = "yplayer.searchSiteKey"
         static let searchExcludedSites = "yplayer.searchExcludedSites"
-        static let hlsAdRuleOverrides = "yplayer.hlsAdRuleOverrides"
     }
 
     // MARK: - 输出状态
@@ -426,28 +424,6 @@ public final class AppModel: ObservableObject {
     /// 否则清掉覆盖时没法把频道地址还回去，也不必为此再拉一次清单。
     var rawLiveSource: LiveSource?
 
-    /// 广告清理规则的**本地开关**：**状态键 → 开 / 关**（键由 ``HLSAdRuleState/key(origin:sourceID:ruleID:)`` 生成）。
-    ///
-    /// 改了要立刻重算规则（``AppModel/refreshAdRules()``）—— `/m3u8` 每个请求现读，所以不用重启本机服务。
-    @Published public internal(set) var hlsAdRuleOverrides: [String: Bool] {
-        didSet {
-            defaults.set(HLSAdRuleBook.encode(hlsAdRuleOverrides), forKey: StorageKey.hlsAdRuleOverrides)
-            refreshAdRules()
-        }
-    }
-
-    /// 站点分组规则的**本地设置**：**接口摘要 → {关掉的规则 id, 用户自建规则}**（上游 `GroupRuleStore`）。
-    ///
-    /// 桶键同 ``siteNames``（接口地址摘要）：这是要落盘的东西，不存明文地址。
-    @Published var siteGroupRuleSettings: [String: SiteGroupRuleSettings] {
-        didSet {
-            defaults.set(
-                SiteGroupRuleBook.encode(siteGroupRuleSettings),
-                forKey: StorageKey.siteGroupRules
-            )
-        }
-    }
-
     /// 站点**自定义名**：**接口摘要 → {站点 key: 自定义名}**（上游 `SiteNameStore`，键 `site_names`）。
     ///
     /// 桶键是接口地址的摘要（`ConfigIdentity.key(for:)`）：地址可能带 token，落盘的东西不存明文。
@@ -725,12 +701,6 @@ public final class AppModel: ObservableObject {
         searchSiteKey = defaults.string(forKey: StorageKey.searchSiteKey) ?? ""
         // 聚合搜索关掉的站点：默认空（= 只要能搜的站点都参与）。
         searchExcludedSiteKeys = Set(defaults.stringArray(forKey: StorageKey.searchExcludedSites) ?? [])
-
-        // 站点分组规则的本地设置：默认空（= 四条内置全开、没有自建规则）。
-        siteGroupRuleSettings = SiteGroupRuleBook.decode(defaults.string(forKey: StorageKey.siteGroupRules))
-
-        // 广告清理规则的本地开关：默认空（= 按每条规则自己的默认值）。
-        hlsAdRuleOverrides = HLSAdRuleBook.decode(defaults.string(forKey: StorageKey.hlsAdRuleOverrides))
 
         // 引擎日志：默认关（与参考图的开关初始状态一致）。
         isEngineLogEnabled = defaults.object(forKey: StorageKey.engineLogEnabled) as? Bool ?? false

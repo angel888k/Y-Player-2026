@@ -5,7 +5,7 @@ import Foundation
 //
 // 上游对应 `setting/SiteNameStore`（键 `site_names`，形状一致：`{config: {siteKey: name}}`）。
 // 桶键用 `ConfigIdentity.key(for:)` 的摘要、不用明文地址：地址里可能带 token，而这是要落盘的东西
-// （与 `HLSAdRuleState` 的源标识摘要同一考虑）。
+// （纯数据层的键一律先摘要，理由见 `ConfigIdentity`）。
 
 /// 站点自定义名的存档（与界面无关的纯数据变换）。
 enum SiteNameBook {

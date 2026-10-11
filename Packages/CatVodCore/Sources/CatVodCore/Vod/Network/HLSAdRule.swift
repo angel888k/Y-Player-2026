@@ -1,6 +1,6 @@
 import Foundation
 
-/// 一条 HLS 广告规则（JSON 形态：内置规则包、或接口配置里的那种）。
+/// 一条 HLS 广告规则（JSON 形态：接口配置里的 `hlsRules`）。
 ///
 /// 逐条对齐参考实现 `app/src/main/java/com/fongmi/android/tv/bean/HlsAdRule.java`：
 ///
@@ -9,12 +9,12 @@ import Foundation
 /// - 其余字段是**信号**：`hostSuffixes`（分片 host 后缀）、`segmentUrlRegex`（分片 URL 正则）、
 ///   `minDuration` + `maxDuration`（时长区间）、`requireDiscontinuity`、`requireCrossDomain`；
 /// - `minimumSignals` 必须落在 `1...信号数`：凑不够就是配错了，直接拒（而不是「按 1 算」）；
-/// - `enabledByDefault` 是规则包作者的建议值，`enabled` 是**本地开关**（nil = 没设过）。
+/// - `enabledByDefault` / `version` 是规则包的字段（跟着 JSON 解析进来），当前生效判据只有 `enabled`。
 public struct HLSAdRule: Codable, Sendable, Hashable {
     public var id: String
     public var name: String
     public var version: Int
-    /// 规则包作者建议的默认状态（内置规则默认关闭是硬要求，见 `docs/hls-rule-sources` 那套约定）。
+    /// 规则包作者建议的默认状态（只随 JSON 解析进来；当前清理路径不读它）。
     public var enabledByDefault: Bool
     public var playlistHostSuffixes: [String]
     public var playlistHostRegex: [String]
@@ -25,14 +25,14 @@ public struct HLSAdRule: Codable, Sendable, Hashable {
     public var requireDiscontinuity: Bool
     public var requireCrossDomain: Bool
     public var minimumSignals: Int
-    /// 本地开关（nil = 没设过 → 按 ``enabledByDefault``）。
+    /// 规则自己写的开关（nil = 没写 → 不算开，见 ``isEnabled``）。
     public var enabled: Bool?
 
     /// 规则**自己**写的开关（对齐参考实现 `HlsAdRule.isEnabled()`：只有显式 `true` 才算开）。
     ///
-    /// 与 ``HLSAdRuleState/resolveEnabled(_:key:overrides:)`` 的区别：那个还会看本地覆盖与 `enabledByDefault`，
-    /// 用于**规则包**（默认关闭、要显式打开）；这个只看 JSON 里的 `enabled`，用于**接口配置里的 `hlsRules`**
-    /// （参考实现 `compileExternal` 就是这么判的）。
+    /// 接口配置里的 `hlsRules` 就是这么判的（参考实现 `compileExternal` 同款）：只看 JSON 里的 `enabled`。
+    /// 本地开关 / 内置规则包那一层**已随设置页那份管理界面一起删除**（2026-10-11），
+    /// 所以不再有「本地覆盖 / `enabledByDefault`」的包语义。
     public var isEnabled: Bool {
         enabled == true
     }

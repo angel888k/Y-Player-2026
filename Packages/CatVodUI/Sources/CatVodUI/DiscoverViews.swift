@@ -234,7 +234,7 @@ struct DiscoverSiteSwitchGlyph: View {
 struct DiscoverSitePanel: View {
     let sites: [Site]
     let selectedKey: String
-    /// 抽标签 / 显示名 / 搜索的**全部输入**（接口规则 + 自建规则 + 关掉的 id + 自定义名）。
+    /// 抽标签 / 显示名 / 搜索的**全部输入**（接口的 `groupRules` + 站点自定义名）。
     var ruleInput = DiscoverSiteRuleInput()
     /// 存下来的分组顺序（空 = 用「按站点顺序首次出现」的默认顺序）。
     var savedGroupOrder: [String] = []
@@ -250,7 +250,7 @@ struct DiscoverSitePanel: View {
     @State private var keyword = ""
     /// 每个站点抽出来的标签。在这里缓存一次：抽标签要跑正则，不该每次渲染都重算。
     /// 分组顺序与筛选都是基于它的**廉价**计算，所以「上移/下移之后立刻看到新顺序」不用重新抽标签；
-    /// 改名、开关规则、加自建规则 —— 任一项变了都要重抽，所以 `.task(id: ruleInput)` 盯的是整个输入。
+    /// 改名、换接口（另一套 `groupRules`）—— 任一项变了都要重抽，所以 `.task(id: ruleInput)` 盯的是整个输入。
     @State private var tags: [String: [String]] = [:]
     /// 重命名弹窗的状态（站点 key 与输入框内容）。
     @State private var renameKey = ""

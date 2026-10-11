@@ -29,17 +29,10 @@ public enum SiteNameRules {
     public static func groups(
         rawName: String,
         customName: String,
-        interfaceRules: [GroupRule] = [],
-        userRules: [GroupRule] = [],
-        disabledIDs: Set<String> = []
+        interfaceRules: [GroupRule] = []
     ) -> [String] {
         let name = effectiveName(rawName: rawName, customName: customName)
-        return GroupRuleConfig.extract(
-            name,
-            interfaceRules: interfaceRules,
-            userRules: userRules,
-            disabledIDs: disabledIDs
-        )
+        return GroupRuleConfig.extract(name, interfaceRules: interfaceRules)
     }
 
     /// 搜索命中：**生效名 / 原始名 / 站点 key** 任一包含关键词即算（大小写不敏感）。
