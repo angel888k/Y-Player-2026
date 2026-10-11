@@ -210,6 +210,8 @@ public struct HomeView: View {
                         translationX: translation.width,
                         translationY: translation.height
                     )
+                    // 每帧一次的节拍（帧探针用它算帧间隔；探针只在模拟器上记账）。
+                    frameProbe.tick()
                 },
                 onTouchEnded: {
                     tabBar.touchEnded()
