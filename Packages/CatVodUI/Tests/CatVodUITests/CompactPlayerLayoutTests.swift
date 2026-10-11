@@ -12,7 +12,10 @@ struct CompactPlayerLayoutTests {
     @Test("竖屏：16:9 就够小，照旧不封顶")
     func portrait() {
         let height = VodDetailView.compactPlayerHeight(width: 402, availableHeight: 874)
-        #expect(height == 402 / (16.0 / 9.0))
+        // 期望值直接写数：16:9 之下 = 402 × 9 ÷ 16 = 226.125（封顶那条路是 541.88，差着量级）。
+        // 别写回 `402 / (16.0 / 9.0)` 那种纯字面量表达式：编译器折叠出来的值和运行时差最后一位 ——
+        // 上机首跑就是这么挂的（两边显示一样、比较不过）。留 0.001pt 余量，不跟浮点末位较劲。
+        #expect(abs(height - 226.125) < 0.001)
     }
 
     @Test("横屏：封顶在可用高度的 0.62 —— 视频完整、下面那截留得住")
