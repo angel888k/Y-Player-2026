@@ -37,7 +37,8 @@ struct EpisodeListDrawer: View {
         AdaptiveNavigationContainer {
             // 胶囊行自己是完整的「一行」：用 `ScrollView + LazyVStack` 而不是 `List` ——
             // 行间距 / 行底色全由这里定，也免得用上 macOS 没有的 list row 修饰符。
-            ScrollView {
+            // 滑条不显示（用户口径）：面板里那条细条贴着行底色很扎眼，而列表本来就能整屏滑动。
+            ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 8) {
                     ForEach(orderedIndices, id: \.self) { index in
                         row(at: index)
