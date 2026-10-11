@@ -42,7 +42,7 @@ final class StubImageProtocol: URLProtocol {
     }()
 }
 
-@Suite("图片加载器（内存 + 磁盘缓存 / 去重 / 下采样）")
+@Suite("图片加载器（内存 + 磁盘缓存 / 去重 / 下采样）", .serialized)
 struct ImageLoaderTests {
     /// 用临时目录建一个走桩协议的装载器（不走真网络、不碰真缓存目录）。
     private func makeLoader(directory: URL? = nil) -> (loader: ImageLoader, directory: URL) {
@@ -62,8 +62,9 @@ struct ImageLoaderTests {
         let first = try await loader.image(for: "https://example.com/a.png", targetSize: size)
         let second = try await loader.image(for: "https://example.com/a.png", targetSize: size)
 
-        #expect(first.size == second.size)
-        #expect(first.pngData() == second.pngData(), "同一张图两次解码结果必须一致（下采样参数稳定）")
+        // 命中缓存给的是**同一份对象**（`NSCache` 直接返回），所以这里比对象本身，
+        // 不拿像素数据比 —— `pngData()` 是 UIKit-only，跨端测试编不过。
+        #expect(first === second, "第二次必须是缓存里那一份，而不是重新解码的另一份")
         #expect(StubImageProtocol.requestCount == 1, "内存命中后不该再发请求 —— 这正是滚动回收时省下的那一次")
         let hits = await loader.memory.hitCount
         let misses = await loader.memory.missCount
@@ -86,16 +87,18 @@ struct ImageLoaderTests {
         #expect(StubImageProtocol.requestCount == 1, "三个并发请求应该只对应一次下载")
     }
 
-    @Test("下采样：原图 8x8 请求 4x4 时解出来的尺寸缩到目标内（且比例不变）")
+    @Test("下采样：原图 64x64 请求 16x16 时解出来的尺寸缩到目标内（且比例不变）")
     func downsamplesToTargetSize() async throws {
         StubImageProtocol.reset()
         let (loader, directory) = makeLoader()
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let image = try await loader.image(for: "https://example.com/c.png", targetSize: CGSize(width: 4, height: 4))
-        #expect(image.size.width <= 4.5)
-        #expect(image.size.height <= 4.5)
-        #expect(abs(image.size.width - image.size.height) < 0.5, "等比缩放：8x8 的方图缩完仍是方的")
+        let image = try await loader.image(for: "https://example.com/c.png", targetSize: CGSize(width: 16, height: 16))
+        // `platformSize` 而不是 `.size`：`NSImage` 没有 `.size`（跨端测试要编得过）。
+        #expect(image.platformSize.width <= 16.5)
+        #expect(image.platformSize.height <= 16.5)
+        #expect(image.platformSize.width < 64, "确实缩了，不是原图直接展开")
+        #expect(abs(image.platformSize.width - image.platformSize.height) < 0.5, "等比缩放：64x64 的方图缩完仍是方的")
     }
 
     @Test("缓存键带尺寸：同一 URL 两种目标尺寸各自解码（详情页大图不会被网格小图顶掉）")
