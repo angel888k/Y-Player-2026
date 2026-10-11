@@ -50,7 +50,12 @@ final class LayerHostView: UIView {
                 return
             }
             let layer = attachedLayer
-            VideoHostTrace.noteLayerCheck(attached: layer?.superlayer === self.layer, frame: layer?.frame)
+            VideoHostTrace.noteLayerCheck(
+                attached: layer?.superlayer === self.layer,
+                frame: layer?.frame,
+                windowFrame: window.map { convert(bounds, to: $0) },
+                windowSize: window?.bounds.size
+            )
         }
     }
 
@@ -141,7 +146,12 @@ final class LayerHostView: NSView {
                 return
             }
             let layer = attachedLayer
-            VideoHostTrace.noteLayerCheck(attached: layer?.superlayer === self.layer, frame: layer?.frame)
+            VideoHostTrace.noteLayerCheck(
+                attached: layer?.superlayer === self.layer,
+                frame: layer?.frame,
+                windowFrame: window.map { convert(bounds, to: $0) },
+                windowSize: window?.bounds.size
+            )
         }
     }
 
