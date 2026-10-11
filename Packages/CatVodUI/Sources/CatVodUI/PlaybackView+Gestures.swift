@@ -205,9 +205,18 @@ extension PlaybackView {
     private func playerGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .onChanged { value in
-                // 长按「挂太久」先当它被系统吞了（收加速再放行）：挂着的状态会把整条拖动挡掉，
-                // 而点按那条的自愈要等用户再点一下 —— 手已经在屏幕上动了，顺手就该恢复。
-                guard !isSpeedBoostHoldingTrusted(), !isZooming, !isLocked else {
+                // 手已经在拖了（≥24pt）：这次触摸**不是**「按住加速」—— 立刻把加速收掉、放行这次拖动。
+                //
+                // 为什么不能等信任窗（首验之七 · 用户报「滑动快进快退和倍速好像连着了」）：
+                // `LongPressGesture` 的 `maximumDistance` **只管「识别之前」那一段** —— 长按一旦成立，
+                // 手指之后再滑多远都不算失败。于是「起手慢一点的滑动」（快进 / 快退要先按住再看方向）
+                // 会先被判成长按、视频上到 2.0x，而后面的拖动还要等 1.3 秒才被放行 ——
+                // 用户看到的就是「一滑就 2 倍速、拖动前 1.3 秒没反应」。
+                if isSpeedBoostHolding {
+                    endSpeedBoost(reason: "开始拖动（不是按住加速）")
+                    speedBoostEndedAt = nil
+                }
+                guard !isZooming, !isLocked else {
                     return
                 }
                 let dx = value.translation.width
@@ -258,8 +267,8 @@ extension PlaybackView {
                 }
             }
             .onEnded { value in
-                guard !isSpeedBoostHoldingTrusted(), !isZooming, !isLocked else {
-                    // 这次拖动被打断（捏合 / 锁 / 长按）：把这次的临时状态收掉 ——
+                guard !isZooming, !isLocked else {
+                    // 这次拖动被打断（捏合 / 锁）：把这次的临时状态收掉 ——
                     // 提示条现在是「常挂只翻透明度」，不清的话那句「亮度 50%」会一直挂在屏上。
                     settleGesture()
                     return
@@ -492,32 +501,6 @@ extension PlaybackView {
         }
         // 按住期间控制条没动过（见 `beginSpeedBoost()`）：松手后按当前状态补排一次。
         refreshControlsForState()
-    }
-
-    /// 长按这次触摸是不是还「当真」——给**拖动**那条守卫用：手势被系统取消时 `onEnded` 不来，
-    /// `isSpeedBoostHolding` 会一直挂着（提示常亮 `2.0x`，而且它会把之后的整条拖动都挡掉）。
-    ///
-    /// 这条线与点按那条**故意不同**（M28 首验之五）：
-    /// - 点按那条（``tapDisposition``）：点按只在松手后才来 —— **手指一定已经起来了**，
-    ///   所以只在「真·长按的尾巴」时吞一下（信任窗放到 3.5 秒，免得把真实的 1.6 秒按住当挂死）；
-    /// - 拖动这条：拖动是**新起的一个动作**（要 24pt 位移），拿 ``speedBoostSwallowHoldSeconds``
-    ///   当线就够 —— 超过它就该认为那次长按已经没了：收加速、放行这次拖动。
-    ///   线再放宽的话，一次被取消的长按会把后面的拖动白挡好几秒。
-    ///
-    /// 不会误伤正经的「按住加速」：按住不动时拖动本来就不触发。
-    func isSpeedBoostHoldingTrusted() -> Bool {
-        guard isSpeedBoostHolding else {
-            return false
-        }
-        guard let started = speedBoostStartedAt,
-              Date().timeIntervalSince(started) < Self.speedBoostSwallowHoldSeconds
-        else {
-            endSpeedBoost(reason: "自愈（拖动时发现挂太久）")
-            // 自愈这一下之后紧接着的连点不该被「刚松手」吞掉（与 `shouldSwallowTap()` 同一处理）。
-            speedBoostEndedAt = nil
-            return false
-        }
-        return true
     }
 
     /// 点按该当何论。
