@@ -54,7 +54,7 @@ final class LayerHostView: UIView {
                 attached: layer?.superlayer === self.layer,
                 frame: layer?.frame,
                 layerBounds: layer?.bounds,
-                identityTransform: layer?.transform.isIdentity,
+                identityTransform: layer.map { CATransform3DIsIdentity($0.transform) },
                 windowFrame: window.map { convert(bounds, to: $0) },
                 windowSize: window?.bounds.size
             )
@@ -154,7 +154,7 @@ final class LayerHostView: NSView {
                 attached: layer?.superlayer === self.layer,
                 frame: layer?.frame,
                 layerBounds: layer?.bounds,
-                identityTransform: layer?.transform.isIdentity,
+                identityTransform: layer.map { CATransform3DIsIdentity($0.transform) },
                 windowFrame: window?.contentView.map { convert(bounds, to: $0) },
                 windowSize: window?.contentView?.bounds.size
             )
