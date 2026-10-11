@@ -175,6 +175,18 @@ extension HomeView {
         }
     }
 
+    /// 下拉刷新（M28 首验之二十）：与原来的工具栏「刷新」同一条口径 —— 回到第一页、绕过缓存；
+    /// 横向展示（`posterSections`）那套分区也一起重来（老按钮没管它 —— 拉到手里不能没反应）。
+    func refreshHome() async {
+        page = 1
+        reachedEnd = false
+        await loadHome(force: true)
+        if model.homeLayout == .horizontal {
+            sections = []
+            await loadSections()
+        }
+    }
+
     /// 取首页数据（分类清单 + 首屏内容）：先看首页缓存，命中就**不发请求**。
     ///
     /// 缓存键用 `categoryID: ""`，与分类页区分开 —— 首页返回的是分类清单本身，
@@ -193,8 +205,8 @@ extension HomeView {
 
     /// 加载某个分类的某页。
     ///
-    /// - Parameter force: 为 true 时绕过首页缓存（工具栏「刷新」用）；其余入口
-    ///   （切换分类、应用筛选、翻页）都允许命中缓存。
+    /// - Parameter force: 为 true 时绕过首页缓存（下拉刷新用 —— 原工具栏「刷新」按钮
+    ///   M28 首验之二十删掉了）；其余入口（切换分类、应用筛选、翻页）都允许命中缓存。
     func loadCategory(categoryID: String? = nil, site: Site? = nil, force: Bool = false) async {
         guard let targetSite = site ?? selectedSite else {
             return

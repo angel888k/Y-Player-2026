@@ -8,7 +8,7 @@ import SwiftUI
 /// **横向展示**＝按分类分区、每区一行横滑（图 1）；**纵向展示**＝分类 + 筛选 + 3 列网格（图 2）。
 /// 两种模式的对应关系与历史坑见 ``HomeLayout`` 的注释 —— 注意别按名字猜。
 /// 左上角是**站点切换**（「切换」字形 + 当前站点名，点开贴左的站点面板；⚠️ 站点名里的
-/// 「☁️」是上游名字自带的表情，不是按钮图标），右上角是刷新与搜索；下面依次是横向滚动的分类条、
+/// 「☁️」是上游名字自带的表情，不是按钮图标），右上角是搜索（刷新按用户口径改成列表下拉，M28 首验之二十）；下面依次是横向滚动的分类条、
 /// 逐行筛选胶囊，内容是 3 列海报网格（封面右上角带更新角标、片名居中一行），
 /// 滚动到底部**自动接着加载**下一页（参考版式里没有分页按钮）。
 /// 分类条 / 筛选胶囊 / 网格同处**一个滚动区**：上滑时连在一起滚出屏幕（整屏滑动）。
@@ -185,6 +185,11 @@ public struct HomeView: View {
                     tabBar.touchEnded()
                 }
             )
+        }
+        // 下拉刷新（M28 首验之二十）：动作与删掉的工具栏那颗同一条 —— 回第一页 + 绕过缓存；
+        // 横向展示那套分区也一起重来（不然拉一下什么都不会变）。
+        .refreshable {
+            await refreshHome()
         }
     }
 
@@ -375,29 +380,20 @@ public struct HomeView: View {
         .disabled(browsableSites.isEmpty)
     }
 
-    /// 右上角：刷新（回到第一页并绕过缓存）与搜索。
+    /// 右上角：搜索。
+    ///
+    /// 刷新（M28 首验之二十，用户口径）：原来那颗「回到第一页 + 绕过缓存」的刷新按钮**删掉了** ——
+    /// 换成发现页列表在顶部时**下拉刷新**（见 `contentScroll` 的 `.refreshable` 与 `refreshHome()`）。
     ///
     /// 直播入口**不在这里**：它已经是底部 Tab 的「直播」（M07c-6 从纸飞机按钮改过去，
     /// 理由与取舍见 `docs/任务记录/M07c6-直播入口改底部Tab.md`）。
     private var trailingButtons: some View {
-        HStack(spacing: 16) {
-            Button {
-                // 上拉加载可能已经翻到很后面，所以刷新一律回到第一页。
-                page = 1
-                reachedEnd = false
-                Task { await loadHome(force: true) }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .disabled(isLoading || selectedSite == nil)
-
-            NavigationLink {
-                SearchView(model: model)
-            } label: {
-                Image(systemName: "magnifyingglass")
-            }
-            .disabled(browsableSites.isEmpty)
+        NavigationLink {
+            SearchView(model: model)
+        } label: {
+            Image(systemName: "magnifyingglass")
         }
+        .disabled(browsableSites.isEmpty)
     }
 
     // MARK: - 站点切换面板
