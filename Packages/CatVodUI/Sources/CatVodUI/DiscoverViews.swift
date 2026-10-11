@@ -295,10 +295,10 @@ struct DiscoverSiteSwitcher: View {
 
     // MARK: - 菜单内容
 
-    /// 站点清单上面那一组：分组筛选 / 分组排序 / 查找 / 改名。
+    /// 站点清单上面那一组：查找 / 改名。
     ///
     /// 放在**清单前面**是有意的：站点一多，清单会把后面的项推得很深，而「查找站点」正是为长清单
-    /// 准备的入口（分组筛选同理 —— 先筛出这一组，再在清单里挑）。
+    /// 准备的入口。
     @ViewBuilder
     private var tools: some View {
         if let onFindRequest {
