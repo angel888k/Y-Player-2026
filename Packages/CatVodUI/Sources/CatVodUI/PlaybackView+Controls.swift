@@ -4,7 +4,7 @@ import SwiftUI
 /// 播放页的**叠层控制条**（M03P6 起；M26 按参考的全屏播放器重排；M27 起三个内核共用）。
 ///
 /// 排布对齐参考截图（完整版）：
-/// - 顶排：关闭（✕）· 画面比例 —— 右侧：画中画 · 弹幕 · 倍速 · 锁定；
+/// - 顶排：关闭（✕）· 投屏 · 旋转 · 画面比例 —— 右侧：画中画 · 弹幕 · 倍速 · 锁定；
 /// - 底排：参数徽标（`HW HDR H265 4K 25FPS 5.6Mbps`，**只报读得到的**）+「当前时间 · 进度条 · 总时长」，
 ///   再一行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧文字按钮「播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集」。
 ///
@@ -12,9 +12,9 @@ import SwiftUI
 /// 参数徽标 / 进度 / 播放暂停 / 右下角那颗「全屏」；其余按钮去全屏那层（那边**始终**是完整版）。
 /// 横屏下那块槽位（宽度够）恢复完整版。
 ///
-/// 参考里还有投屏（DLNA / AirPlay）与画质（滤镜）两组我们**没有**的控件，照「不摆假开关」的规矩
-/// 不出现（投屏的结论见 M26 第七节）。各按钮自带能力判定：内核做不到的整颗不出现
-/// （画面比例 / 视轨 / 音频增益 / 画中画），拿不到的数据不占位（参数徽标）。
+/// 参考里的**画质（滤镜）**我们不做，照「不摆假开关」的规矩不出现；**投屏**只有系统内核有公开 API
+/// （`AVRoutePickerView`，M27 首验之三 —— DLNA 的结论见 M26 第七节）。各按钮自带能力判定：
+/// 内核做不到的整颗不出现（画面比例 / 视轨 / 音频增益 / 画中画 / 投屏），拿不到的数据不占位（参数徽标）。
 ///
 /// 为什么三个内核共用一条（M27）：系统内核的画面也换成了自建宿主（``SystemVideoView``，
 /// 一层 `AVPlayerLayer`）—— `AVKit.VideoPlayer` 自带的那套控件与手势会跟这条打架；
@@ -89,15 +89,16 @@ extension PlaybackView {
     /// 窄版的间距（10：9 颗 30pt 图标 + 8 个间隔 + 两侧内边距 ≈ 378pt，留得住 390 / 402）。
     static let barCompactSpacing: CGFloat = 10
 
-    /// 顶排：关闭 · 画面比例 —— 画中画 · 弹幕 · 倍速 · 锁定。
+    /// 顶排（M27 首验之三按参考图对齐）：关闭 · **投屏** · 旋转 · 画面比例 ——
+    /// 画中画 · 弹幕 · 倍速 · 锁定。
     private func topIconRow(compact: Bool) -> some View {
         HStack(spacing: compact ? Self.barCompactSpacing : 24) {
             barIcon("xmark", label: "关闭播放") {
                 closePlayback()
             }
-            scaleMenu
+            castButton
             rotateButton
-            fullScreenButton
+            scaleMenu
             Spacer(minLength: 0)
             pipButton
             danmakuMenu
@@ -156,9 +157,11 @@ extension PlaybackView {
         }
     }
 
-    /// 动作行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧菜单（播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集）。
+    /// 动作行（M27 首验之三按参考图对齐）：播放 / 暂停 · 下一集 —— 右侧菜单
+    /// （播放器 / 字幕 / 视轨 / 片头片尾 / 选集；音轨只有**两条以上**才多一颗，见 `audioMenu`）。
     ///
     /// 极简版（`minimal`）：只有播放 / 暂停 + 右下角那颗「全屏」—— 参考里圈住的就是这两颗。
+    /// 「全屏」那颗**永远在最右**（就地那块两套版式都在右下角；全屏那层没有它，参考图里也没有）。
     private func transportRow(compact: Bool, minimal: Bool) -> some View {
         HStack(spacing: compact ? Self.barCompactSpacing : 22) {
             barIcon(playerState.isPlaying ? "pause.fill" : "play.fill", label: playerState.isPlaying ? "暂停" : "播放") {
@@ -166,15 +169,11 @@ extension PlaybackView {
             }
             if minimal {
                 Spacer(minLength: 0)
-                fullScreenButton
             } else {
                 if let next = nextEpisodeIndex {
                     barIcon("forward.end.fill", label: "下一集") {
                         Task { await switchEpisode(to: next) }
                     }
-                }
-                barIcon("forward.frame", label: "逐帧步进") {
-                    Task { await engine?.stepFrame() }
                 }
                 Spacer(minLength: 0)
                 engineMenu(compact: compact)
@@ -188,12 +187,14 @@ extension PlaybackView {
                     }
                 }
             }
+            fullScreenButton
         }
     }
 
     /// 右下角那颗「全屏」（参考同位置）：进全屏那层，并顺手把屏幕翻成横屏
     /// （iOS 16+ 才有公开 API；翻不了就不翻 —— 全屏那层的按钮**始终**是完整的）。
-    /// 顶上那颗（完整版）也用它：横屏下已经是横屏，翻那一下是空操作。
+    /// 它是动作行的**最后一颗**（就地那块两套版式都在右下角）；全屏那层不给
+    /// `onRequestFullScreen` 回传，所以那边没有它（参考图里也没有）。
     @ViewBuilder
     private var fullScreenButton: some View {
         if let onRequestFullScreen {

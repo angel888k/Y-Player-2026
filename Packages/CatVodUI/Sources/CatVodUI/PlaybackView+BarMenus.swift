@@ -11,7 +11,7 @@ import SwiftUI
 extension PlaybackView {
     // MARK: - 顶排那几个菜单
 
-    /// 画面比例：只列**当前内核真的支持**的档位（系统内核一档都不支持，这颗按钮就不出现）。
+    /// 画面比例：只列**当前内核真的支持**的档位（内核一档都不支持时这颗不出现）。
     @ViewBuilder
     var scaleMenu: some View {
         let modes = PlaybackScaleMode.supportedModes(by: engineKind)
@@ -23,7 +23,8 @@ extension PlaybackView {
                     }
                 }
             } label: {
-                barIconLabel("arrow.up.left.and.arrow.down.right")
+                // 图标按参考图那颗「画面比例」（方框 + 箭头）；斜箭头留给「全屏」那颗。
+                barIconLabel("aspectratio")
             }
             .accessibilityLabel("画面比例")
         }
@@ -71,7 +72,7 @@ extension PlaybackView {
                     }
                 }
             } label: {
-                barIconLabel("timer")
+                barIconLabel("speedometer")
             }
             .accessibilityLabel("倍速")
         }
@@ -86,6 +87,18 @@ extension PlaybackView {
     }
 
     // MARK: - 底排那几个文字按钮
+
+    /// 投屏（M27 首验之三，对齐参考顶排第二颗）—— **只有系统内核有公开 API 能做**
+    /// （`AVRoutePickerView`：系统音频路由 + AVPlayer 的外部播放；MPV / 自研 FFmpeg 没有公开的路，
+    /// 整颗不出现 —— 与画中画同一条规矩）。见 `Platform/PlaybackCast.swift`。
+    @ViewBuilder
+    var castButton: some View {
+        if engineKind == .system, PlaybackCast.isSupported {
+            PlaybackCastButton()
+                .frame(width: 30, height: 30)
+                .accessibilityLabel("投屏")
+        }
+    }
 
     /// 旋转（对齐参考顶排那颗）：把「横屏 ↔ 竖屏」翻一下。
     ///
@@ -180,10 +193,11 @@ extension PlaybackView {
         }
     }
 
-    /// 音轨：同上，只在内核报了音轨时出现。
+    /// 音轨：**两条以上才出现** —— 只有一条时菜单里是「自动 + 那一条」，等于没得选
+    /// （不摆点了没用的开关；参考图里也没有这颗）。要换音轨还有信息区的「轨道」那一段。
     @ViewBuilder
     func audioMenu(compact: Bool) -> some View {
-        if !audioTracks.isEmpty {
+        if audioTracks.count > 1 {
             barMenu("音轨", icon: "waveform", compact: compact) {
                 Picker("音轨", selection: audioSelectionBinding) {
                     Text("自动").tag(TrackSelection.auto)
