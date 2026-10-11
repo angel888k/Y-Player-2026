@@ -212,14 +212,17 @@ actor ImageMemoryCache {
             return entry.task
         }
         let cache = self
-        let task = Task<UIImage, Error> {
+        // `Task.detached`：**在途任务不继承发起者的取消** —— 发起者可能只是滚动回收的一个卡片，
+        // 还有别人在等这份结果（谁都不等时由 ``leave(url:)`` 明确取消，不动别人）。
+        // 闭包里不能引用 `task` 自己（Swift 拒绝「声明前捕获」），要认领登记就用它的 `ObjectIdentifier`。
+        let task = Task<UIImage, Error>.detached {
             do {
                 let image = try await fetch(url, size)
                 await cache.store(image, key: key, url: url)
                 return image
             } catch {
-                // 撤销登记要**认准自己那一份**：这中间可能已经有新的同名任务顶上（见 ``forget(url:task:)``）。
-                await cache.forget(url: url, task: task)
+                // 撤销登记要**认准自己那一份**：这中间可能已经有新的同名任务顶上（见 ``forget(url:id:)``）。
+                await cache.forget(url: url, id: ObjectIdentifier(task))
                 throw error
             }
         }
@@ -251,8 +254,8 @@ actor ImageMemoryCache {
 
     /// 下载失败：撤销登记 —— 只有当前登记的还是**我这个任务**时才撤
     /// （失败前可能已被 `leave` 摘掉、或有新任务顶上，别把别人的登记误删）。
-    private func forget(url: String, task: Task<UIImage, Error>) {
-        guard let entry = result[url], entry.task == task else {
+    private func forget(url: String, id: ObjectIdentifier) {
+        guard let entry = result[url], ObjectIdentifier(entry.task) == id else {
             return
         }
         result[url] = nil
