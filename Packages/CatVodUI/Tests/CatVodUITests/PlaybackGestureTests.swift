@@ -82,33 +82,24 @@ struct PlaybackGestureTests {
         #expect(PlaybackView.speedBoostSwallowHoldSeconds > PlaybackView.speedBoostHoldSeconds)
         // 「按下」的报时门槛：几乎为零（0.01 秒）—— 它只负责报到，不负责判定。
         #expect(PlaybackView.speedBoostPressDetectSeconds <= 0.05)
+        // 触摸分派的三条线（M28 首验之十二）：连击窗 0.35 秒、连击两下 ≤60pt、拖动激活 24pt。
+        #expect(PlaybackView.doubleTapWindow == 0.35)
+        #expect(PlaybackView.doubleTapDistance == 60)
+        #expect(PlaybackView.dragActivateDistance == 24)
     }
 
-    @Test("点按的分档（M28 首验之十 / 十一）：只看量出来的按住时长 —— 0.45 秒放行、0.9 秒吞")
+    @Test("点按的分档（M28 首验之十 / 十二）：只看松手那一刻量到的按住时长 —— 0.45 秒放行、0.9 秒吞")
     func tapDisposition() {
-        let now = Date()
         // 0.45 秒的点按放行 —— 现场日志里就是这一档被误吞过（「点屏幕没反应 / 按钮点了没动静」）。
-        #expect(PlaybackView.tapDisposition(
-            isHolding: true, pressStartedAt: now.addingTimeInterval(-0.45), now: now
-        ) == .allow)
+        #expect(PlaybackView.tapDisposition(isHolding: false, heldSeconds: 0.45) == .allow)
         // 快速单击（0.12 秒）当然放行。
-        #expect(PlaybackView.tapDisposition(
-            isHolding: true, pressStartedAt: now.addingTimeInterval(-0.12), now: now
-        ) == .allow)
+        #expect(PlaybackView.tapDisposition(isHolding: false, heldSeconds: 0.12) == .allow)
         // 真·长按（0.9 秒）的尾巴：吞（不让控制条闪）。
-        #expect(PlaybackView.tapDisposition(
-            isHolding: true, pressStartedAt: now.addingTimeInterval(-0.9), now: now
-        ) == .swallow)
+        #expect(PlaybackView.tapDisposition(isHolding: false, heldSeconds: 0.9) == .swallow)
         // 按得久的（5 秒）也是真·长按：吞 —— 没有「挂太久」的上限（那会把长按的尾巴放进来）。
-        #expect(PlaybackView.tapDisposition(
-            isHolding: false, pressStartedAt: now.addingTimeInterval(-5.2), now: now
-        ) == .swallow)
-        // 连按下时刻都没记到：还按着当挂死（自愈 + 放行）；没按着直接放行。
-        #expect(PlaybackView.tapDisposition(
-            isHolding: true, pressStartedAt: nil, now: now
-        ) == .endStaleBoost)
-        #expect(PlaybackView.tapDisposition(
-            isHolding: false, pressStartedAt: nil, now: now
-        ) == .allow)
+        #expect(PlaybackView.tapDisposition(isHolding: true, heldSeconds: 5.2) == .swallow)
+        // 连按住时长都没量到：还按着当挂死（自愈 + 放行）；没按着直接放行。
+        #expect(PlaybackView.tapDisposition(isHolding: true, heldSeconds: nil) == .endStaleBoost)
+        #expect(PlaybackView.tapDisposition(isHolding: false, heldSeconds: nil) == .allow)
     }
 }

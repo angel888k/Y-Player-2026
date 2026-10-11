@@ -138,10 +138,11 @@ extension PlaybackView {
 
     // MARK: - 画面外壳
 
-    /// 自绘内核画面的共同外壳：单击 / 双击 / 长按 / 拖动全在这一层。
+    /// 自绘内核画面的共同外壳：单击 / 双击 / 长按 / 拖动全在这一层 —— 但**只有一条手势**（M28 首验之十二）。
     ///
-    /// **单击 / 双击的优先级**（M03P10）：`exclusively(before:)` 让双击先决 —— 单击只在
-    /// 「没有第二下」之后才触发，所以双击播放时控制条不会先闪一下。
+    /// 点按 / 双击的优先级、落点、长按加速、拖动，全在 ``touchGesture`` 那一条里自己算 ——
+    /// 不再叠 `SpatialTapGesture` / `LongPressGesture`：只要视频层上有一条「成功」的长按，
+    /// 画面那条拖动就被整个按死（滑动没反应；之十、十一、十二三次首验都是它）。
     func interactiveLayer(_ content: some View, size: CGSize) -> some View {
         content
             // 缩放只作用在画面上（弹幕 / 字幕 / 控制条不跟着放大）：先缩放、再裁切，
@@ -149,216 +150,13 @@ extension PlaybackView {
             .scaleEffect(zoomScale)
             .clipped()
             .contentShape(Rectangle())
-            // 点按（双击优先）+ **落点**：版本分支在基础件里（`Platform/AdaptiveTap.swift`）——
-            // iOS 16+ 是 `SpatialTapGesture`（有落点），iOS 15 回落 `TapGesture`（落点 nil，
-            // 按「中间」那一档处理）。**不要**为了记落点另挂「旁听」手势：首验踩过 —— 零距离拖动
-            // 照样进手势竞争，点按被吃掉、长按加速被挂死（点屏幕没反应 + `2.0x` 常亮）。
-            .adaptiveTapGesture(
-                onDoubleTap: { location in
-                    // 双击干什么由设置给（M28）；锁上之后不做（M03P21，上游 onDoubleTap 同款早退）。
-                    let unlocked = Self.lockedGesturePolicy(isLocked: isLocked) == .all
-                    let held = currentPressSeconds
-                    guard unlocked, !shouldSwallowTap() else {
-                        // 没做事的那些也留一条痕（「哪一段断了」全在日志里，排障不靠猜）。
-                        let skipped: String = unlocked ? "（被长按尾巴吞掉）" : "（锁上不做）"
-                        PlaybackTrace.noteTap(
-                            doubleTap: true,
-                            location: location,
-                            isCenter: Self.isCenterTap(startX: location?.x, width: size.width),
-                            action: skipped,
-                            held: held
-                        )
-                        return
-                    }
-                    handleTap(doubleTap: true, at: location, width: size.width, held: held)
-                },
-                onSingleTap: { location in
-                    let held = currentPressSeconds
-                    guard !shouldSwallowTap() else {
-                        PlaybackTrace.noteTap(
-                            doubleTap: false,
-                            location: location,
-                            isCenter: Self.isCenterTap(startX: location?.x, width: size.width),
-                            action: "（被长按尾巴吞掉）",
-                            held: held
-                        )
-                        return
-                    }
-                    handleTap(doubleTap: false, at: location, width: size.width, held: held)
-                }
-            )
-            // 长按加速与点按**同时**识别：不用 `exclusively`，那会把正常单击也一起赔进去；
-            // 长按松手后补发的那次点按由 `shouldSwallowTap()` 吞掉（见它的说明）。
-            .simultaneousGesture(speedBoostGesture)
-            .gesture(playerGesture(width: size.width))
+            .gesture(touchGesture(width: size.width))
             // 双指缩放（M03P14）：版本分支在基础件里（`Platform/AdaptiveZoom.swift`）——
             // 业务视图不写 `#available`（`docs/UI 规范.md` 第二节）。
             .adaptiveMagnificationGesture(
                 onChanged: { magnification in applyZoom(magnification: magnification) },
                 onEnded: { finishZoom() }
             )
-    }
-
-    /// 长按临时加速（M03P12）：按住画面 → 换成长按倍速；松手 → 回到用户那份倍速。
-    ///
-    /// **它只负责「报时」，不负责判定（M28 首验之十起）**：这是一条门槛几乎为零的长按
-    /// （``speedBoostPressDetectSeconds`` = 0.01 秒）—— 一成立 ≈ 按下的那一刻，
-    /// 把按下时刻交给我们；「按住够不够久」「尾巴吞不吞」全走自己的账（``speedBoostArmTask`` /
-    /// ``tapDisposition``）。
-    ///
-    /// **为什么不串零距离拖动**（之十一）：要「松手」就把序列推进拖动阶段，而那条零距离拖动
-    /// 在竞技场里**从按下就激活**，会把画面那条 24pt 的拖动整个按死 —— 滑动快进 / 快退全没反应。
-    /// 松手现在靠两条现成的线结账：尾巴点按（`shouldSwallowTap`）与拖动接手
-    /// （`playerGesture` 的 24pt，`finishSpeedBoostSession`）。
-    ///
-    /// 两个回调都是「按下」的来信（`onChanged(true)` 与识别成功即发的 `onEnded`，版本之间有差异）：
-    /// `beginSpeedBoostPress()` 自带幂等（重复调用只是把账重新落一遍、计时重排）。
-    private var speedBoostGesture: some Gesture {
-        LongPressGesture(
-            minimumDuration: Self.speedBoostPressDetectSeconds,
-            maximumDistance: Self.speedBoostMaxDistance
-        )
-        .onChanged { succeeded in
-            if succeeded {
-                beginSpeedBoostPress()
-            }
-        }
-        // 兜底：有的版本 `onChanged(true)` 不来、`onEnded` 来（识别成功即发）——
-        // 只在「这一按还没有账」时补一次；已有账就别在松手时把按下时刻重锚一遍。
-        .onEnded { _ in
-            if speedBoostPress == nil {
-                beginSpeedBoostPress()
-            }
-        }
-    }
-
-    /// 拖动：进度 / 亮度 / 音量三选一。加速期间与捏合期间整条拖动不做事
-    /// （上游同款：`changeSpeed` 时 `onScroll` 直接 return —— 按住加速的手指抖一下不该变成拖进度；
-    /// 捏合时也是，两根手指本来就不是在拖）。
-    private func playerGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 24)
-            .onChanged { value in
-                // 手已经在拖了（≥24pt）：这次触摸**不是**「按住加速」—— 立刻把加速（或还没点着的
-                // 计时）收掉、放行这次拖动。
-                //
-                // 为什么不能等信任窗（首验之七 · 用户报「滑动快进快退和倍速好像连着了」）：
-                // 长按手势的 `maximumDistance` **只管「识别之前」那一段** —— 长按一旦成立，
-                // 手指之后再滑多远都不算失败。于是「起手慢一点的滑动」（快进 / 快退要先按住再看方向）
-                // 会先被判成长按、视频上到 2.0x，而后面的拖动还要等 1.3 秒才被放行 ——
-                // 用户看到的就是「一滑就 2 倍速、拖动前 1.3 秒没反应」。
-                // 现在起加速是自己的计时（M28 首验之十）：拖动一开始就把「按住」这条账整条销掉。
-                if isSpeedBoostHolding || speedBoostPress != nil {
-                    finishSpeedBoostSession(reason: "开始拖动（不是按住加速）")
-                }
-                guard !isZooming, !isLocked else {
-                    return
-                }
-                let dx = value.translation.width
-                let dy = value.translation.height
-                let mode: DragMode
-                if let latched = gestureDrag {
-                    mode = latched
-                } else if let decided = Self.dragMode(dx: dx, dy: dy, startX: value.startLocation.x, width: width) {
-                    // 方向够清楚了：定下这次拖动调什么（定下就不再变），顺手清掉上一轮的采样
-                    // （上一轮可能被长按 / 捏合打断，没走到收尾）。
-                    mode = decided
-                    gestureDrag = decided
-                    gestureSwipe.reset()
-                    // 数字先落成局部量再拼：嵌套插值塞给类型检查器不划算（吃过一次亏）。
-                    let dxText = Int(dx.rounded())
-                    let dyText = Int(dy.rounded())
-                    PlaybackTrace.noteDrag("起：" + decided.title + "（dx=" + String(dxText) + " dy=" + String(dyText) + "）")
-                } else {
-                    // 还看不清方向（第一帧带着明显的纵向抖动）：这一帧不做事、也先不记采样 ——
-                    // 免得把抖动记成「一甩」（M28 首验之九）。
-                    return
-                }
-                // 纵甩切集的采样（M03P23）：判不判得成甩在松手那一刻算（见 ``PlaybackSwipeRules``）。
-                gestureSwipe.record(at: Date().timeIntervalSinceReferenceDate, y: Double(dy))
-                // 设置里关掉的手势：整次拖动不做事（不提示、不改值）—— 采样照记，
-                // 因为「短剧滑动切集」是**另一项**开关（判在松手那一刻，见 `onEnded`）。
-                guard Self.dragEnabled(mode, settings: controlSettings) else {
-                    return
-                }
-                switch mode {
-                case .seek:
-                    // 时长还没读到（起播头几秒 / 直播）：**不拖** —— 没有可夹的范围，硬拖会把目标
-                    // 夹成 0，一松手就跳回开头。给一句直说，不摆「拖了没反应」的假手势。
-                    guard latestDuration > 0 else {
-                        gestureHint = "时长还没读到，先等等"
-                        return
-                    }
-                    let base = gestureBasePosition ?? latestPosition
-                    gestureBasePosition = base
-                    let target = Self.seekTarget(base: base, dx: dx, width: width, duration: latestDuration)
-                    if controlSettings.hapticSeek, hapticGates.shouldTickSeek(target) {
-                        PlaybackHaptics.tick()
-                    }
-                    gestureHint = "\(Self.timeText(target)) / \(Self.timeText(latestDuration))"
-                case .brightness:
-                    // 拿不到亮度（macOS 没有公开 API）就整次拖动不做事 —— 不摆一个「拖了没反应」的假手势。
-                    guard let base = gestureBaseBrightness ?? PlatformShims.screenBrightness() else {
-                        return
-                    }
-                    gestureBaseBrightness = base
-                    let target = Self.verticalValue(base: base, dy: dy, pointsForFullRange: Self.verticalPointsForFullRange)
-                    PlatformShims.setScreenBrightness(target)
-                    if controlSettings.hapticBrightness, hapticGates.shouldTickBrightness(target) {
-                        PlaybackHaptics.tick()
-                    }
-                    gestureHint = "亮度 \(Int((target * 100).rounded()))%"
-                case .volume:
-                    let base = gestureBaseVolume ?? volume
-                    gestureBaseVolume = base
-                    volume = Self.verticalValue(base: base, dy: dy, pointsForFullRange: Self.verticalPointsForFullRange)
-                    if controlSettings.hapticVolume, hapticGates.shouldTickVolume(volume) {
-                        PlaybackHaptics.tick()
-                    }
-                    gestureHint = "音量 \(Int((volume * 100).rounded()))%"
-                }
-            }
-            .onEnded { value in
-                guard !isZooming, !isLocked else {
-                    // 这次拖动被打断（捏合 / 锁）：把这次的临时状态收掉 ——
-                    // 提示条现在是「常挂只翻透明度」，不清的话那句「亮度 50%」会一直挂在屏上。
-                    settleGesture()
-                    return
-                }
-                // 纵甩（M03P23 起；M07d10 起直播页也吃它）：先判甩 —— 甩了就撤掉这次顺手做的
-                // 音量 / 亮度调整，seek / 下发音量那两条路都不走。
-                // **有得可换才判**：点播页要 `playlist`（换集），直播页要 `onVerticalSwipe`（换台）；
-                // 两样都没有的页面（下载播放 / 设置页试播）纵甩还是音量 / 亮度（不然甩一下会白撤一次调整）。
-                let canVerticalSwipe = (playlist != nil && controlSettings.swipeEpisode) || onVerticalSwipe != nil
-                let speed = gestureSwipe.speed(at: Date().timeIntervalSinceReferenceDate)
-                gestureSwipe.reset()
-                let swipe: PlaybackSwipeAction? = canVerticalSwipe
-                    ? Self.swipeAction(value: value, speed: speed, width: width)
-                    : nil
-                if let swipe {
-                    revertGestureAdjustment()
-                    settleGesture()
-                    PlaybackTrace.noteDrag("收：纵甩（\(swipe == .up ? "上" : "下")）")
-                    Task { await performSwipe(swipe) }
-                    return
-                }
-                if let mode = gestureDrag, Self.dragEnabled(mode, settings: controlSettings) {
-                    if mode == .seek, let base = gestureBasePosition, latestDuration > 0 {
-                        // 进度：松手才 seek。
-                        let target = Self.seekTarget(base: base, dx: value.translation.width, width: width, duration: latestDuration)
-                        PlaybackTrace.noteDrag("收：进度 → \(Self.timeText(target))（松手交给内核）")
-                        Task { await engine?.seek(to: target) }
-                    } else if mode == .volume, gestureBaseVolume != nil {
-                        // 音量：松手才下发内核；亮度那边拖动中已经写进系统亮度了，这里没它的事。
-                        let target = Float(volume)
-                        PlaybackTrace.noteDrag("收：音量 \(Int((target * 100).rounded()))%（松手交给内核）")
-                        Task { await engine?.setVolume(target) }
-                    } else if mode == .brightness {
-                        // 亮度在拖动中已经写进系统亮度了，这里只留一条痕。
-                        PlaybackTrace.noteDrag("收：亮度（拖动中已写入系统亮度）")
-                    }
-                }
-                settleGesture()
-            }
     }
 
     // MARK: - 一甩切集（M03P23）
@@ -509,7 +307,7 @@ extension PlaybackView {
 
     // MARK: - 长按加速（M03P12；计时与分档从 M28 首验之十起都自己量）
 
-    /// 手指按下了（`speedBoostGesture` 报到；≈ 真实按下的那一刻）：记下起点，
+    /// 手指按下了（`PlaybackView+Touch.swift` 的触摸首帧报到；≈ 真实按下的那一刻）：记下起点，
     /// 把「按住够 ``speedBoostHoldSeconds`` 秒 → 起加速」的计时排上。
     ///
     /// 上一次的加速要是还挂着（它的松手丢了），先当场收干净 —— 不能再让新的按住接着挂。
@@ -602,26 +400,25 @@ extension PlaybackView {
         case endStaleBoost
     }
 
-    /// 这次点按归哪一类（**纯函数**，有单测）：只看**量出来的按住时长**（按下 → 点按那一刻）。
+    /// 这次点按归哪一类（**纯函数**，有单测）：只看**松手那一刻量到的按住时长**。
     ///
     /// - 按住 ≥ ``speedBoostSwallowHoldSeconds``：真·长按的尾巴 —— 吞（不让控制条闪）；
-    /// - 短于它（含「按得实一点的单击」）：放行 —— 之十现场日志里 0.45 秒的单击被吞过，
+    /// - 短于它（含「按得实一点的单击」）：放行 —— 现场日志里 0.45 秒的单击被吞过，
     ///   正是「点屏幕没反应 / 按钮点了没动静」里最难受的一种；
-    /// - 连按下时刻都没记到：还按着当挂死（自愈 + 放行），没按着直接放行。
+    /// - 连按住时长都没量到：还按着当挂死（自愈 + 放行），没按着直接放行。
     static func tapDisposition(
         isHolding: Bool,
-        pressStartedAt: Date?,
-        now: Date
+        heldSeconds: TimeInterval?
     ) -> TapDisposition {
-        if let started = pressStartedAt {
-            return now.timeIntervalSince(started) >= speedBoostSwallowHoldSeconds ? .swallow : .allow
+        if let heldSeconds {
+            return heldSeconds >= speedBoostSwallowHoldSeconds ? .swallow : .allow
         }
         return isHolding ? .endStaleBoost : .allow
     }
 
     /// 这次按住量出来的时长（秒）；没记到按下时刻给 nil。
     ///
-    /// **只进日志与分档判定** —— 「吞 / 放」的输入就是它，排障时不用再猜用户按了多久。
+    /// **只进日志与分档判定**（松手那一刻调用）—— 「吞 / 放」的输入就是它，排障不用再猜。
     var currentPressSeconds: TimeInterval? {
         guard let press = speedBoostPress else {
             return nil
@@ -629,19 +426,18 @@ extension PlaybackView {
         return Date().timeIntervalSince(press.startedAt)
     }
 
-    /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:pressStartedAt:now:)``）。
+    /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:heldSeconds:)``）。
     ///
+    /// `held` = 松手那一刻量到的按住时长（等双击窗口那 0.35 秒不算进来）。
     /// 不管哪一档，走到这儿都要做两件事：
-    /// 1. **撤掉「按住计时」** —— 点按只在松手后才来，这一按到此为止，别让计时再把加速点着；
+    /// 1. **撤掉「按住计时」** —— 别让计时再把加速点着（正常路径在松手时已撤，这里兜底）；
     /// 2. **把这次按住的账清掉**（`consumePressSession`）—— 那一下就是尾巴本身，
     ///    别再让它吞掉下一个真点按；
-    /// 3. **加速一律收掉**（`endSpeedBoost`，没起过就是空操作）—— 手感线（0.4 秒）与防误吞线
-    ///    （0.8 秒）之间那档按住是起过加速的，松手不放行收掉的话，画面就会挂着 2.0x。
-    func shouldSwallowTap() -> Bool {
+    /// 3. **加速再收一次**（`endSpeedBoost`，没起过 / 已收过都是空操作）—— 保底。
+    func shouldSwallowTap(held: TimeInterval?) -> Bool {
         let disposition = Self.tapDisposition(
             isHolding: isSpeedBoostHolding,
-            pressStartedAt: speedBoostPress?.startedAt,
-            now: Date()
+            heldSeconds: held
         )
         speedBoostArmTask?.cancel()
         speedBoostArmTask = nil

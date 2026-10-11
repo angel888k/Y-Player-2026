@@ -156,6 +156,8 @@ public struct PlaybackView: View {
     @State var speedBoostPress: SpeedBoostPress?
     /// 「按住 → 起加速」的计时句柄：松手 / 动了 / 布局变了都要撤掉它（M28 首验之十）。
     @State var speedBoostArmTask: Task<Void, Never>?
+    /// 一次触摸的现场（点按 / 双击 / 长按 / 拖动的分派账，M28 首验之十二）：跨文件扩展要用，模块内。
+    @State var touch = PlaybackTouchState()
     @State private var stateText = "准备中…"
     @State private var engineText = ""
     /// 出错文案（换线路失败也走它，见 `PlaybackView+Lines.swift`）—— 跨文件要用，模块内。
@@ -473,6 +475,7 @@ public struct PlaybackView: View {
             controlsHideTask?.cancel()
             controlsHideTask = nil
             speedBoostArmTask?.cancel()
+            touch.pendingTap?.cancel()
             let current = engine
             Task {
                 // 退出前落一次进度（节流不适用于离场）。
