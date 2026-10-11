@@ -54,18 +54,14 @@ extension PlaybackView {
 
     /// 长按多久算「长按」。
     ///
-    /// **0.8 秒**（M28 首验之五从 0.5 改上来）：用户带回的日志里，自然的「单击」按到 0.6–0.7 秒
-    /// 是常事（按得实一点、或在瞄准点哪儿），0.5 秒这条线把它们全吃成长按 —— 表现就是
-    /// 「点屏幕没反应 + 每次都冒 `2.0x`」。0.8 秒是「按得实一点的单击」与「真想在快进一段」
-    /// 之间的分界（日志里那一轮的手指停留都落在 0.6 秒上下）。
-    static let speedBoostHoldSeconds: Double = 0.8
-    /// 「这次按住该不该吞掉松手后补发的那一下」的按住时长线（秒，按**量出来的**算）。
+    /// **1.5 秒**（M28 首验之八）：用户带回的日志里，「距长按起 0.43s」+ 0.8 秒阈值反推 ——
+    /// **他的「单击」实测按下 0.8–1.2 秒**（在模拟器上点得慢一点就够着了 0.8 秒那条线）。
+    /// 0.5 → 0.8 → 1.5 这两次上调都是同一个理由：**这条线要躲开用户真实的单击**，
+    /// 而不是让用户去适应它。按住 1.5 秒对「想临时加速」来说不算负担（那是按住好几秒的事）。
     ///
-    /// 量出来的时长 = 实际按住 + 约 0.3 秒（点按要等双击窗口过去才解析）—— 所以 1.3 秒这条线
-    /// 约等于「实际按住 1 秒以上」。**真的按住 ≥ 1 秒**才算「想临时加速」，那一下补发的点按吞掉
-    /// （否则一松手控制条闪一下）；0.8–1.0 秒这种「按得实一点的单击」**不吞** ——
-    /// 该显隐控制条就显隐控制条（M28 首验之五：吞掉正是用户报「点屏幕没反应」的直接原因）。
-    static let speedBoostSwallowHoldSeconds: TimeInterval = 1.3
+    /// 顺带：「吞尾巴」不再需要单独的时长线 —— 能起加速就说明已经按住 ≥ 1.5 秒（真·长按），
+    /// 它的尾巴就该吞；短于 1.5 秒的单击压根起不了加速，尾巴点按自然照常执行。
+    static let speedBoostHoldSeconds: Double = 1.5
     /// 按住期间允许的抖动（超过这个距离就不算长按，交给拖动那条）。
     static let speedBoostMaxDistance: CGFloat = 10
     /// 松手后多久内补发的点按要吞掉（同一次触摸的尾巴）。
@@ -505,7 +501,7 @@ extension PlaybackView {
 
     /// 点按该当何论。
     enum TapDisposition: Equatable {
-        /// 真·长按（≥ ``speedBoostSwallowHoldSeconds``）的尾巴：吞掉。
+        /// 真·长按（已经起了加速）的尾巴：吞掉。
         case swallow
         /// 正常点按（含「按得实一点的单击」）：放行。
         case allow
@@ -515,13 +511,11 @@ extension PlaybackView {
 
     /// 这次点按归哪一类（**纯函数**，有单测）。
     ///
-    /// 三条规则：
-    /// - 只吞**真·长按的尾巴**（按了 ≥ ``speedBoostSwallowHoldSeconds``）—— 为的是不让
-    ///   「按住加速 → 松手」把控制条闪一下；
-    /// - 按得短的那一档（``speedBoostHoldSeconds`` … ``speedBoostSwallowHoldSeconds``）照常放行：
-    ///   用户报「点屏幕没反应」就是它们被吞掉的（M28 首验之五）；
-    /// - 「还按着」只信 ``speedBoostTrustSeconds``：手势被系统取消时 `onEnded` 不发，
-    ///   不兜住就是「一直 2x + 点什么都不动」。
+    /// 走到「还按着」那支时，**长按一定已经成立**（``speedBoostHoldSeconds`` = 1.5 秒，
+    /// 用户真实的单击够不着）—— 所以那就是真·长按的尾巴：吞（不让控制条闪）。
+    /// 只有「挂太久」（≥ ``speedBoostTrustSeconds``）才当那次长按已被系统吞掉：自愈 + 放行。
+    /// 另外一支（`endedAt`）是尾巴点按晚于松手的情况：按住时长够（≥ 长按线）就吞，
+    /// 拿不到起点时退回「刚松手」那个时间窗。
     ///
     /// 两种来信都认：`isHolding`（尾巴点按先到，松手还没被识别）与 `endedAt`（松手先被识别）——
     /// 顺序不固定（日志实测两个方向都出现过），所以两条路都要拿「按住时长」量一遍。
@@ -537,13 +531,13 @@ extension PlaybackView {
             else {
                 return .endStaleBoost
             }
-            return now.timeIntervalSince(holdStartedAt) >= speedBoostSwallowHoldSeconds ? .swallow : .allow
+            return .swallow
         }
         guard let endedAt else {
             return .allow
         }
         // 松手先到：按住时长 = `endedAt - holdStartedAt`（拿不到起点就退回老规矩：只认时间窗）。
-        if let holdStartedAt, endedAt.timeIntervalSince(holdStartedAt) < speedBoostSwallowHoldSeconds {
+        if let holdStartedAt, endedAt.timeIntervalSince(holdStartedAt) < speedBoostHoldSeconds {
             return .allow
         }
         return now.timeIntervalSince(endedAt) < speedBoostSwallowSeconds ? .swallow : .allow
@@ -560,11 +554,10 @@ extension PlaybackView {
 
     /// 这次点按要不要吞掉（判定见 ``tapDisposition(isHolding:holdStartedAt:endedAt:now:)``）。
     ///
-    /// 三件事在任何分支里都要做对（M28 首验之五：日志里「每个单击前面都跟着一条长按起」）：
-    /// 1. **点按只在松手后才来** —— 走到这儿时手指已经起来了：还挂着「按着」就顺手收掉加速
-    ///    （提示立刻消失、速度回原样），不必等那条并不可靠的 `onEnded`；
-    /// 2. 收掉之后把 `speedBoostEndedAt` 清掉 —— 那一下就是尾巴本身，别再让它吞掉下一个真点按；
-    /// 3. 「挂太久」（≥ ``speedBoostTrustSeconds``）那一类照旧自愈。
+    /// 两件事在任何分支里都要做对：
+    /// 1. **收掉加速 + 清掉 `speedBoostEndedAt`** —— 点按只在松手后才来，走到这儿说明这次按住已经
+    ///    结束；那一下就是尾巴本身，别再让它吞掉下一个真点按（提示也立刻消失、速度回原样）；
+    /// 2. 「挂太久」（≥ ``speedBoostTrustSeconds``）那一类当自愈处理（记一条原因进日志）。
     func shouldSwallowTap() -> Bool {
         let disposition = Self.tapDisposition(
             isHolding: isSpeedBoostHolding,
@@ -586,9 +579,6 @@ extension PlaybackView {
             speedBoostEndedAt = nil
             return false
         case .allow:
-            if isSpeedBoostHolding {
-                endSpeedBoost(reason: "短促按住，按松手处理")
-            }
             speedBoostEndedAt = nil
             return false
         case .endStaleBoost:
