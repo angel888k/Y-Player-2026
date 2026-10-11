@@ -104,23 +104,27 @@ extension PlaybackView {
     /// 状态行（用户参考图）：左时钟 · 中标题 · 右电量 —— 排布与系统状态栏同款。
     /// 时钟一秒一跳（`TimelineView`）；电量变化慢，跟着这条一起挂在那儿，不单独轮询。
     ///
-    /// 布局两份账（M28 首验之十五）：两侧各 `.frame(minWidth: statusSideWidth)` 对齐到外侧、
-    /// 标题在剩下的正中间（不然电量一缺，标题就整体偏右 —— 用户截图就是这个形态）；
-    /// 时钟那截自己再带 10pt 左内边距（用户口径：再往右挪一点），且**留位之内**算，
-    /// 不然居中又要被这 10pt 带偏。
+    /// 布局三份账（M28 首验之十六）：
+    /// - 标题用 `ZStack` 对着**整条的正中**摆（两侧各留 ``statusSideWidth``，长了从中段截）；
+    /// - 时钟 / 电量只做「位」的账，而且两侧的框都用**定宽**（`width:`）—— 不能用 `minWidth`：
+    ///   `TimelineView` 这类容器**吃提议宽度**，跟 `minWidth` 的框凑一起会把左边吃胖、
+    ///   把标题挤到右边（首验截图里标题比屏幕中心右偏约 60pt 就是这么来的）；
+    /// - 时钟那截自己带 10pt 左内边距（用户口径：再往右挪一点），且算在**留位之内**，不带偏居中。
     var playbackStatusBar: some View {
-        HStack(spacing: 12) {
-            clockLabel
-                .padding(.leading, 10)
-                .frame(minWidth: Self.statusSideWidth, alignment: .leading)
-            Spacer(minLength: 12)
+        ZStack {
             Text(activeTitle)
                 .font(.subheadline)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 12)
-            batteryLabel
-                .frame(minWidth: Self.statusSideWidth, alignment: .trailing)
+                .padding(.horizontal, Self.statusSideWidth)
+            HStack(spacing: 12) {
+                clockLabel
+                    .padding(.leading, 10)
+                    .frame(width: Self.statusSideWidth, alignment: .leading)
+                Spacer(minLength: 12)
+                batteryLabel
+                    .frame(width: Self.statusSideWidth, alignment: .trailing)
+            }
         }
         .foregroundStyle(.white)
     }
