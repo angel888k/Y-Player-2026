@@ -9,7 +9,8 @@ import Foundation
 ///
 /// 交互约定：视图只「表个意向」（``notifyWaiting(url:)``），实际取值仍从 ``ImageLoader`` 的
 /// 内存缓存读 —— 合流器不接管数据，只负责「什么时候一起刷」。
-@MainActor
+/// 线程约定：**只在主线程用**（视图加载、订阅、刷新都在主线程）。类本身不标 `@MainActor` 是
+/// 有意的 —— `ImageLoader.init` 是非隔离的（`AppModel.init` 里建），带隔离标注的成员就建不了。
 final class ImageArrivalCoalescer {
     private let flushDelayNanoseconds: UInt64
     /// 正在等图的 URL（去重；视图多次表意向也只算一份）。
@@ -67,9 +68,12 @@ final class ImageArrivalCoalescer {
         }
         flushScheduled = true
         let delay = flushDelayNanoseconds
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: delay)
-            await self?.flushIfScheduled()
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.flushIfScheduled()
         }
     }
 

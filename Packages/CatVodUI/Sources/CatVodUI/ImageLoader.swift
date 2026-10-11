@@ -83,7 +83,7 @@ public final class ImageLoader: @unchecked Sendable {
             throw ImageLoadError.invalidURL
         }
         // 表个意向：这张图到达时合着别人一起刷（MS 级一簇的情况不再是一簇刷新）。
-        await arrival.notifyWaiting(url: url)
+        await MainActor.run { arrival.notifyWaiting(url: url) }
         return try await memory.image(for: url, targetSize: targetSize) { [session] _, size in
             let (data, response) = try await session.data(from: requestURL)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
