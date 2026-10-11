@@ -203,7 +203,7 @@ actor ImageMemoryCache {
         url: String,
         key: String,
         size: CGSize,
-        fetch: @Sendable (String, CGSize) async throws -> PlatformImage
+        fetch: @escaping @Sendable (String, CGSize) async throws -> PlatformImage
     ) -> Task<PlatformImage, Error> {
         if let entry = result[url] {
             entry.waiters += 1
