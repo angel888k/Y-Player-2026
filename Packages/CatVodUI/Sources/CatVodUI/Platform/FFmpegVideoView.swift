@@ -13,16 +13,18 @@ import UIKit
 /// 视图只做「挂层 + 跟随尺寸」，层的生命周期归 ``FFmpegVideoSurface``（会话持有它）。
 struct FFmpegVideoView: UIViewRepresentable {
     let surface: FFmpegVideoSurface
+    /// 画面区量出来的尺寸（SwiftUI 侧递进来）：宿主照它铺满 —— 见 ``LayerHostView/attach(_:sizedTo:)``。
+    let size: CGSize
 
     func makeUIView(context: Context) -> LayerHostView {
         let view = LayerHostView()
         view.backgroundColor = .black
-        view.attach(surface.layer)
+        view.attach(surface.layer, sizedTo: size)
         return view
     }
 
     func updateUIView(_ view: LayerHostView, context: Context) {
-        view.attach(surface.layer)
+        view.attach(surface.layer, sizedTo: size)
     }
 }
 
@@ -32,17 +34,19 @@ import AppKit
 /// 把自研 FFmpeg 内核的画面层挂进 SwiftUI 的宿主视图（macOS）。
 struct FFmpegVideoView: NSViewRepresentable {
     let surface: FFmpegVideoSurface
+    /// 画面区量出来的尺寸（SwiftUI 侧递进来）：宿主照它铺满 —— 见 ``LayerHostView/attach(_:sizedTo:)``。
+    let size: CGSize
 
     func makeNSView(context: Context) -> LayerHostView {
         let view = LayerHostView()
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.black.cgColor
-        view.attach(surface.layer)
+        view.attach(surface.layer, sizedTo: size)
         return view
     }
 
     func updateNSView(_ view: LayerHostView, context: Context) {
-        view.attach(surface.layer)
+        view.attach(surface.layer, sizedTo: size)
     }
 }
 #endif

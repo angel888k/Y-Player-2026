@@ -4,23 +4,37 @@ import SwiftUI
 #if os(iOS)
 import UIKit
 
-/// 挂任意 `CALayer` 的宿主视图（iOS）：铺满自己，尺寸变化时同步 `frame` 与 `contentsScale`。
+/// 挂任意 `CALayer` 的宿主视图（iOS）：把层按**画面区给的尺寸**铺满，尺寸变化时同步 `frame` 与 `contentsScale`。
 ///
-/// 谁在用：``MpvVideoView``（CAMetalLayer）与 ``FFmpegVideoView``（AVSampleBufferDisplayLayer）——
-/// 两边宿主逻辑一模一样，就这一份（M04P13 从 `MpvVideoView` 里提出来）。
+/// 谁在用：``SystemVideoView``（AVPlayerLayer）/ ``MpvVideoView``（CAMetalLayer）/
+/// ``FFmpegVideoView``（AVSampleBufferDisplayLayer）—— 三个内核的宿主逻辑一模一样，就这一份。
+///
+/// **尺寸由 SwiftUI 明文递进来**（见 ``attach(_:sizedTo:)``）：`UIViewRepresentable` 的尺寸只在
+/// 「视图的值变了」时才更新，而 `surface` 在布局变化（就地放大 / 转屏 / 分屏）时并不变 ——
+/// 光靠框架提议，宿主会一直停在**创建那一刻**的大小上（M27 首验之六：画面区都铺满整屏了，
+/// 画面还是旧槽位那么大、还锚在左上角，点屏幕别处也没反应）。
 final class LayerHostView: UIView {
     private weak var attachedLayer: CALayer?
+    /// SwiftUI 画面区量出来的尺寸；nil = 还没递进来（这时按 `bounds` 走）。
+    private var hostedSize: CGSize?
 
-    func attach(_ layer: CALayer) {
-        // 跟着容器长（与下面 `sizeThatFits` 同一条理由）：SwiftUI 的容器换了尺寸，
-        // 宿主自己跟上 —— 不指望谁再给我们补设一次 frame。
+    /// 挂层 + 明确尺寸（`size` 来自画面区的 `GeometryReader`）。
+    func attach(_ layer: CALayer, sizedTo size: CGSize) {
+        // 跟着容器长（与下面 `sizeThatFits` 同一条理由）：容器换了尺寸，宿主自己跟上。
         autoresizingMask = [.flexibleWidth, .flexibleHeight]
         if attachedLayer !== layer {
             attachedLayer?.removeFromSuperlayer()
             self.layer.addSublayer(layer)
             attachedLayer = layer
         }
+        let changed = hostedSize != size
+        hostedSize = size
+        resize(to: size)
         syncFrame()
+        if changed {
+            // 尺寸真的变了才记一条：`attach` 每次更新都会被调到（见 ``VideoHostTrace``）。
+            VideoHostTrace.noteHostSize(size, frame: frame, layerFrame: attachedLayer?.frame)
+        }
     }
 
     override func layoutSubviews() {
@@ -31,17 +45,25 @@ final class LayerHostView: UIView {
     /// **提议多大就是多大**（M27 首验之六）。
     ///
     /// 不写这条会出事：`UIView.sizeThatFits(_:)` 的默认实现返回**视图已有的尺寸** ——
-    /// SwiftUI 拿它当「这个宿主想要多大」，于是布局变了（就地放大 / 转屏 / 分屏）之后，
-    /// 画面还停在**旧槽位**那么大：用户截图里就是「黑屏一角挂着一小块画面」，
-    /// 点屏幕别处还没反应（手势层只盖住那一小块）。
+    /// SwiftUI 拿它当「这个宿主想要多大」，布局一变（就地放大 / 转屏 / 分屏）画面就停在上一个尺寸上。
     ///
     /// 宿主对尺寸没有任何主张：它只负责把层铺满画面区 —— 提议多大就是多大
     /// （拿不到有限值时退回当前尺寸，别把无穷大传出去）。
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        CGSize(
-            width: size.width.isFinite ? size.width : bounds.width,
-            height: size.height.isFinite ? size.height : bounds.height
-        )
+        Self.finite(size) ?? bounds.size
+    }
+
+    /// 自己挪到画面区的位置、撑到画面区的大小 —— SwiftUI 那边**不一定**给我们补这一下
+    /// （它只在「视图的值变了」时才更新），所以两层都写：值里带尺寸（`updateUIView` 因此会被调到）
+    /// + 这里显式定 frame。
+    private func resize(to size: CGSize) {
+        guard let size = Self.finite(size) else {
+            return
+        }
+        let target = CGRect(origin: .zero, size: size)
+        if frame != target {
+            frame = target
+        }
     }
 
     private func syncFrame() {
@@ -51,34 +73,58 @@ final class LayerHostView: UIView {
         // 关掉隐式动画：尺寸变化时不做动画，否则画面会拖影。
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        attachedLayer.frame = bounds
+        attachedLayer.frame = CGRect(origin: .zero, size: hostedSize ?? bounds.size)
         attachedLayer.contentsScale = window?.screen.scale ?? UIScreen.main.scale
         CATransaction.commit()
+    }
+
+    /// 只认「正的、有限的」尺寸；拿不到回 nil，让调用方退回旧值。
+    private static func finite(_ size: CGSize) -> CGSize? {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return nil
+        }
+        return size
     }
 }
 
 #else
 import AppKit
 
-/// 挂任意 `CALayer` 的宿主视图（macOS）。
+/// 挂任意 `CALayer` 的宿主视图（macOS）：与 iOS 那份同一套约定（尺寸明文递进来，见 `attach`）。
 final class LayerHostView: NSView {
     private weak var attachedLayer: CALayer?
+    private var hostedSize: CGSize?
 
-    func attach(_ layer: CALayer) {
-        // 跟着容器长：SwiftUI 的容器换了尺寸，宿主自己跟上（iOS 那边另有 `sizeThatFits`；
-        // 这里没有对应物，靠这条 + `layout()` 兜住）。
+    func attach(_ layer: CALayer, sizedTo size: CGSize) {
         autoresizingMask = [.width, .height]
         if attachedLayer !== layer {
             attachedLayer?.removeFromSuperlayer()
             self.layer?.addSublayer(layer)
             attachedLayer = layer
         }
+        let changed = hostedSize != size
+        hostedSize = size
+        resize(to: size)
         syncFrame()
+        if changed {
+            // 尺寸真的变了才记一条：`attach` 每次更新都会被调到（见 ``VideoHostTrace``）。
+            VideoHostTrace.noteHostSize(size, frame: frame, layerFrame: attachedLayer?.frame)
+        }
     }
 
     override func layout() {
         super.layout()
         syncFrame()
+    }
+
+    private func resize(to size: CGSize) {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return
+        }
+        let target = CGRect(origin: .zero, size: size)
+        if frame != target {
+            frame = target
+        }
     }
 
     private func syncFrame() {
@@ -87,7 +133,7 @@ final class LayerHostView: NSView {
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        attachedLayer.frame = bounds
+        attachedLayer.frame = CGRect(origin: .zero, size: hostedSize ?? bounds.size)
         attachedLayer.contentsScale = window?.backingScaleFactor ?? 2
         CATransaction.commit()
     }

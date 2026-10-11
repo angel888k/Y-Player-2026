@@ -551,14 +551,27 @@ public struct PlaybackView: View {
     ///
     /// M27 之前系统内核的画面是 `AVKit.VideoPlayer`（自带控件与手势，所以那时只有自绘内核挂得上去）；
     /// 现在是自建的 ``SystemVideoView`` —— 一个没有自带手势的 `AVPlayerLayer` 宿主。
-    @ViewBuilder
+    ///
+    /// **尺寸明文递下去**（`.frame` + 视图的值里带 `size`）：`UIViewRepresentable` 的尺寸只在
+    /// 「视图的值变了」时才更新，而 `surface` 在布局变化（就地放大 / 转屏）时并不变 ——
+    /// 不递的话宿主一直停在创建那一刻的大小上（M27 首验之六）。`.topLeading`：画面锚在画面区左上角。
     private func videoLayer(size: CGSize) -> some View {
+        interactiveLayer(
+            videoHost(size: size)
+                .frame(width: size.width, height: size.height, alignment: .topLeading),
+            size: size
+        )
+    }
+
+    /// 三个内核的宿主视图（尺寸同上面那条）。
+    @ViewBuilder
+    private func videoHost(size: CGSize) -> some View {
         if let systemSurface {
-            interactiveLayer(SystemVideoView(surface: systemSurface), size: size)
+            SystemVideoView(surface: systemSurface, size: size)
         } else if let mpvSurface {
-            interactiveLayer(MpvVideoView(surface: mpvSurface), size: size)
+            MpvVideoView(surface: mpvSurface, size: size)
         } else if let ffmpegSurface {
-            interactiveLayer(FFmpegVideoView(surface: ffmpegSurface), size: size)
+            FFmpegVideoView(surface: ffmpegSurface, size: size)
         }
     }
 
