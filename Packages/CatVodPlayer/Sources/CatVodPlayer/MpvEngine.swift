@@ -40,16 +40,23 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
     public init(decoderMode: DecoderMode = .hardware, videoSurface: MpvVideoSurface? = nil) {
         self.init(
             decoderMode: decoderMode,
-            makeSession: { MpvSessionFactory.make(videoSurface: videoSurface) }
+            makeSession: { MpvSessionFactory.make(videoSurface: videoSurface) },
+            videoSurface: videoSurface
         )
-        // 委托（convenience 式）初始化里，自己的存储属性只能在 `self.init` **之后**赋值。
-        self.videoSurface = videoSurface
     }
 
     /// 单测入口：注入会话工厂，不碰真 libmpv。
-    init(decoderMode: DecoderMode, makeSession: @escaping @Sendable () -> (any MpvSession)?) {
+    ///
+    /// `videoSurface` 由**指定初始化器**收下：委托式初始化在 actor 里是 nonisolated 的，
+    /// 碰不了被隔离的存储属性（编译期就拦），所以从这条正规的口子进来。
+    init(
+        decoderMode: DecoderMode,
+        makeSession: @escaping @Sendable () -> (any MpvSession)?,
+        videoSurface: MpvVideoSurface? = nil
+    ) {
         self.decoderMode = decoderMode
         self.makeSession = makeSession
+        self.videoSurface = videoSurface
         var captured: AsyncStream<PlayerEvent>.Continuation?
         events = AsyncStream<PlayerEvent> { captured = $0 }
         continuation = captured
