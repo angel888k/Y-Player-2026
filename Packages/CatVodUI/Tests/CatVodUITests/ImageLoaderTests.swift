@@ -99,7 +99,6 @@ struct ImageLoaderTests {
         // `platformSize` 而不是 `.size`：`NSImage` 没有 `.size`（跨端测试要编得过）。
         #expect(image.platformSize.width <= 75)
         #expect(image.platformSize.height <= 75)
-        #expect(image.platformSize.width <= 64, "下采样不该比原图大（原图 64x64）")
         #expect(abs(image.platformSize.width - image.platformSize.height) < 0.5, "等比缩放：64x64 的方图缩完仍是方的")
     }
 

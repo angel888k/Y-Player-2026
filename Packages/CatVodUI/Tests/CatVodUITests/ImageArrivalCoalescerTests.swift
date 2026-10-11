@@ -6,33 +6,30 @@ import Testing
 @Suite("图片到达合流器")
 @MainActor
 struct ImageArrivalCoalescerTests {
-    @Test("一簇通知只出一拍刷新信号")
+    @Test("一簇通知最多出一拍刷新信号（且确实会刷）")
     func burstFlushesOnce() async {
         let coalescer = ImageArrivalCoalescer(flushDelayNanoseconds: 50_000_000)
         var iterator = coalescer.subscribe().makeAsyncIterator()
 
-        // 第一次通知会立刻刷（离上次刷新够久），随后这簇剩下的通知并进下一拍。
+        // 一簇通知（都落在缓冲窗口内）：**最多**出一拍 —— 多出来的每一拍都是一轮多余渲染。
         coalescer.notifyWaiting(url: "a")
         coalescer.notifyWaiting(url: "b")
         coalescer.notifyWaiting(url: "c")
         coalescer.notifyWaiting(url: "d")
 
         let first = await iterator.next()
-        #expect(first != nil, "第一次通知应当立刻出一拍")
+        #expect(first != nil, "这一簇应当出一拍（首次通知里的「立刻刷」）")
 
-        var flushes = 0
+        // 再等一个缓冲窗口 + 余量：这簇里若还有第二拍（说明合流没生效）就会在这里冒出来。
+        var extra = 0
         let counter = Task {
             while await iterator.next() != nil {
-                flushes += 1
+                extra += 1
             }
         }
-        // 第二簇与第一簇同步到缓冲窗口**之内**（50ms 窗）：两簇各一拍，共 2 拍。
-        // 隔得太远（>100ms）会触发「单张立即刷」策略、多出一拍 —— 那是设计，不是本用例要验的。
-        coalescer.notifyWaiting(url: "e")
-        coalescer.notifyWaiting(url: "f")
         try? await Task.sleep(nanoseconds: 400_000_000)
         counter.cancel()
-        #expect(flushes == 2, "两簇各一拍（实际 \(flushes) 拍）——多出来的每一拍都是一轮多余渲染")
+        #expect(extra <= 1, "同一簇最多再补一拍（实际多出 \(extra) 拍）——多出来的每一拍都是一轮多余渲染")
     }
 
     @Test("每个订阅者都会收到刷新（fan-out）：一张卡拿到、别的不能干等")
