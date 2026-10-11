@@ -53,6 +53,8 @@ public struct HomeView: View {
     @State private var tabBar = DiscoverTabBarVisibility()
     /// 本 Tab 的沉浸页登记簿（详情 / 播放压上来时也要收栏）；登记方见 ``ImmersiveTabBarPageModifier``。
     @EnvironmentObject private var immersiveTabBar: ImmersiveTabBarState
+    /// 滚动帧探针（只在模拟器上生效）：拖动期间记帧、松手出一条日志 —— 「还卡」要有帧账才谈得上修。
+    @State private var frameProbe = ScrollFrameProbe()
     /// 网页条目（如宿主配置中心）要在 App 内打开的地址；nil = 没开。
     @State private var webEntry: WebEntry?
 
@@ -201,6 +203,7 @@ public struct HomeView: View {
             .scrollTouchObserver(
                 onTouchDown: {
                     tabBar.touchDown()
+                    frameProbe.begin()
                 },
                 onDragChanged: { translation in
                     tabBar.dragChanged(
@@ -210,6 +213,7 @@ public struct HomeView: View {
                 },
                 onTouchEnded: {
                     tabBar.touchEnded()
+                    frameProbe.end()
                 }
             )
         }

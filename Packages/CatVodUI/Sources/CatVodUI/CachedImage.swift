@@ -17,6 +17,10 @@ struct CachedImage: View {
     /// 内容缩放模式：海报铺满（默认）/ 频道图标等比放下。
     var contentMode: ContentMode = .fill
 
+    /// 已经拿到的图。**必须有这个状态位**：缓存写在 `NSCache` 里、不是可观察对象，
+    /// 图下回来了没人通知视图重画 —— 只靠「父视图碰巧重建」来显示，会一直空着
+    /// （上机抓过：封面全不出来）。
+    @State private var image: PlatformImage?
     @Environment(\.cachedImageLoader) private var loader
     /// 屏 scale（点 → 像素）。**不碰 `UIScreen.main`**：它从 iOS 16 起被弃用，
     /// 而且业务视图里的版本分支被 `check_lint.py` 的 platform_branch 拦（`docs/UI 规范.md` 第二节）。
@@ -24,20 +28,17 @@ struct CachedImage: View {
 
     var body: some View {
         GeometryReader { proxy in
-            content(displaySize: pixelSize(proxy.size))
-        }
-    }
-
-    @ViewBuilder
-    private func content(displaySize: CGSize) -> some View {
-        // 快速路径：内存里已经有（这次渲染的尺寸对得上）就同步出图 —— 滚动回收回来不闪。
-        if let image = loader.memory.cachedImage(for: url, targetSize: displaySize) {
-            imageView(image)
-        } else {
-            Color.secondary.opacity(0.12)
-                .task(id: taskKey(displaySize)) {
-                    await load(displaySize)
+            let displaySize = pixelSize(proxy.size)
+            Group {
+                if let image {
+                    imageView(image)
+                } else {
+                    Color.secondary.opacity(0.12)
                 }
+            }
+            .task(id: taskKey(displaySize)) {
+                await load(displaySize)
+            }
         }
     }
 
@@ -49,8 +50,18 @@ struct CachedImage: View {
         guard !url.isEmpty else {
             return
         }
-        // 命中已缓存时 `image(for:)` 立刻返回；未命中才会真的发请求。
-        _ = try? await loader.image(for: url, targetSize: displaySize)
+        // 内存里已经有（滚动回收回来）就同步拿——不进 actor，不闪。
+        if let cached = loader.memory.cachedImage(for: url, targetSize: displaySize) {
+            image = cached
+            return
+        }
+        do {
+            let loaded = try await loader.image(for: url, targetSize: displaySize)
+            image = loaded
+            ImageLoadTrace.noteLoaded(url: url, size: displaySize)
+        } catch {
+            ImageLoadTrace.noteFailed(url: url, error: error)
+        }
     }
 
     /// `.task(id:)` 的键：地址或尺寸变了就重新取（转屏后宽度会变）。
