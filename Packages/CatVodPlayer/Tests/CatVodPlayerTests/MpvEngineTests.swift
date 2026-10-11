@@ -429,11 +429,22 @@ struct MpvEngineTests {
         await first.value
 
         #expect(rebuilds() == 1, "同一批尺寸只该重建一次 VO —— 重建一次画面就停一下，停两下就是用户报的「点全屏会顿」")
-        // 落的是**最后**那个：再报一次它不动；报前一个（槽位那版）才重建。
+        // 落的是**最后**那个：再报一次它不该再重建（假会话报不出 `osd-dimensions`，走的就是重建那条路）。
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
         #expect(rebuilds() == 1)
-        await engine.setVideoAreaSize(CGSize(width: 874, height: 249))
-        #expect(rebuilds() == 2)
+    }
+
+    @Test("画面区尺寸：mpv 自己认下新尺寸时不重建 VO（省掉那一顿）")
+    func videoAreaSizeSkipsRebuildWhenMpvNotices() async throws {
+        // `osd-dimensions` 已经是目标尺寸（874x402 点 @2x = 1748x804）：引擎该直接收工。
+        let (engine, session) = makeEngine(propertyStrings: [
+            "osd-dimensions": #"{"w":1748,"h":804,"par":1.0}"#,
+        ])
+        try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
+
+        await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
+
+        #expect(session.commands.filter { $0 == ["set", "vo", "null"] }.isEmpty)
     }
 
     @Test("画面区尺寸：同一个尺寸重复上报不重建 VO")
