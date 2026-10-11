@@ -331,7 +331,8 @@ struct DiscoverSiteSwitcher: View {
         }
         if let onRenameRequest {
             Menu("重命名站点") {
-                ForEach(sites) { site in
+                // 同样收口：改名是低频入口，子菜单里只放前 20 个（站点再多走「查找站点…」找 key）。
+                ForEach(sites.prefix(Self.menuRowLimit)) { site in
                     Button(DiscoverSiteList.title(for: site, names: ruleInput.names)) {
                         onRenameRequest(site.key)
                     }
@@ -384,9 +385,14 @@ struct DiscoverSiteSwitcher: View {
     }
 
     /// 站点清单：一行一个站点，当前站点打勾（与「换线路」菜单同一个写法的对勾）。
+    ///
+    /// **主菜单只放前 ``menuRowLimit`` 个**（M28 首验之二十九）：站点一多（作者那套配置有几十上百个），
+    /// 全量塞进菜单会让「点开那一下」卡 —— 系统要一次性把几百个菜单项建出来。长清单的入口本来就是
+    /// 「查找站点…」（菜单里第一条工具项，原生搜索栏）；当前站点**始终在列**（它要么在前段、
+    /// 要么被单独补一行），不会因为截断找不到自己。
     private var siteList: some View {
         Section {
-            ForEach(rows) { row in
+            ForEach(menuRows) { row in
                 Button {
                     onSelect(row.key)
                 } label: {
@@ -397,9 +403,26 @@ struct DiscoverSiteSwitcher: View {
                     }
                 }
             }
+            if rows.count > menuRows.count {
+                Label("还有 \(rows.count - menuRows.count) 个站点 —— 用「查找站点…」", systemImage: "ellipsis")
+            }
         } header: {
             Text(selectedGroup.isEmpty ? "站点" : "站点（\(selectedGroup)）")
         }
+    }
+
+    /// 主菜单里最多列多少个站点（超过走「查找站点…」）。
+    static let menuRowLimit = 20
+
+    /// 主菜单实际列出的行：前 `menuRowLimit` 个 + **当前站点**（若被截在外面就补上，不重复）。
+    private var menuRows: [DiscoverSiteRow] {
+        let head = Array(rows.prefix(Self.menuRowLimit))
+        guard !head.contains(where: \.isSelected),
+              let selected = rows.first(where: \.isSelected)
+        else {
+            return head
+        }
+        return head + [selected]
     }
 }
 
