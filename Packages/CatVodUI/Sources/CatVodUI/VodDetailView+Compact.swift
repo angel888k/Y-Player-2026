@@ -217,7 +217,8 @@ extension VodDetailView {
     /// 还没开播时那块内容：站点海报铺底（黑场由槽位给）+ 中间一颗播放按钮
     /// （点了从「该播的那一集」开播）。
     var compactPlayerPlaceholder: some View {
-        CachedImage(url: detail.artwork)
+        // 这块铺满整个槽位：解码尺寸按槽位的典型宽度估（只影响清晰度，不参与排版）。
+        CachedImage(url: detail.artwork, targetSize: CGSize(width: 420, height: 0), aspectRatio: 16.0 / 9.0)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(Color.black.opacity(0.25))
         .overlay(

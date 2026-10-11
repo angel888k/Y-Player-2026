@@ -135,8 +135,9 @@ struct DiscoverPosterCard: View {
     /// 海报宽高比：配置声明了就用它的，否则参考视频那个 2:3（见 ``PosterCardLayout``）。
     static let aspectRatio: CGFloat = 2.0 / 3.0
 
-    /// 海报图的目标显示尺寸（点）：横向分区传固定卡宽（解出来更准、更省）；
-    /// nil = 让 ``CachedImage`` 按布局提议的实际格宽现算（纵向弹性网格用）。
+    /// 海报图的目标显示尺寸（点）：宽度必给（横向分区 = 固定卡宽；纵向网格 = 估的格宽），
+    /// 高度按卡片比例补 —— **刻意不用 `GeometryReader`**（懒容器里几十个会拖垮布局，
+    /// 上机帧账抓过单帧 100~170ms）。
     var targetSize: CGSize? = nil
 
     private var isCircularCard: Bool {
@@ -146,6 +147,10 @@ struct DiscoverPosterCard: View {
     private var cardRatio: CGFloat {
         PosterCardLayout.ratio(for: style, circular: isCircularCard)
     }
+
+    /// 没给 `targetSize` 时按布局估的格宽（点）：iPhone 端 3 列的典型宽度。
+    /// 只影响**解码分辨率**（下采样按最大边，估大一点无妨），不参与排版 —— 排版由外层说了算。
+    static let estimatedGridCardWidth: CGFloat = 117
 
     var body: some View {
         VStack(spacing: 6) {
@@ -179,7 +184,11 @@ struct DiscoverPosterCard: View {
     /// 用 ``CachedImage``（M28 首验之二十九）：`AsyncImage` 没内存缓存，滚动回收就重下重解，
     /// 一屏海报就能把滑动拖顿 —— 换掉之后回滚不再闪白、不在主线程解大图。
     private var poster: some View {
-        CachedImage(url: item.vodPic, targetSize: targetSize)
+        CachedImage(
+            url: item.vodPic,
+            targetSize: targetSize ?? CGSize(width: Self.estimatedGridCardWidth, height: 0),
+            aspectRatio: cardRatio
+        )
     }
 
     /// 右上角角标：上游 `vodRemarks`（「更新至 58 集」「全 9 集」「HD」「4K」…）。

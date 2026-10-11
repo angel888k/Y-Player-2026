@@ -211,7 +211,9 @@ public struct HomeView: View {
                         translationY: translation.height
                     )
                     // 每帧一次的节拍（帧探针用它算帧间隔；探针只在模拟器上记账）。
-                    frameProbe.tick()
+                    // 下一次测量前**临时关掉**：`tick()` 本身每帧改一次状态，上机帧账里
+                    // 「3 帧 / 拖动 250ms」的形态可能有一部分是探针自己贡献的 —— 先去掉再量。
+                    // frameProbe.tick()
                 },
                 onTouchEnded: {
                     tabBar.touchEnded()
