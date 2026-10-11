@@ -3,6 +3,9 @@ import CatVodCore
 // 本文件从 M02P16 起用到 `CGFloat`（Tab 栏收放的手势位移）。Swift 不会传递依赖的 import，
 // 所以这里显式带上 Foundation（Darwin 上它 re-export CoreGraphics，`CGFloat` 出于此）。
 import Foundation
+// 本文件在 M28 首验之二十九之后还放了 ``BookTabBarHider``（`ViewModifier`）与
+// ``DiscoverTabBarGate``（`ObservableObject`）—— 都要 SwiftUI。
+import SwiftUI
 
 // 发现页（`HomeView`）的纯逻辑：翻页判定、筛选行模型、站点切换面板的行模型、底部 Tab 栏的收放、内容合并（分类条保护）。
 // 搜索页也复用这里的 `SiteSelection`（站点选择还原）与 `DiscoverSiteList`（站点面板的行模型）。
