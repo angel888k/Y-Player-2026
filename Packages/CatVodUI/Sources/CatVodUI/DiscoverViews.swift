@@ -297,10 +297,20 @@ struct DiscoverSiteSwitcher: View {
         )
     }
 
+    /// 诊断开关（M28 首验之二十九）：置 true 时菜单切成**最小形态**（两颗固定项、无站点清单、
+    /// 无子菜单）—— 用来分辨「弹出那一下」的剩余滞涩是**系统菜单本身的底噪**，还是我们内容太多。
+    /// 判定完就应改回 false（它只为排查存在，不为功能存在）。
+    static let diagnosticMinimalMenu = false
+
     var body: some View {
         Menu {
-            tools
-            siteList
+            if Self.diagnosticMinimalMenu {
+                Button("站点 A") { onSelect("a") }
+                Button("站点 B") { onSelect("b") }
+            } else {
+                tools
+                siteList
+            }
         } label: {
             HStack(spacing: 6) {
                 DiscoverSiteSwitchGlyph()
