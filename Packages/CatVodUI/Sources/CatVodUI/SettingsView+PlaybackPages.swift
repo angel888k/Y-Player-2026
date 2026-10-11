@@ -221,6 +221,15 @@ struct SettingsPlayerControlView: View {
                 }
             }
 
+            Section {
+                Button("恢复默认（全部手势与控制）") {
+                    control = PlaybackControlSettings()
+                }
+            } footer: {
+                Text("把这一页恢复成出厂那套：单击显隐控制条、双击播放 / 暂停、四条滑动与震动全开、"
+                    + "步长 15 秒、控制中心显示开、片头片尾自动跳开。倍速那两项不受影响。")
+            }
+
             Section("说明") {
                 InfoRow(title: "当前内核", value: model.preferredEngine.displayName)
                 Text("三个内核（系统 / MPV / 自研 FFmpeg）共用这一份：控制条与画面手势从 M27 起就是同一套，"

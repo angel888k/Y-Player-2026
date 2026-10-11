@@ -121,13 +121,27 @@ extension PlaybackView {
             .adaptiveTapGesture(
                 onDoubleTap: { location in
                     // 双击干什么由设置给（M28）；锁上之后不做（M03P21，上游 onDoubleTap 同款早退）。
-                    guard Self.lockedGesturePolicy(isLocked: isLocked) == .all, !shouldSwallowTap() else {
+                    let unlocked = Self.lockedGesturePolicy(isLocked: isLocked) == .all
+                    guard unlocked, !shouldSwallowTap() else {
+                        // 没做事的那些也留一条痕（「哪一段断了」全在日志里，排障不靠猜）。
+                        PlaybackTrace.noteTap(
+                            doubleTap: true,
+                            location: location,
+                            isCenter: Self.isCenterTap(startX: location?.x, width: size.width),
+                            action: unlocked ? "（被长按尾巴吞掉）" : "（锁上不做）"
+                        )
                         return
                     }
                     handleTap(doubleTap: true, at: location, width: size.width)
                 },
                 onSingleTap: { location in
                     guard !shouldSwallowTap() else {
+                        PlaybackTrace.noteTap(
+                            doubleTap: false,
+                            location: location,
+                            isCenter: Self.isCenterTap(startX: location?.x, width: size.width),
+                            action: "（被长按尾巴吞掉）"
+                        )
                         return
                     }
                     handleTap(doubleTap: false, at: location, width: size.width)
@@ -171,7 +185,9 @@ extension PlaybackView {
     private func playerGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 24)
             .onChanged { value in
-                guard !isSpeedBoostHolding, !isZooming, !isLocked else {
+                // 长按「挂太久」先当它被系统吞了（收加速再放行）：挂着的状态会把整条拖动挡掉，
+                // 而点按那条的自愈要等用户再点一下 —— 手已经在屏幕上动了，顺手就该恢复。
+                guard !isSpeedBoostHoldingTrusted(), !isZooming, !isLocked else {
                     return
                 }
                 let dx = value.translation.width
@@ -222,7 +238,7 @@ extension PlaybackView {
                 }
             }
             .onEnded { value in
-                guard !isSpeedBoostHolding, !isZooming, !isLocked else {
+                guard !isSpeedBoostHoldingTrusted(), !isZooming, !isLocked else {
                     return
                 }
                 // 纵甩（M03P23 起；M07d10 起直播页也吃它）：先判甩 —— 甩了就撤掉这次顺手做的
@@ -329,7 +345,9 @@ extension PlaybackView {
     func handleTap(doubleTap: Bool, at location: CGPoint?, width: CGFloat) {
         let startX = location?.x
         let isCenter = Self.isCenterTap(startX: startX, width: width)
-        switch controlSettings.tapAction(doubleTap: doubleTap, isCenter: isCenter) {
+        let action = controlSettings.tapAction(doubleTap: doubleTap, isCenter: isCenter)
+        PlaybackTrace.noteTap(doubleTap: doubleTap, location: location, isCenter: isCenter, action: action.title)
+        switch action {
         case .toggleControls:
             toggleControlsVisibility()
         case .playPause:
@@ -408,11 +426,17 @@ extension PlaybackView {
         }
         isSpeedBoostHolding = true
         speedBoostStartedAt = Date()
+        // 按住期间**别让控制条动**：它一显一隐就是一次视图树结构变化，而结构变化会把这次长按
+        // 序列取消 —— 松手就再也不会来（提示常亮 2.0x、点按被吞）。松手时 `endSpeedBoost()`
+        // 按当前状态补排一次（见 `refreshControlsForState()`）。
+        controlsHideTask?.cancel()
+        controlsHideTask = nil
         guard Self.canStartSpeedBoost(isPlaying: playerState.isPlaying, isBoosting: isSpeedBoosting), let engine else {
             return
         }
         isSpeedBoosting = true
         gestureHint = SpeedSetting.format(longPressSpeed)
+        PlaybackTrace.noteBoost("起 \(SpeedSetting.format(longPressSpeed))")
         if controlSettings.hapticLongPress {
             PlaybackHaptics.press()
         }
@@ -430,11 +454,41 @@ extension PlaybackView {
         speedBoostStartedAt = nil
         speedBoostEndedAt = Date()
         gestureHint = ""
-        guard isSpeedBoosting else {
-            return
+        PlaybackTrace.noteBoost("收（松手或自愈）")
+        if isSpeedBoosting {
+            isSpeedBoosting = false
+            setSpeed(speed, persist: false)
         }
-        isSpeedBoosting = false
-        setSpeed(speed, persist: false)
+        // 按住期间控制条没动过（见 `beginSpeedBoost()`）：松手后按当前状态补排一次。
+        refreshControlsForState()
+    }
+
+    /// 长按这次触摸是不是还「当真」：手势被系统取消时 `onEnded` 不来，`isSpeedBoostHolding`
+    /// 会一直挂着（提示常亮 `2.0x`，而且它会把之后的**拖动**也整条挡掉）。
+    ///
+    /// 尺子与点按那条**共用**（``tapDisposition``）：超过 ``speedBoostTrustSeconds`` 就当那次长按
+    /// 已被系统吞掉 —— 收掉加速，放行这一次手势（自愈）。
+    /// 不会误伤正经的「按住加速」：按住不动时拖动本来就不触发（要 24pt 位移）。
+    func isSpeedBoostHoldingTrusted() -> Bool {
+        guard isSpeedBoostHolding else {
+            return false
+        }
+        switch Self.tapDisposition(
+            isHolding: true,
+            holdStartedAt: speedBoostStartedAt,
+            endedAt: speedBoostEndedAt,
+            now: Date()
+        ) {
+        case .swallow:
+            return true
+        case .allow:
+            return false
+        case .endStaleBoost:
+            endSpeedBoost()
+            // 自愈这一下之后紧接着的连点不该被「刚松手」吞掉（与 `shouldSwallowTap()` 同一处理）。
+            speedBoostEndedAt = nil
+            return false
+        }
     }
 
     /// 点按该当何论。

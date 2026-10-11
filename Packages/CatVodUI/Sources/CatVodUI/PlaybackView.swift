@@ -524,18 +524,20 @@ public struct PlaybackView: View {
                         playerControls(width: proxy.size.width, minimal: minimalControls)
                             .transition(.opacity)
                     }
-                    // 手势提示（进度预览 / 音量）：只显示、不拦触摸。
-                    if !gestureHint.isEmpty {
-                        Text(gestureHint)
-                            .font(.headline.monospacedDigit())
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(Color.black.opacity(0.55), in: Capsule())
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            .padding(.top, 24)
-                            .allowsHitTesting(false)
-                    }
+                    // 手势提示（进度预览 / 音量 / 长按倍速）：**常挂**在那里，只翻不透明度 ——
+                    // 「一进一出」（条件挂载 / 卸载）是一次**视图树结构变化**，而结构变化会把
+                    // 正在识别的手势取消（M27 记过「控制条显隐」这一类；长按加速的自毁就出在这儿：
+                    // 提示因为「按住」而出现，出现又把它自己那次长按取消 → 松手永远不来）。
+                    Text(gestureHint)
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.55), in: Capsule())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .padding(.top, 24)
+                        .opacity(gestureHint.isEmpty ? 0 : 1)
+                        .allowsHitTesting(false)
                 }
                 .animation(.easeInOut(duration: 0.2), value: isControlsVisible)
                 // 键里带尺寸：旋转屏幕 / 改窗口后，轨道数与字号要按新尺寸重排。
@@ -612,6 +614,7 @@ public struct PlaybackView: View {
     /// 单击画面：切换控制条，并按当前状态重排自动收起的计时。
     func toggleControlsVisibility() {
         isControlsVisible.toggle()
+        PlaybackTrace.noteControls(visible: isControlsVisible, reason: "单击画面")
         scheduleControlsAutoHide()
     }
 
@@ -627,7 +630,11 @@ public struct PlaybackView: View {
             guard !Task.isCancelled else {
                 return
             }
+            guard isControlsVisible else {
+                return
+            }
             isControlsVisible = false
+            PlaybackTrace.noteControls(visible: false, reason: "播放中自动收起")
         }
     }
 
@@ -635,7 +642,25 @@ public struct PlaybackView: View {
     func showControls() {
         controlsHideTask?.cancel()
         controlsHideTask = nil
+        guard !isControlsVisible else {
+            return
+        }
         isControlsVisible = true
+        PlaybackTrace.noteControls(visible: true, reason: "非播放态 / 交互")
+    }
+
+    /// 按当前播放状态刷新控制条：播放中排「几秒后自动收起」，其余状态亮着。
+    ///
+    /// 状态变化与「长按松手」都走它 —— 两处判定不各写一份。
+    /// **按住长按加速的时候先别动**（由调用方挡）：控制条一显一隐就是一次视图树结构变化，
+    /// SwiftUI 会把那次长按序列取消（松手不来了 → 提示常亮 `2.0x`）；松手时 `endSpeedBoost()`
+    /// 会补上这一下。
+    func refreshControlsForState() {
+        if playerState == .playing {
+            scheduleControlsAutoHide()
+        } else {
+            showControls()
+        }
     }
 
     /// 播放 / 暂停（自绘控制条与「双击画面」都走它；双击那条在 `PlaybackView+Gestures.swift`）。
@@ -738,10 +763,10 @@ extension PlaybackView {
                 playerState = state
                 updateNowPlaying(position: latestPosition, duration: latestDuration, isPlaying: state == .playing)
                 // 控制条（M03P10）：播放中才排「几秒后自动收起」；其余状态亮着（暂停时人还要点它）。
-                if state == .playing {
-                    scheduleControlsAutoHide()
-                } else {
-                    showControls()
+                // 唯一例外：**长按加速按着的时候不动它** —— 显隐是一次视图树结构变化，会把那次长按
+                // 序列取消（松手不来了 → 提示常亮 `2.0x`）。松手时 `endSpeedBoost()` 会补上。
+                if !isSpeedBoostHolding {
+                    refreshControlsForState()
                 }
                 // 失败要同时上那块醒目的提示：只写「状态」行容易让人以为还在转圈
                 // （自研内核「选硬解但这台机器没有硬解」就走这条路，M04P14）。
