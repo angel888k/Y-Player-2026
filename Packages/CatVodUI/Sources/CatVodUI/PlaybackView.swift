@@ -534,6 +534,14 @@ public struct PlaybackView: View {
                 .onChange(of: proxy.size) { _ in
                     endSpeedBoost()
                 }
+                // 画面区尺寸变了：**mpv 得被告知**（它不会自己发现 —— `--wid` 嵌的是那一层，
+                // 层变大变小它不知道，会一直按创建时的尺寸出画；M27 首验之六之十）。
+                .onChange(of: proxy.size) { size in
+                    guard let mpv = engine as? MpvEngine else {
+                        return
+                    }
+                    Task { await mpv.setVideoAreaSize(size) }
+                }
             }
             // 沉浸版：画面区吃掉信息区之外的全部高度 —— 竖屏视频因此能铺满大半屏，
             // 不再是顶部一条 16:9 的横带（那正是「白底边」的来源）。

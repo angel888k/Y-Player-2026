@@ -33,11 +33,17 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
     private var currentVolume: Float = 1
     private var currentGain: Float = 1
 
+    /// 画面层（M03P1 第 3 步的渲染路径）：**引擎要留着它**，除了建会话，还要在画面区变尺寸时
+    /// 把新窗口尺寸转告 mpv（见 ``setVideoAreaSize(_:)``）。
+    private var videoSurface: MpvVideoSurface?
+
     public init(decoderMode: DecoderMode = .hardware, videoSurface: MpvVideoSurface? = nil) {
         self.init(
             decoderMode: decoderMode,
             makeSession: { MpvSessionFactory.make(videoSurface: videoSurface) }
         )
+        // 委托（convenience 式）初始化里，自己的存储属性只能在 `self.init` **之后**赋值。
+        self.videoSurface = videoSurface
     }
 
     /// 单测入口：注入会话工厂，不碰真 libmpv。
@@ -118,6 +124,25 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
         guard let session else { return }
         _ = session.command(["set", "speed", Self.number(Double(rate))])
         emit(.speedChanged(rate))
+    }
+
+    /// 画面区（宿主视图）换了尺寸就转告 mpv（M27 首验之六之十）。
+    ///
+    /// 为什么必须转：`--wid` 嵌的是**这一层**，层变大变小 mpv **不会自己知道** —— 它会一直按
+    /// 窗口创建那一刻的尺寸出画（画面小一块、钉在层的左上角；层 / 宿主 / 窗口三处的数值全是对的）。
+    /// `window-size` 是 mpv 认的那个旋钮；随手把 mpv 自己认的 `osd-dimensions` 记一条 ——
+    /// 出了事一眼就能看出它到底按多大在画。
+    public func setVideoAreaSize(_ size: CGSize) {
+        guard let session, size.width > 0, size.height > 0 else {
+            return
+        }
+        let scale = videoSurface?.layer.contentsScale ?? 2
+        let pixelWidth = max(Int((size.width * scale).rounded()), 1)
+        let pixelHeight = max(Int((size.height * scale).rounded()), 1)
+        _ = session.command(["set", "window-size", "\(pixelWidth)x\(pixelHeight)"])
+        let dimensions = session.propertyString("osd-dimensions") ?? "无"
+        let area = "\(pixelWidth)x\(pixelHeight)（点 \(Int(size.width))x\(Int(size.height))）"
+        MpvTrace.logger.notice("画面区 \(area, privacy: .public) 已转给 mpv；osd-dimensions = \(dimensions, privacy: .public)")
     }
 
     /// 音量：mpv 的 `volume` 属性是 0–100（100 = 原声），这里把 0...1 换算过去。
