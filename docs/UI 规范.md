@@ -45,6 +45,11 @@
 > 同一份代码在 iOS 15 / iOS 16+ / macOS 各是各自的原生菜单形态；菜单里放不下输入的
 > 搜索与改名各自开原生的 sheet / alert（`DiscoverSiteSwitcher` / `DiscoverSiteFinder`）。
 
+> 已落地：**播放页的三张弹层**（选集抽屉 `EpisodeListDrawer`、弹幕设置 `PlaybackDanmakuSettings`、
+> 选择弹幕 `PlaybackDanmakuPicker`，M28 首验之二十五）的面板头也归系统：标题走 `navigationTitle`、
+> 按钮走工具栏（`adaptiveToolbar`）。**播放器的例外只到控制条为止**（M26/M27 的产品设计）；
+> 「按钮弹出来的东西」照这一节办。
+
 ## 三、禁止事项
 
 - ❌ 用 `UIDevice` 型号判断代替系统外观判断。
