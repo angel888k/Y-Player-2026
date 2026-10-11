@@ -23,6 +23,17 @@ enum VideoHostTrace {
         logger.notice("画面宿主：画面区 \(requested, privacy: .public)／宿主 \(host, privacy: .public)／层 \(layer, privacy: .public)")
     }
 
+    /// 从宿主往上走的祖先链（谁被藏了 / 谁裁了 / 谁多小）——
+    /// 「层几何全对、屏幕上却看不见」这种怪事只可能出在祖先里（M27 首验之六之八）。
+    static func noteAncestors(_ text: String) {
+        logger.notice("画面宿主祖先：\(text, privacy: .public)")
+    }
+
+    /// 宿主底色（品红探针在不在这个包里，一眼可见）。
+    static func noteHostColor(_ text: String) {
+        logger.notice("画面宿主底色：\(text, privacy: .public)")
+    }
+
     /// 过一秒复查：**层还在宿主里吗、frame 还是我们设的那个吗**。
     ///
     /// 为什么值得查：「画面在自己窗口里、却缩在一角」还有另一种可能 —— **系统把层搬走了**

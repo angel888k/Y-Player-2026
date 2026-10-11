@@ -63,7 +63,33 @@ final class LayerHostView: UIView {
                 windowFrame: window.map { convert(bounds, to: $0) },
                 windowSize: window?.bounds.size
             )
+            VideoHostTrace.noteHostColor(backgroundColor?.description ?? "无底色")
+            VideoHostTrace.noteAncestors(ancestorChainText())
         }
+    }
+
+    /// 从宿主往上走一层层记下来：每一层在窗口里的位置、有没有被藏 / 被裁 / 透明。
+    private func ancestorChainText() -> String {
+        var parts: [String] = []
+        var node: UIView? = superview
+        var depth = 0
+        while let current = node, depth < 8 {
+            let frame = window.map { current.convert(current.bounds, to: $0) } ?? current.bounds
+            var flags = ""
+            if current.isHidden {
+                flags += "隐"
+            }
+            if current.alpha < 1 {
+                flags += "透"
+            }
+            if current.clipsToBounds {
+                flags += "裁"
+            }
+            parts.append("\(type(of: current)) \(frame.debugDescription)\(flags.isEmpty ? "" : " [\(flags)]")")
+            node = current.superview
+            depth += 1
+        }
+        return parts.joined(separator: " ← ")
     }
 
     override func layoutSubviews() {
