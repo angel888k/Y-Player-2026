@@ -17,6 +17,8 @@ final class LayerHostView: UIView {
     private weak var attachedLayer: CALayer?
     /// SwiftUI 画面区量出来的尺寸；nil = 还没递进来（这时按 `bounds` 走）。
     private var hostedSize: CGSize?
+    /// 复查层的任务（只有一次，新的来了就换掉）。
+    private var verifyTask: Task<Void, Never>?
 
     /// 挂层 + 明确尺寸（`size` 来自画面区的 `GeometryReader`）。
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
@@ -34,6 +36,21 @@ final class LayerHostView: UIView {
         if changed {
             // 尺寸真的变了才记一条：`attach` 每次更新都会被调到（见 ``VideoHostTrace``）。
             VideoHostTrace.noteHostSize(size, frame: frame, layerFrame: attachedLayer?.frame)
+            scheduleLayerCheck()
+        }
+    }
+
+    /// 过一秒复查层还在不在我们这儿（见 ``VideoHostTrace/noteLayerCheck(attached:frame:)``）——
+    /// 画中画会把层搬走，那时「画面缩在一角」跟尺寸无关，得靠这条分清。
+    private func scheduleLayerCheck() {
+        verifyTask?.cancel()
+        verifyTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled, let self else {
+                return
+            }
+            let layer = attachedLayer
+            VideoHostTrace.noteLayerCheck(attached: layer?.superlayer === self.layer, frame: layer?.frame)
         }
     }
 
@@ -94,6 +111,8 @@ import AppKit
 final class LayerHostView: NSView {
     private weak var attachedLayer: CALayer?
     private var hostedSize: CGSize?
+    /// 复查层的任务（只有一次，新的来了就换掉）。
+    private var verifyTask: Task<Void, Never>?
 
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
         autoresizingMask = [.width, .height]
@@ -109,6 +128,20 @@ final class LayerHostView: NSView {
         if changed {
             // 尺寸真的变了才记一条：`attach` 每次更新都会被调到（见 ``VideoHostTrace``）。
             VideoHostTrace.noteHostSize(size, frame: frame, layerFrame: attachedLayer?.frame)
+            scheduleLayerCheck()
+        }
+    }
+
+    /// 过一秒复查层还在不在我们这儿（见 ``VideoHostTrace/noteLayerCheck(attached:frame:)``）。
+    private func scheduleLayerCheck() {
+        verifyTask?.cancel()
+        verifyTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled, let self else {
+                return
+            }
+            let layer = attachedLayer
+            VideoHostTrace.noteLayerCheck(attached: layer?.superlayer === self.layer, frame: layer?.frame)
         }
     }
 

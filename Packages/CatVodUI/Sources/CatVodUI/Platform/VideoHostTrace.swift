@@ -20,4 +20,14 @@ enum VideoHostTrace {
         let layer = layerFrame?.debugDescription ?? "无"
         logger.debug("画面宿主：画面区 \(requested, privacy: .public)／宿主 \(host, privacy: .public)／层 \(layer, privacy: .public)")
     }
+
+    /// 过一秒复查：**层还在宿主里吗、frame 还是我们设的那个吗**。
+    ///
+    /// 为什么值得查：「画面在自己窗口里、却缩在一角」还有另一种可能 —— **系统把层搬走了**
+    /// （画中画：`AVPictureInPictureController` 起 PiP 时会把 `AVPlayerLayer` 挪进它自己的窗口，
+    /// 我们就只剩一片黑），那跟尺寸一点关系都没有。这两项一列，两种可能就分得清。
+    static func noteLayerCheck(attached: Bool, frame: CGRect?) {
+        let layer = frame?.debugDescription ?? "无"
+        logger.debug("画面宿主复查：层在宿主里 \(attached ? "是" : "不是", privacy: .public)／层 frame \(layer, privacy: .public)")
+    }
 }
