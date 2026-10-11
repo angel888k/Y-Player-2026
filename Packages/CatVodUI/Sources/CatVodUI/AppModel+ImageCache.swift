@@ -20,13 +20,14 @@ public extension AppModel {
 
     /// 清空图片缓存，返回删除的文件数。
     ///
-    /// 磁盘交给 `URLCache` 自己清（它管理自己的分片目录结构），再把内存缓存也清掉 ——
-    /// 只删盘的话，进程内那层会把已删的图继续吐出来，看着像「没清干净」。
+    /// **顺序要紧**（上机抓过：先删文件、后清 `URLCache`，清完目录里会冒出 144KB 残留）：
+    /// ① 先让 `URLCache` 逻辑上清空 —— 它自己还开着分片目录里的库文件，清的时候会落盘；
+    /// ② 再把内存缓存清掉（不清的话进程内那层会把已删的图继续吐出来）；
+    /// ③ **最后**删目录里的文件 —— 倒过来做，①的落盘会把刚删掉的东西又写回去。
     @discardableResult
     func clearImageCache() async -> Int {
-        let removed = Self.removeContents(of: imageCacheDirectory)
         await imageLoader.clear()
-        return removed
+        return Self.removeContents(of: imageCacheDirectory)
     }
 
     /// 目录里所有文件的合计大小（字节）。
