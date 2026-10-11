@@ -168,7 +168,30 @@ public struct HomeView: View {
 
     // MARK: - 主体
 
-    private var content: some View {
+    @ViewBuilder private var content: some View {
+        // 诊断（只在模拟器）：整页换成极简对照组 —— 分辨「病在页面内容」还是「病在滚动容器/环境」。
+        if CardDiagnostics.isEnabled, cardDiagnostics.mode == .control {
+            controlGrid
+        } else {
+            contentBodyStack
+        }
+    }
+
+    /// 极简对照组：一个 `ScrollView` + `LazyVGrid` + 200 个纯色格（无图、无监听、无导航）。
+    @ViewBuilder private var controlGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: posterColumns, spacing: 14) {
+                ForEach(0..<200, id: \.self) { index in
+                    Color.secondary.opacity(index.isMultiple(of: 2) ? 0.25 : 0.4)
+                        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: PlatformShims.cardCornerRadius))
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private var contentBodyStack: some View {
         VStack(spacing: 0) {
             if browsableSites.isEmpty {
                 placeholder(emptyHint)
