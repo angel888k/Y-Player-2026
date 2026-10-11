@@ -39,3 +39,33 @@ struct RefreshableModifier: ViewModifier {
         }
     }
 }
+
+/// 重建计数（诊断）：`scrollBody` 的**内容**每次被求值就 +1；一次拖动结束出一条账。
+///
+/// 用途：验证「滑动收 Tab 栏」那条线到底有没有把 `HomeView` 的滚动内容拉进每帧重建 ——
+/// 数字是「一次拖动里内容重建了几次」与「门广播了几次」。无重建 + 仍卡 → 病不在重建。
+enum ScrollRebuildCounter {
+    /// 计数（静态：`@State` 的实例会被每次求值的新实例顶掉，实例计数不可靠）。
+    nonisolated(unsafe) private static var count = 0
+
+    static func noteRebuild() {
+        count += 1
+    }
+
+    static func begin() {
+        count = 0
+    }
+
+    static func end(reason: String) {
+        ScrollRebuildLog.note(rebuilds: count, reason: reason)
+    }
+}
+
+/// 重建计数日志（一次拖动一条；`滚动帧` 之外的独立线）。
+enum ScrollRebuildLog {
+    static let logger = Logger(subsystem: "com.YPlayer.cat", category: "frame")
+
+    static func note(rebuilds: Int, reason: String) {
+        logger.notice("滚动重建：内容求值 \(rebuilds) 次（\(reason, privacy: .public)）")
+    }
+}

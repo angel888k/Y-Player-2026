@@ -231,7 +231,8 @@ public struct HomeView: View {
 
     /// 滚动本体；`observed` / `refreshable` 只服务诊断开关（见 ``CardDiagnostics``）。
     private func scrollBody(observed: Bool, refreshable: Bool) -> some View {
-        ScrollView {
+        let _ = ScrollRebuildCounter.noteRebuild()
+        return ScrollView {
             VStack(spacing: 0) {
                 if !result.categories.isEmpty {
                     DiscoverCategoryStrip(
@@ -257,6 +258,7 @@ public struct HomeView: View {
                     onTouchDown: {
                         tabBarGate.touchDown()
                         frameProbe.begin()
+                        ScrollRebuildCounter.begin()
                     },
                     onDragChanged: { translation in
                         // 监听器给的 translation 是**从手势开始累计**的位移（不是逐帧增量），
@@ -269,6 +271,7 @@ public struct HomeView: View {
                     onTouchEnded: {
                         tabBarGate.touchEnded()
                         frameProbe.end()
+                        ScrollRebuildCounter.end(reason: "拖动结束")
                     }
                 )
             )
