@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// 排布对齐参考截图（完整版）：
 /// - 顶排**之上**：状态行（左时钟 · 中标题 · 右电量）—— 只给真·全屏（M28 首验之十四）；
-/// - 顶排：关闭（✕）· 投屏 · 旋转 · 画面比例 —— 右侧：画中画 · 弹幕 · 倍速 · 锁定；
+/// - 顶排：关闭（✕）· 投屏 · 旋转 · 画面比例（**真·全屏里旋转 / 画面比例不摆**）—— 右侧：画中画 · 弹幕 · 倍速 · 锁定；
 /// - 底排：参数徽标（`HW HDR H265 4K 25FPS 5.6Mbps`，**只报读得到的**）+「当前时间 · 进度条 · 总时长」，
 ///   再一行：播放 / 暂停 · 下一集 · 逐帧 —— 右侧文字按钮「播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集」。
 ///
@@ -38,7 +38,7 @@ extension PlaybackView {
         let compact = width < Self.barCompactWidth
         let minimalBar = minimal && compact
         return VStack(spacing: 10) {
-            if showsPlaybackStatusBar {
+            if isTrueFullScreenPlayer {
                 playbackStatusBar
             }
             if isLocked {
@@ -90,10 +90,13 @@ extension PlaybackView {
 
     // MARK: - 全屏顶上的状态行（M28 首验之十四）
 
-    /// 状态行摆不摆：只给**真·全屏** —— 「全屏那一层」与「精简视图就地放大后的那块」（同一份控制条）。
+    /// 是不是**真·全屏**：「全屏那一层」与「精简视图就地放大后的那块」（同一份控制条，两处差异都看它）——
+    /// ① 顶上加**状态行**（时钟 · 标题 · 电量，M28 首验之十四）；
+    /// ② 顶排**不摆「旋转 / 画面比例」**（M28 首验之十七，用户口径：全屏里这两颗用不上）。
+    ///
     /// 判据是 `onRequestFullScreen == nil`：就地那块**没放大**时带着「转全屏」回传
     /// （放大后 `expandFullScreenAction` 给 nil，见 `VodDetailView+Compact.swift`）—— 那时才是全屏。
-    var showsPlaybackStatusBar: Bool {
+    var isTrueFullScreenPlayer: Bool {
         isFullScreen && onRequestFullScreen == nil
     }
 
@@ -180,6 +183,8 @@ extension PlaybackView {
 
     /// 顶排（M27 首验之三按参考图对齐；M27 首验之十一按用户口径**三个内核一套按钮**）：
     /// 关闭 · 旋转 · 画面比例 —— 弹幕 · 倍速 · 锁定。
+    /// **真·全屏里「旋转 / 画面比例」不摆**（M28 首验之十七，用户口径：全屏里这两颗用不上）——
+    /// 非全屏那几套（推页 / 精简视图横屏 / iPad）照旧有。
     ///
     /// **投屏 / 画中画 不摆**（用户口径：以 MPV 全屏那套为准，系统内核也是同一套按钮）：
     /// 那两颗只有系统内核做得到（`AVRoutePickerView` / `AVPictureInPictureController`），
@@ -191,8 +196,10 @@ extension PlaybackView {
             barIcon("xmark", label: "关闭播放") {
                 closePlayback()
             }
-            rotateButton
-            scaleMenu
+            if !isTrueFullScreenPlayer {
+                rotateButton
+                scaleMenu
+            }
             Spacer(minLength: 0)
             danmakuMenu
             speedMenu
