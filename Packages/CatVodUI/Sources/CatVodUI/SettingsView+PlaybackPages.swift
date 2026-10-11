@@ -162,7 +162,9 @@ struct SettingsPlayerControlView: View {
                     + "「自动识别片头片尾」= **用已标的**片头 / 片尾自动跳过与连播；音频指纹那类自动识别不做，标记还是手动标。")
             }
 
-            Section("单击手势") {
+            // 标题 + footer 只能走「全闭包」那种写法：`Section("标题") { } footer: { }` 编不过
+            // （编译器会把标题当成 content 闭包 —— 首验就红在这里）。
+            Section {
                 Picker("单击屏幕中间", selection: $control.singleTapCenter) {
                     ForEach(PlaybackTapAction.options, id: \.self) { action in
                         Text(action.title).tag(action)
@@ -177,6 +179,8 @@ struct SettingsPlayerControlView: View {
                     }
                     .pickerStyle(.menu)
                 }
+            } header: {
+                Text("单击手势")
             } footer: {
                 if !AdaptiveTapShim.supportsTapLocation {
                     Text("这个系统拿不到点按落点（要 iOS 16 起）：点按一律按「屏幕中间」处理，"
