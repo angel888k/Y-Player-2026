@@ -261,11 +261,15 @@ public struct PlaybackStats: Sendable, Equatable {
     }
 }
 
-/// 内核**可选**的「播放信息」能力（M4 前置）。
+/// 内核**可选**的「播放信息」能力（M4 前置；M28 收尾三个内核都接上）。
 ///
-/// 不塞进 `PlayerEngine`：系统内核（`AVPlayer`）给不出这一套，也不该为它硬造；
+/// 不塞进 `PlayerEngine`：报不出的内核**不接就不接**（M04 那会儿只有 MPV 报得出）；
 /// 播放页按 `engine as? PlaybackStatsProviding` 决定显不显示那一块 ——
 /// 与「轨道」同一套口径：**拿不到就不显示，不放空行**。
+///
+/// M28 收尾：系统内核（`AVPlayer`）也接上了（`SystemPlaybackStats`）—— 从 `AVAssetTrack` /
+/// 格式描述 / `accessLog` 读**读得到的那几项**（画面 / 编码 / 帧率 / 色彩 / 码率 / 音频）；
+/// 硬解路径 / 丢帧 / 转换后的输出它读不到，那几行就不出现（不硬造）。
 public protocol PlaybackStatsProviding: AnyObject, Sendable {
     /// 读一次当前播放信息（没在播 / 读不到就给空值，不抛错）。
     func playbackStats() async -> PlaybackStats

@@ -178,10 +178,12 @@ extension PlaybackView {
         }
     }
 
-    /// 视轨（M26）：只在内核报了视轨时出现 —— MPV 会报（含多视频轨的片源），系统内核一般没有。
+    /// 视轨（M26；M28 收尾改成**两条以上**才出现）：只有一条时菜单里是「自动 + 那一条」，
+    /// 等于没得选 —— 与音轨同一条规矩（不摆没用的开关）。普通片子三个内核因此都不摆这一颗，
+    /// 多视频轨的片源里 MPV 报得出两条以上才出现（系统 / 自研内核报不出第二条，照旧不出现）。
     @ViewBuilder
     func videoMenu(compact: Bool) -> some View {
-        if !videoTracks.isEmpty {
+        if videoTracks.count > 1 {
             barMenu("视轨", icon: "rectangle.on.rectangle", compact: compact) {
                 Picker("视轨", selection: videoSelectionBinding) {
                     Text("自动").tag(TrackSelection.auto)
