@@ -22,9 +22,6 @@ final class LayerHostView: UIView {
 
     /// 挂层 + 明确尺寸（`size` 来自画面区的 `GeometryReader`）。
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
-        // 临时诊断（M27 首验之六之八）：把宿主底色刷成**品红**，用来判定「屏幕上那块小画面
-        // 到底是不是我们画的」—— 验证完就改回黑。品红铺满整屏、小画面浮在上面 ⇒ 小画面不是我们的层。
-        backgroundColor = .magenta
         // 跟着容器长（与下面 `sizeThatFits` 同一条理由）：容器换了尺寸，宿主自己跟上。
         autoresizingMask = [.flexibleWidth, .flexibleHeight]
         if attachedLayer !== layer {
@@ -59,6 +56,7 @@ final class LayerHostView: UIView {
                 layerBounds: layer?.bounds,
                 presentationBounds: layer?.presentation()?.bounds,
                 contentsGravity: layer?.contentsGravity.rawValue,
+                drawableSize: (layer as? CAMetalLayer)?.drawableSize,
                 identityTransform: layer.map { CATransform3DIsIdentity($0.transform) },
                 windowFrame: window.map { convert(bounds, to: $0) },
                 windowSize: window?.bounds.size
@@ -128,18 +126,36 @@ final class LayerHostView: UIView {
         // 关掉隐式动画：尺寸变化时不做动画，否则画面会拖影。
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let target = CGRect(origin: .zero, size: hostedSize ?? bounds.size)
+        let size = hostedSize ?? bounds.size
+        let target = CGRect(origin: .zero, size: size)
         if attachedLayer.frame != target {
             attachedLayer.frame = target
-            // 尺寸真的变了：**把层重新挂一次**。`AVPlayerLayer` 的渲染几何是挂上去那一刻跟
-            // `player` 绑定的 —— 只改 frame 不重挂，画面会一直按旧尺寸画（M27 首验之六之七：
-            // 层 / 宿主 / 窗口三处都是 874×402，屏幕上却还是竖屏槽位那么小一块；暂停能暂停，
-            // 说明确实是这一路播放）。
+            // 尺寸真的变了：**把层重新挂一次**（AVPlayerLayer 的渲染几何跟挂上去那一刻绑定，
+            // 只改 frame 不重挂，画面会一直按旧尺寸画 —— M27 首验之六之七）。
             attachedLayer.removeFromSuperlayer()
             layer.addSublayer(attachedLayer)
         }
-        attachedLayer.contentsScale = window?.screen.scale ?? UIScreen.main.scale
+        let scale = window?.screen.scale ?? UIScreen.main.scale
+        attachedLayer.contentsScale = scale
+        // **Metal 那一层还得自己报「画布」尺寸**（M27 首验之六之九，就是它把整件事拖了这么多轮）：
+        // `CAMetalLayer.drawableSize` **不跟着 bounds 走** —— 不写它，mpv 会一直按**创建那一刻**
+        // 的尺寸画，产出的画面就那么大，`CAMetalLayer` 又按 1:1 摆在层的左上角：
+        // 层 / 宿主 / 窗口全是 874×402，屏幕上却只有竖屏槽位那么小一块。
+        // 系统内核（AVPlayerLayer）与自研内核（AVSampleBufferDisplayLayer）没有这一项。
+        syncMetalDrawable(attachedLayer, size: size, scale: scale)
         CATransaction.commit()
+    }
+
+    /// `CAMetalLayer` 的 `drawableSize`（画布像素尺寸）：**它不跟 bounds 走，得自己同步**。
+    /// 谁在用：MPV 内核（mpv 经 MoltenVK 直接画进这层）—— 不写的话画面永远停在创建时的尺寸。
+    private func syncMetalDrawable(_ layer: CALayer, size: CGSize, scale: CGFloat) {
+        guard let metal = layer as? CAMetalLayer else {
+            return
+        }
+        let drawable = CGSize(width: size.width * scale, height: size.height * scale)
+        if metal.drawableSize != drawable {
+            metal.drawableSize = drawable
+        }
     }
 
     /// 只认「正的、有限的」尺寸；拿不到回 nil，让调用方退回旧值。
@@ -162,10 +178,7 @@ final class LayerHostView: NSView {
     private var verifyTask: Task<Void, Never>?
 
     func attach(_ layer: CALayer, sizedTo size: CGSize) {
-        // 临时诊断：同上（iOS 那一支的注释）—— 验证完改回黑。
-        // 注意 `self.`：这里的形参就叫 `layer`，不写 `self` 是拿形参当可选链用。
         wantsLayer = true
-        self.layer?.backgroundColor = NSColor.magenta.cgColor
         autoresizingMask = [.width, .height]
         if attachedLayer !== layer {
             attachedLayer?.removeFromSuperlayer()
@@ -200,6 +213,7 @@ final class LayerHostView: NSView {
                 layerBounds: layer?.bounds,
                 presentationBounds: layer?.presentation()?.bounds,
                 contentsGravity: layer?.contentsGravity.rawValue,
+                drawableSize: (layer as? CAMetalLayer)?.drawableSize,
                 identityTransform: layer.map { CATransform3DIsIdentity($0.transform) },
                 windowFrame: window?.contentView.map { convert(bounds, to: $0) },
                 windowSize: window?.contentView?.bounds.size
@@ -222,20 +236,35 @@ final class LayerHostView: NSView {
         }
     }
 
+    /// `CAMetalLayer.drawableSize` 同步（理由见 iOS 那一支的注释）。
+    private func syncMetalDrawable(_ layer: CALayer, size: CGSize, scale: CGFloat) {
+        guard let metal = layer as? CAMetalLayer else {
+            return
+        }
+        let drawable = CGSize(width: size.width * scale, height: size.height * scale)
+        if metal.drawableSize != drawable {
+            metal.drawableSize = drawable
+        }
+    }
+
     private func syncFrame() {
         guard let attachedLayer else {
             return
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let target = CGRect(origin: .zero, size: hostedSize ?? bounds.size)
+        let size = hostedSize ?? bounds.size
+        let target = CGRect(origin: .zero, size: size)
         if attachedLayer.frame != target {
             attachedLayer.frame = target
             // 尺寸变了就重挂一次（理由见 iOS 那一支的注释）。
             attachedLayer.removeFromSuperlayer()
             layer?.addSublayer(attachedLayer)
         }
-        attachedLayer.contentsScale = window?.backingScaleFactor ?? 2
+        let scale = window?.backingScaleFactor ?? 2
+        attachedLayer.contentsScale = scale
+        // Metal 那一层要自己报画布尺寸（理由见 iOS 那一支的注释）。
+        syncMetalDrawable(attachedLayer, size: size, scale: scale)
         CATransaction.commit()
     }
 }

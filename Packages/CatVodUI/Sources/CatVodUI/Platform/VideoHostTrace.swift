@@ -45,6 +45,7 @@ enum VideoHostTrace {
         layerBounds: CGRect?,
         presentationBounds: CGRect?,
         contentsGravity: String?,
+        drawableSize: CGSize?,
         identityTransform: Bool?,
         windowFrame: CGRect?,
         windowSize: CGSize?
@@ -59,7 +60,9 @@ enum VideoHostTrace {
         let window = windowSize?.debugDescription ?? "无窗口"
         logger.notice("画面宿主复查：层\(state, privacy: .public)宿主／frame \(layer, privacy: .public)")
         logger.notice("画面宿主复查：层 bounds \(bounds, privacy: .public)／transform \(transform, privacy: .public)")
+        let drawable = drawableSize?.debugDescription ?? "无（不是 Metal 层）"
         logger.notice("画面宿主复查：**渲染中**的 bounds \(presenting, privacy: .public)／contentsGravity \(gravity, privacy: .public)")
+        logger.notice("画面宿主复查：Metal 画布 \(drawable, privacy: .public)")
         logger.notice("画面宿主复查：宿主在窗口里 \(onScreen, privacy: .public)／窗口 \(window, privacy: .public)")
     }
 }
