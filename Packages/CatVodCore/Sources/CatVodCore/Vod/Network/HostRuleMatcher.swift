@@ -40,7 +40,8 @@ public enum HostRuleMatcher {
     /// `NSRegularExpression` 只提供「查找」，因此这里显式比较匹配区间是否覆盖整串。
     /// 正则非法时上游 catch 后返回 false，这里同样退化为「不命中」。
     private static func fullMatch(_ text: String, _ pattern: String) -> Bool {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        // 带缓存的正则编译：host 规则是「同一组模式反复匹配」（M28P19）。
+        guard let regex = RegexScanner.compiled(pattern) else {
             return false
         }
         let full = NSRange(text.startIndex ..< text.endIndex, in: text)

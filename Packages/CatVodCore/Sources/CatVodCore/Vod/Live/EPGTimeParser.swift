@@ -75,13 +75,10 @@ public enum EPGTimeParser {
         string(from: date, format: "yyyyMMdd'T'HHmmss'Z'", timeZone: TimeZone(identifier: "UTC") ?? .current)
     }
 
-    /// 统一用 `en_US_POSIX`：这些格式是**协议格式**，不能被用户区域设置改写。
+    /// 统一用 `en_US_POSIX`（协议格式，不能被用户区域设置改写）；实现走 ``DateFormatterCache``
+    /// —— 逐条节目现建 formatter 是这条链上最白的一次性开销（M28P19）。
     private static func formatter(_ format: String, timeZone: TimeZone) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = timeZone
-        formatter.dateFormat = format
-        return formatter
+        DateFormatterCache.formatter(format: format, timeZone: timeZone)
     }
 
     private static func parse(_ text: String, format: String, timeZone: TimeZone) -> Date {

@@ -109,8 +109,9 @@ public struct LiveCatchup: Codable, Sendable, Hashable {
 
     /// 把 `{…}` 令牌换成时间（上游 `TOKEN_PATTERN` + `format(group, start, end)`）。
     func replacingTokens(in template: String, start: Date, end: Date) -> String {
+        // 模式是常量、且每个节目都要用一次：走带缓存的编译（M28P19）。
         let pattern = "\\$?\\{[^}]*\\}"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        guard let regex = RegexScanner.compiled(pattern) else {
             return template
         }
         var result = template
@@ -158,11 +159,8 @@ public struct LiveCatchup: Codable, Sendable, Hashable {
         guard !pattern.isEmpty else {
             return ""
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        formatter.dateFormat = pattern
-        return formatter.string(from: date)
+        // formatter 走缓存：这个函数**每个节目**都要来一次（M28P19）。
+        return DateFormatterCache.formatter(format: pattern, timeZone: .current).string(from: date)
     }
 
     /// 「追加」型时移（上游 `append`）：先按 `replace` 替换地址，再把时间串接上（已有 query 时把 `?` 换成 `&`）。

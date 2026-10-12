@@ -153,11 +153,19 @@ public struct GroupRule: Codable, Sendable, Hashable {
     }
 
     /// 编译正则（AI 来源先过安全子集；编不出来返回 nil）。
+    ///
+    /// 走 ``RegexScanner/compiled(_:)`` 的编译缓存（M28P19）：分组条每轮求值要按
+    /// 「每个站点 × 每条规则」各来一次（`isValid` + `extract`），4 条内置规则 × 近百个站点
+    /// 就是几百次编译 —— 而模式集是固定的。空正则不归缓存管（缓存口径把空模式当非法），
+    /// 这里保留「空正则可编译」的旧语义。
     private func compiledPattern() -> NSRegularExpression? {
         if isAI, !Self.isSafeAIRegExp(regex) {
             return nil
         }
-        return try? NSRegularExpression(pattern: regex)
+        guard !regex.isEmpty else {
+            return try? NSRegularExpression(pattern: regex)
+        }
+        return RegexScanner.compiled(regex)
     }
 
     enum CodingKeys: String, CodingKey {
