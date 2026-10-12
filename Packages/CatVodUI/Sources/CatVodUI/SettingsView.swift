@@ -34,6 +34,7 @@ public struct SettingsView: View {
             playbackSection
             dataSection
             aboutSection
+            sponsorSection
         }
         .adaptiveListStyle()
         .navigationTitle("设置")
@@ -234,6 +235,21 @@ public struct SettingsView: View {
         }
     }
 
+    // MARK: - 赞助作者（设置页最底部）
+
+    /// 赞助作者（M28P23）：一行，点进去一张图（作者的微信赞赏码）。
+    ///
+    /// 文案如实写「自愿」——不诱导、不摆假开关（诚实原则见类型注释）。
+    private var sponsorSection: some View {
+        Section {
+            NavigationLink {
+                SponsorView()
+            } label: {
+                Text("赞助作者")
+            }
+        }
+    }
+
     /// 官方 TG 群组地址。
     static let groupURL = "https://t.me/YPlayerGroup"
 
@@ -249,5 +265,30 @@ public struct SettingsView: View {
             return short
         }
         return short.isEmpty ? build : short + "（" + build + "）"
+    }
+}
+
+/// 赞助作者页：一张微信赞赏码（图在 App 的资源目录：`SponsorQR`，iOS / macOS 两边各一份）。
+///
+/// 为什么不做「跳转链接」：赞赏码本来就是**图片**（微信不给 URL），放本地图最简、最稳，
+/// 两端都能看；也不依赖网络。
+@MainActor
+struct SponsorView: View {
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Image("SponsorQR")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 420)
+                Text("微信扫码即可赞赏（sonder 的赞赏码）。完全自愿 —— 不打赏也不影响任何功能。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(20)
+        }
+        .navigationTitle("赞助作者")
     }
 }
