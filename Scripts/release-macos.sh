@@ -56,7 +56,7 @@ HAVE_SWIFTLINT=1; command -v swiftlint >/dev/null || HAVE_SWIFTLINT=0
 if [ "$HAVE_SWIFTFORMAT" = 1 ]; then swiftformat --version; else echo "⚠︎ 没有 swiftformat —— 本地跳过（CI 会跑）"; fi
 if [ "$HAVE_SWIFTLINT" = 1 ]; then swiftlint version; else echo "⚠︎ 没有 swiftlint —— 本地跳过（CI 会跑）"; fi
 
-step "1/7 工程与版本号（$VERSION（$BUILD））"
+step "1/7 工程与版本号（${VERSION}（${BUILD}））"
 python3 Scripts/fetch_nodejs_mobile.py
 if [ "$HAVE_XCODEGEN" = 1 ]; then
   xcodegen generate
@@ -131,4 +131,4 @@ ls -lh "$OUT"
 unzip -l "$OUT/YPlayer-unsigned.ipa" | head -5
 open "$OUT"
 echo
-echo "✅ 全部完成（$VERSION（$BUILD））。产物在：$OUT"
+echo "✅ 全部完成（${VERSION}（${BUILD}））。产物在：$OUT"
