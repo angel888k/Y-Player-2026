@@ -30,7 +30,6 @@ public struct HostSiteSnapshotStore: Sendable {
     }
 
     private let directory: URL
-    private let fileManager = FileManager.default
 
     public init(directory: URL) {
         self.directory = directory
@@ -42,8 +41,8 @@ public struct HostSiteSnapshotStore: Sendable {
             return
         }
         do {
-            if !fileManager.fileExists(atPath: directory.path) {
-                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: directory.path) {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             }
             try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
         } catch {
