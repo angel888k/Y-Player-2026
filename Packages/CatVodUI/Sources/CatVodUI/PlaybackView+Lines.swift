@@ -52,7 +52,10 @@ extension PlaybackView {
         }
         // 同一集在两条线路上的**下标可能不同**（按集名对的），而续播判定看的是「记录里的集下标
         // == 现在选集的下标」—— 按新线路的下标把这份位置重记一次，换线路才不会被判成换集（M28P10）。
-        await persist(force: true, episodeIndexOverride: next.progressContext.episodeIndex)
+        // `progressContext` 是可选的（没有进度键时整条播放都不记进度）：拿不到就不重记，照旧走。
+        if let newIndex = next.progressContext?.episodeIndex {
+            await persist(force: true, episodeIndexOverride: newIndex)
+        }
         selectedLine = line
         lineSwitcher.onLineChanged?(line)
         await applyEpisode(next, fallbackTitle: activeTitle, episodeName: episodeName)
