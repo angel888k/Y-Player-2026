@@ -135,12 +135,27 @@ extension AppModel {
 
         await searchRound(trimmed, sites: firstRound, client: client, filler: filler, onSite: note)
         if !Task.isCancelled, hits.isEmpty, !indexed.isEmpty, indexed.count < allSearchable.count {
-            // 索引站点一条都没有：把其余的也搜一遍（顺序照站点清单，最后一起归位）。
-            let rest = allSearchable.filter { !searchedKeys.contains($0.key) }
-            if !rest.isEmpty {
-                searchedKeys.formUnion(rest.map(\.key))
+            // 索引站点一条都没有：把其余的接着搜（顺序照站点清单）—— **分波、够用就停**（M28P11）：
+            // 原先是一轮把剩下 94 个站点全扫完，界面上的「搜索中」要挂到扫完（分钟级）才结束。
+            // 现在每波 `firstRoundLimit` 个，墙上够 `enoughHitSites` 个站点命中、或搜满
+            // `fallbackWaveLimit` 波就收手（这面墙是「挑入口」用的，不是把 96 个站点全扫一遍）。
+            var waves = 0
+            while !Task.isCancelled,
+                  AggregateSearchRules.shouldContinueFallback(
+                      hitSiteCount: hits.count,
+                      wavesSearched: waves,
+                      remainingSites: allSearchable.count - searchedKeys.count
+                  )
+            {
+                let rest = allSearchable.filter { !searchedKeys.contains($0.key) }
+                let wave = Array(rest.prefix(AggregateSearchRules.firstRoundLimit))
+                guard !wave.isEmpty else {
+                    break
+                }
+                searchedKeys.formUnion(wave.map(\.key))
                 didFallBack = true
-                await searchRound(trimmed, sites: rest, client: client, filler: filler, onSite: note)
+                await searchRound(trimmed, sites: wave, client: client, filler: filler, onSite: note)
+                waves += 1
             }
         }
         report(settle())

@@ -189,9 +189,19 @@ public final class AVPlayerEngine: PlayerEngine {
         return AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
     }
 
+    /// 跳转容差（正负 0.5 秒，见 ``seekAsync(to:)`` 的说明）。
+    static let seekTolerance = CMTime(seconds: 0.5, preferredTimescale: 600)
+
+    /// 带容差的跳转。
+    ///
+    /// **不要用 `.zero` 容差**（M28P11）：那是「精确到帧」—— AVFoundation 必须从上一个同步帧
+    /// 一路解到那一刻，长 GOP / 高码率的片子上就是「快进 / 快退半天不动」（用户报
+    /// 「快退或者快进视频的加载速度慢」）。半秒容差与参考实现（ExoPlayer 的
+    /// `SeekParameters.CLOSEST_SYNC`）同一类取舍：落点差半秒肉眼看不出来，但少解小半个 GOP ——
+    /// 这也是 AVFoundation 官方口径（给容差就是为了响应速度）。
     func seekAsync(to time: CMTime) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+            player.seek(to: time, toleranceBefore: Self.seekTolerance, toleranceAfter: Self.seekTolerance) { _ in
                 continuation.resume()
             }
         }

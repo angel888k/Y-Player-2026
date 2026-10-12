@@ -62,6 +62,27 @@ struct AggregateSearchTests {
         #expect(AggregateSearchRules.targets(sites: indexed).count == AggregateSearchRules.firstRoundLimit)
     }
 
+    @Test("补搜轮：够用就停 / 搜满上限也停 / 没得搜了就停（96 个站点不再全扫一遍）")
+    func fallbackBounds() {
+        // 还没命中、还有站点、还没搜满：继续。
+        #expect(AggregateSearchRules.shouldContinueFallback(hitSiteCount: 0, wavesSearched: 0, remainingSites: 90))
+        #expect(AggregateSearchRules.shouldContinueFallback(hitSiteCount: 2, wavesSearched: 2, remainingSites: 20))
+        // 够「挑入口」了：停。
+        #expect(!AggregateSearchRules.shouldContinueFallback(
+            hitSiteCount: AggregateSearchRules.enoughHitSites,
+            wavesSearched: 1,
+            remainingSites: 20
+        ))
+        // 搜满补搜轮上限：停。
+        #expect(!AggregateSearchRules.shouldContinueFallback(
+            hitSiteCount: 0,
+            wavesSearched: AggregateSearchRules.fallbackWaveLimit,
+            remainingSites: 20
+        ))
+        // 没什么可搜的了：停。
+        #expect(!AggregateSearchRules.shouldContinueFallback(hitSiteCount: 0, wavesSearched: 1, remainingSites: 0))
+    }
+
     @Test("永久禁搜（searchable=0）的站点不进候选，哪怕标了 indexs")
     func skipsSearchDisabledSites() {
         let sites = [site(key: "a", indexs: 1, searchable: 0), site(key: "b", indexs: 1)]

@@ -136,9 +136,14 @@ extension HomeView {
         guard !targets.isEmpty else {
             return
         }
-        let epoch = beginDiscoverLoad()
+        // 这一轮属于哪个上下文（站点 + 接口版本）：写回前核对 —— **不借道共享的「加载代次」**
+        // （M28P11）：那个号会被「换分类 / 刷新首页 / 首屏加载」随手推走，推走之后这一轮的内容写不进去、
+        // 而 `isLoadingSections` 还卡在 true 上 —— 用户报的「横向排布一直加载中」就是它。
+        // 拿 `sectionLoadKey`（`posterSections` 的 `.task(id:)` 用的同一个键）当上下文号：
+        // 它变了那边自己会重跑；这里则只是**无条件**把加载态收干净（同一时刻只会有一轮）。
+        let contextKey = sectionLoadKey
         isLoadingSections = true
-        defer { if isCurrentDiscoverLoad(epoch) { isLoadingSections = false } }
+        defer { isLoadingSections = false }
         let client = model.makeSiteClient()
         var loaded: [DiscoverSection] = []
         await withTaskGroup(of: DiscoverSection?.self) { group in
@@ -159,7 +164,7 @@ extension HomeView {
                 }
             }
         }
-        guard isCurrentDiscoverLoad(epoch) else {
+        guard contextKey == sectionLoadKey else {
             return
         }
         sections = targets.compactMap { target in

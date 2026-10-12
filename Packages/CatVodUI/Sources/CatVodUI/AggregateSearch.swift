@@ -55,6 +55,31 @@ enum AggregateSearchRules {
     /// 一个都没搜到时，补搜轮会把其余的接着搜完（见 `AppModel.searchAcrossSites`）——覆盖率不变。
     static let firstRoundLimit = 12
 
+    /// 补搜轮最多再搜几波（每波 ``firstRoundLimit`` 个站点）。
+    ///
+    /// 为什么要它（M28P11，用户第三次报「搜索影视的速度还是慢」）：实测主接口 96 个站点里
+    /// 一半是慢站点 / 死站点（15 秒才超时、有的干脆悬着），而**标了 `indexs` 的只有 2 个**
+    /// （「豆瓣|首页」「日期:…」——它们对任意关键词都在几毫秒内返回**空列表**）。
+    /// 于是每次搜索都要走「首轮 2 个（秒回、零命中）→ 补搜轮把剩下 94 个全扫一遍」：
+    /// 界面上的「搜索中」要挂到一整轮扫完才结束（分钟级），这就是「还是慢」。
+    static let fallbackWaveLimit = 3
+
+    /// 墙上有几个站点命中就够「挑入口」了：够数就停止补搜（剩下的站点下次再搜）。
+    static let enoughHitSites = 3
+
+    /// 补搜轮还要不要接着搜（**纯函数**，有单测）：够用就停。
+    ///
+    /// - Parameters:
+    ///   - hitSiteCount: 现在墙上有几个站点命中；
+    ///   - wavesSearched: 补搜轮已经搜了几波；
+    ///   - remainingSites: 还没搜过的站点数（0 = 没什么可搜的了）。
+    static func shouldContinueFallback(hitSiteCount: Int, wavesSearched: Int, remainingSites: Int) -> Bool {
+        guard remainingSites > 0, wavesSearched < fallbackWaveLimit else {
+            return false
+        }
+        return hitSiteCount < enoughHitSites
+    }
+
     /// **首轮**搜哪些站点，保持站点清单的顺序：
     ///
     /// 1. 先取 ``searchableSites(sites:)``；

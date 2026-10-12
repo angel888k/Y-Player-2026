@@ -211,16 +211,20 @@ public struct HomeView: View {
     private var scrollBody: some View {
         ScrollView {
             VStack(spacing: 0) {
-                if !result.categories.isEmpty {
-                    DiscoverCategoryStrip(
-                        categories: result.categories,
-                        selectedID: selectedCategory?.typeID ?? "",
-                        onSelect: selectCategory
-                    )
-                }
-                if !filterRows.isEmpty {
-                    DiscoverFilterStrip(rows: filterRows) { row, value in
-                        applyFilter(row, value: value)
+                // 分类条 / 筛选行**只属于纵向展示**（M28P11，用户口径 + 参考图）：横向展示是
+                // 「按分类分区」的那一套排版，顶上不摆这两块 —— 用户报「改成横向排布这一块应该不显示」。
+                if model.homeLayout == .vertical {
+                    if !result.categories.isEmpty {
+                        DiscoverCategoryStrip(
+                            categories: result.categories,
+                            selectedID: selectedCategory?.typeID ?? "",
+                            onSelect: selectCategory
+                        )
+                    }
+                    if !filterRows.isEmpty {
+                        DiscoverFilterStrip(rows: filterRows) { row, value in
+                            applyFilter(row, value: value)
+                        }
                     }
                 }
                 contentBody
@@ -321,9 +325,12 @@ public struct HomeView: View {
 
     /// 分区数据的「属于哪个接口」标识。
     ///
-    /// 与 `loadedCatalogRevision` 同一套思路：单靠站点 key 不够 —— js2p 宿主刷新后站点 key 不变、
+    /// 与 `loadedCatalogRevision` 同一套思路：单点站点 key 不够 —— js2p 宿主刷新后站点 key 不变、
     /// 内容却全换了，所以把 `siteCatalogRevision` 也带上。
-    private var sectionLoadKey: String {
+    ///
+    /// 不带 `private`（`HomeView+Data.swift` 的 `loadSections()` 也要用它当上下文号，M28P11）——
+    /// 与 `PlaybackView+*` 那几处跨文件的成员同一个口径。
+    var sectionLoadKey: String {
         "\(selectedSiteKey)#\(model.siteCatalogRevision)"
     }
 
