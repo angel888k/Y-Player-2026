@@ -6,13 +6,20 @@ import Testing
 @Suite("聚合搜索：搜哪些站点 / 结果怎么归位")
 struct AggregateSearchTests {
     /// 造一个能搜的站点（`type=1` 走 CMS 通道，`availability` 自然是可用）。
-    private func site(key: String, name: String = "", indexs: Int = 0, searchable: Int = 1) -> Site {
+    private func site(
+        key: String,
+        name: String = "",
+        indexs: Int = 0,
+        searchable: Int = 1,
+        timeout: Int = 15
+    ) -> Site {
         Site(
             key: key,
             name: name,
             type: 1,
             api: "https://example.com/\(key)",
             indexs: indexs,
+            timeout: timeout,
             searchable: searchable
         )
     }
@@ -70,6 +77,13 @@ struct AggregateSearchTests {
         #expect(AggregateSearchRules.shouldStartAnotherSite(now: now, deadline: deadline))
         #expect(!AggregateSearchRules.shouldStartAnotherSite(now: deadline, deadline: deadline))
         #expect(!AggregateSearchRules.shouldStartAnotherSite(now: deadline.addingTimeInterval(5), deadline: deadline))
+    }
+
+    @Test("聚合搜索的单站超时：上限 8 秒；站点配得更短就听站点的，配 0 也按 1 秒兜底")
+    func searchTimeoutIsCapped() {
+        #expect(AggregateSearchRules.searchTimeout(for: site(key: "a")) == 8)
+        #expect(AggregateSearchRules.searchTimeout(for: site(key: "b", timeout: 5)) == 5)
+        #expect(AggregateSearchRules.searchTimeout(for: site(key: "c", timeout: 0)) == 1)
     }
 
     @Test("永久禁搜（searchable=0）的站点不进候选，哪怕标了 indexs")

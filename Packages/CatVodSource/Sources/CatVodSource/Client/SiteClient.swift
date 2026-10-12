@@ -91,15 +91,26 @@ public struct SiteClient: Sendable {
     }
 
     /// 搜索。
+    ///
+    /// - Parameter timeoutSeconds: 这次请求的超时（秒）；`nil` = 用站点自己的 `timeout`（缺省 15）。
+    ///   聚合搜索传 `AggregateSearchRules.searchTimeout(for:)` —— 上限 8 秒（M28P16 实测：
+    ///   整轮的尾巴全是慢站点 / 死站点在 15 秒超时上耗着，而**能成功**的站点没有一个需要超过 8 秒）。
     public func search(
         site: Site,
         keyword: String,
         page: Int = 1,
-        quick: Bool = true
+        quick: Bool = true,
+        timeoutSeconds: Int? = nil
     ) async throws -> SpiderResult {
-        switch try resolve(site) {
+        // 超时覆盖走「站点副本」：两条通道（CMS / CatSpider）都从 `site.timeout` 取超时，
+        // 改副本一处生效；不传的调用方（换源、单站搜索）行为一字不动。
+        var target = site
+        if let timeoutSeconds {
+            target.timeout = max(1, timeoutSeconds)
+        }
+        switch try resolve(target) {
         case let .cms(client):
-            return try await client.search(site: site, keyword: keyword, page: page, quick: quick)
+            return try await client.search(site: target, keyword: keyword, page: page, quick: quick)
         case let .catSpider(client):
             await initializer.ensureInitialized(client)
             return try await client.search(keyword: keyword, page: page)

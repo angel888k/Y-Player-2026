@@ -206,7 +206,11 @@ extension AppModel {
         filler: PictureFiller
     ) async -> SiteSearchOutcome {
         do {
-            let found = try await client.search(site: site, keyword: keyword)
+            let found = try await client.search(
+                site: site,
+                keyword: keyword,
+                timeoutSeconds: AggregateSearchRules.searchTimeout(for: site)
+            )
             let filled = await filler.fill(site: site, result: found)
             return SiteSearchOutcome(key: site.key, items: filled.list, failure: nil)
         } catch {

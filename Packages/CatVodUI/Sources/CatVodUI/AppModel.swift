@@ -843,16 +843,16 @@ public final class AppModel: ObservableObject {
         return transport
     }
 
-    /// 站点请求的 `URLSession` 配置：**每个 host 的并发连接抬到 12**（默认 6）。
+    /// 站点请求的 `URLSession` 配置：**每个 host 的并发连接抬到 24**（默认 6）。
     ///
     /// 为什么（用户报「搜索影视的速度还是慢」）：主接口的站点全是 js2p 站点，`api` 都指向
     /// **同一个本机宿主**（`127.0.0.1:<port>`）—— `URLSession` 按 host 限并发（默认 6），
     /// 聚合搜索那一波站点实际是「6 个一组」排队跑的；一波里混进几个慢站点（15 秒超时那一档），
-    /// 后面几组就全被堵住。抬到 12 与本机宿主的承受力匹配（node 侧是异步 I/O），
-    /// 聚合搜索的并发上限（`AggregateSearchRules.concurrentLimit`）才能真正「同时起跑」。
+    /// 后面几组就全被堵住。抬到 24 与聚合搜索的并发上限（`AggregateSearchRules.concurrentLimit`）
+    /// 对齐：本机宿主是异步 I/O，M28P16 实测 24 条在飞时整轮 9.9 秒收尾（12 条时 20~22 秒）。
     static func siteSessionConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpMaximumConnectionsPerHost = 12
+        configuration.httpMaximumConnectionsPerHost = 24
         return configuration
     }
 

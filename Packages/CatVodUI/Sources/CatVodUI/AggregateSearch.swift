@@ -49,10 +49,23 @@ enum AggregateSearchRules {
     /// 一次搜索最多**同时**打几个站点（并发上限）。
     ///
     /// 用户口径（M28P15）：「搜索要并发搜接口的**所有**站点」—— 所以这个数字管的是并发，
-    /// **不是**「只搜前 N 个」。取 12 的理由：主接口（js2p）的站点 `api` 都指向同一个本机宿主
-    /// （`127.0.0.1:<port>`），而传输层每个 host 就是 12 条连接（`AppModel.siteSessionConfiguration`）
-    /// —— 与它对齐，再多也是在连接池里排队。
-    static let concurrentLimit = 12
+    /// **不是**「只搜前 N 个」。取 24 的理由（M28P16 实测，本机直跑主接口宿主、95 个站点）：
+    /// 12 条时 48 个命中要 ~10 秒才到齐、整轮 20~22 秒收尾；24 条时命中 4 秒内到齐、9.9 秒收尾。
+    /// 传输层的每 host 连接数与它对齐（`AppModel.siteSessionConfiguration`）。
+    static let concurrentLimit = 24
+
+    /// 聚合搜索里**每站请求**的超时上限（秒）。
+    ///
+    /// 为什么要有它（M28P16 实测）：整轮的尾巴全是慢站点 / 死站点在站点自己的 15 秒超时上耗着
+    /// —— 而**能成功**的站点没有一个需要超过 8 秒（三组对照里没有一个「>8 秒才成功」的站点）。
+    /// 压到 8 后同样 48 个命中，整轮墙钟 20~22 秒 → 9.9 秒。
+    static let searchRequestTimeoutSeconds = 8
+
+    /// 这个站点在聚合搜索里用的超时（秒）：**不超过** ``searchRequestTimeoutSeconds``；
+    /// 站点自己配得更短就听站点的（纯函数，有单测）。
+    static func searchTimeout(for site: Site) -> Int {
+        min(max(site.timeout, 1), searchRequestTimeoutSeconds)
+    }
 
     /// 一轮搜索的总时长预算（秒）：到点后**不再开新的站点**，在飞的等它们回来。
     ///
