@@ -24,6 +24,9 @@ public final class ImageLoader: @unchecked Sendable {
     /// HTTP 磁盘缓存（「缓存管理 → 图片缓存」的清理要同时清它 —— 只删目录的话，
     /// 进程内这份还会把已删的响应继续喂回来）。
     let diskCache: URLCache
+    /// 字节层磁盘缓存（M28P4）：`URLCache` 存不存由服务器的 `Cache-Control` 说了算，
+    /// 这一层不看服务器脸色 —— 拉到过就落盘（见 ``ImageFileCache``）。
+    let fileCache: ImageFileCache
     /// 到达合流器（为什么：见 ``ImageArrivalCoalescer``）—— `CachedImage` 监听它的刷新信号。
     @MainActor let arrival: ImageArrivalCoalescer
 
@@ -53,6 +56,7 @@ public final class ImageLoader: @unchecked Sendable {
         configuration.httpMaximumConnectionsPerHost = 4
         session = URLSession(configuration: configuration)
         diskCache = urlCache
+        fileCache = ImageFileCache(directory: diskURL)
         memory = ImageMemoryCache(capacity: memoryCapacity)
         arrival = ImageArrivalCoalescer()
     }
@@ -60,6 +64,7 @@ public final class ImageLoader: @unchecked Sendable {
     /// 清空缓存（磁盘 + 内存）：与「缓存管理」里清目录同一件事，内存那份不清会立刻「复活」刚删的图。
     func clear() async {
         diskCache.removeAllCachedResponses()
+        await fileCache.removeAll()
         await memory.removeAll()
     }
 
@@ -84,14 +89,23 @@ public final class ImageLoader: @unchecked Sendable {
         }
         // 表个意向：这张图到达时合着别人一起刷（MS 级一簇的情况不再是一簇刷新）。
         await MainActor.run { arrival.notifyWaiting(url: url) }
-        return try await memory.image(for: url, targetSize: targetSize) { [session] _, size in
+        return try await memory.image(for: url, targetSize: targetSize) { [session, fileCache] _, size in
+            // 先看磁盘那份字节：命中就不发请求 —— 重启后也在这里省下来（`URLCache` 存不存要看
+            // 服务器的缓存头，这一层不看它脸色，见 ``ImageFileCache``）。
+            if let cached = await fileCache.data(for: url), let image = platformDownsample(cached, to: size) {
+                return image
+            }
             let (data, response) = try await session.data(from: requestURL)
             if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) {
                 throw ImageLoadError.badStatus(http.statusCode)
             }
             guard let image = platformDownsample(data, to: size) else {
+                // 解不出图：磁盘上可能留着一份坏字节（截断 / 换了格式），删掉它 ——
+                // 不删的话下次还是先读它、还是解不出（缓存成了负缓存）。
+                await fileCache.remove(url: url)
                 throw ImageLoadError.decodeFailed
             }
+            await fileCache.store(data, for: url)
             return image
         }
     }

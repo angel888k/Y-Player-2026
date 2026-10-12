@@ -102,16 +102,41 @@ struct ImageLoaderTests {
         #expect(abs(image.platformSize.width - image.platformSize.height) < 0.5, "等比缩放：64x64 的方图缩完仍是方的")
     }
 
-    @Test("缓存键带尺寸：同一 URL 两种目标尺寸各自解码（详情页大图不会被网格小图顶掉）")
-    func sizeVariantUsesSeparateCacheEntry() async throws {
+    @Test("两种目标尺寸：磁盘那份字节共用（只下一次），解码与内存条目仍各一份")
+    func sizeVariantsShareDownloadedBytes() async throws {
         StubImageProtocol.reset()
         let (loader, directory) = makeLoader()
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        _ = try await loader.image(for: "https://example.com/d.png", targetSize: CGSize(width: 16, height: 16))
+        let small = try await loader.image(for: "https://example.com/d.png", targetSize: CGSize(width: 16, height: 16))
         _ = try await loader.image(for: "https://example.com/d.png", targetSize: CGSize(width: 32, height: 32))
 
-        #expect(StubImageProtocol.requestCount == 2, "两种尺寸是两条缓存条目，各发一次（这是有意的）")
+        // M28P4：字节层按 URL 存 —— 第二种尺寸从磁盘拿同一份字节、只多解一次码。
+        // 「详情页大图不会被网格小图顶掉」没变：内存缓存仍按「URL + 尺寸」分条。
+        #expect(StubImageProtocol.requestCount == 1, "同一张图的两种尺寸不该下两次")
+        #expect(
+            loader.cachedImage(for: "https://example.com/d.png", targetSize: CGSize(width: 16, height: 16)) === small,
+            "小尺寸那份还在内存缓存里"
+        )
+        #expect(loader.cachedImage(for: "https://example.com/d.png", targetSize: CGSize(width: 32, height: 32)) != nil)
+    }
+
+    @Test("磁盘那份跨实例复用：新 loader 同目录再取一次，不再发网络请求（重启后也省）")
+    func diskCacheSurvivesNewLoader() async throws {
+        StubImageProtocol.reset()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("yplayer-image-shared-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let size = CGSize(width: 40, height: 40)
+        let first = makeLoader(directory: directory)
+        _ = try await first.loader.image(for: "https://example.com/persist.png", targetSize: size)
+        #expect(StubImageProtocol.requestCount == 1)
+
+        // 新实例（模拟下一次启动）：内存缓存是空的，磁盘那份还在 —— 这正是「缓存管理里看得见」的那份。
+        let second = makeLoader(directory: directory)
+        _ = try await second.loader.image(for: "https://example.com/persist.png", targetSize: size)
+        #expect(StubImageProtocol.requestCount == 1, "磁盘命中就不该再下")
     }
 
     @Test("清缓存：磁盘目录清空 + 内存缓存失效（下次重新走网络）")

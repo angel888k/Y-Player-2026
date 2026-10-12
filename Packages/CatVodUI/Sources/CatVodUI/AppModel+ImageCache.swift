@@ -40,6 +40,10 @@ public extension AppModel {
     }
 
     /// `URLCache` 库文件的合计（**不清**的那部分：它自己的索引/库）。
+    ///
+    /// 认的是 **`Cache.db` 全家**：`Cache.db`、`Cache.db-shm`、`Cache.db-wal` ——
+    /// WAL/SHM 是**活的** SQLite 附属文件（`URLCache` 正开着它），既不该算进「可清占用」，
+    /// 也**绝不能**删（删了等于在别人写库时抽走一半账本）。
     static func urlCacheDatabaseByteCount(at directory: URL) -> Int64 {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
@@ -53,11 +57,17 @@ public extension AppModel {
             guard values?.isRegularFile == true, let size = values?.fileSize else {
                 continue
             }
-            if url.lastPathComponent == "Cache.db" || url.pathExtension == "db" {
+            if isURLCacheDatabaseFile(url) {
                 total += Int64(size)
             }
         }
         return total
+    }
+
+    /// 这个文件是不是 `URLCache` 的库 / 附属文件（`Cache.db` / `Cache.db-shm` / `Cache.db-wal`）。
+    static func isURLCacheDatabaseFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        return name == "Cache.db" || name.hasPrefix("Cache.db-")
     }
 
     /// 删「图片数据」：目录里的内容，**留下** `URLCache` 的库文件。
@@ -70,7 +80,7 @@ public extension AppModel {
         }
         var removed = 0
         for entry in entries {
-            if entry.pathExtension == "db" {
+            if isURLCacheDatabaseFile(entry) {
                 continue
             }
             if (try? FileManager.default.removeItem(at: entry)) != nil {

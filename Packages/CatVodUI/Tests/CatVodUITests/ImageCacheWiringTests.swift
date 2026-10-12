@@ -27,6 +27,32 @@ struct ImageCacheWiringTests {
         #expect(FileManager.default.fileExists(atPath: directory.path), "目录本身要留着 —— URLCache 还挂在它上面")
     }
 
+    @Test("`Cache.db` 全家（含 -wal / -shm）既不算「可清占用」，也不删 —— 那是 URLCache 活着的账本")
+    func keepsURLCacheDatabaseFamily() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("yplayer-imagecache-db-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        for name in ["Cache.db", "Cache.db-wal", "Cache.db-shm"] {
+            try Data(repeating: 0x44, count: 256).write(to: directory.appendingPathComponent(name))
+        }
+        try Data(repeating: 0x45, count: 512).write(to: directory.appendingPathComponent("payload.img"))
+
+        #expect(AppModel.urlCacheDatabaseByteCount(at: directory) == 768, "库文件那三份要认出来")
+        #expect(
+            AppModel.directoryByteCount(at: directory) - AppModel.urlCacheDatabaseByteCount(at: directory) == 512,
+            "「可清占用」只算图片数据"
+        )
+
+        let removed = AppModel.removeImageContents(of: directory)
+        #expect(removed == 1)
+        for name in ["Cache.db", "Cache.db-wal", "Cache.db-shm"] {
+            #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path))
+        }
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("payload.img").path))
+    }
+
     @Test("目录不存在：占用算 0、清理算 0（不报错）")
     func missingDirectoryIsSafe() {
         let missing = FileManager.default.temporaryDirectory
