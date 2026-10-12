@@ -514,7 +514,7 @@ struct MpvEngineTests {
         try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
         // 先喂一条 `file-loaded`：这条用例说的是「**片已经加载过**，VO 还是没建起来」（M28P6 那种黑屏），
         // 而不是「起播那一下 VO 还在出生」—— 后者引擎会先等一会儿（M28P12），不走这条兜底。
-        engine.handle(.fileLoaded)
+        await engine.handle(.fileLoaded)
 
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
 
