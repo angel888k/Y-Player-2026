@@ -13,6 +13,10 @@ import SwiftUI
 /// 参数徽标 / 进度 / 播放暂停 / 右下角那颗「全屏」；其余按钮去全屏那层（那边**始终**是完整版）。
 /// 横屏下那块槽位（宽度够）恢复完整版。
 ///
+/// 宽 / 窄两套版式**按实测尺寸挑**（M28P7，``AdaptiveFitRow``）：文字排装不下才换图标 ——
+/// 原先那条按估算宽度切的线（``barCompactWidth``）在系统字体 / 字号档位 / 平台菜单外壳上都不准
+/// （用户报「部分系统版本，全屏播放器的按钮排版不行」）。
+///
 /// 参考里的**画质（滤镜）**、**投屏**、**画中画**都不做（M26 第七节 + M28 口径「不做了」），
 /// 照「不摆假开关」的规矩不出现。各按钮自带能力判定：
 /// 内核做不到的整颗不出现（画面比例 / 视轨 / 音频增益），拿不到的数据不占位（参数徽标）。
@@ -28,9 +32,15 @@ import SwiftUI
 extension PlaybackView {
     /// 整条叠层：顶排图标 + 底排（锁上时只剩锁按钮）。
     ///
-    /// `width`：画面区的可用宽度 —— 窄（竖屏 iPhone，< ``barCompactWidth``）时底排换**图标版**：
+    /// `width`：画面区的可用宽度 —— 窄（竖屏 iPhone）时底排换**图标版**：
     /// 那排文字按钮（播放器 / 字幕 / 视轨 / 音轨 / 片头片尾 / 选集）在 390pt 放不下，
     /// 之前会被压成「播…」「…」（M27 首验录屏里就是它）—— 窄了换图标，动作与菜单内容一模一样。
+    ///
+    /// 宽 / 窄**怎么判**（M28P7）：不再只看估出来的 ``barCompactWidth`` —— iOS 16+ / macOS 13+
+    /// 交给 ``AdaptiveFitRow``（`ViewThatFits`，按**实测**尺寸挑）。估的账（~541pt）在系统字体、
+    /// 字号档位、平台菜单外壳（macOS 的 `Menu` 自带下拉按钮，比 iOS 标签宽一截）任何一处变一点
+    /// 就会翻车：宽版挤不下 → 文字被压扁 / 折行（用户报「部分系统版本，全屏播放器的按钮排版不行」）。
+    /// 那条线只剩两处用：iOS 15 的回落判据（没有 `ViewThatFits`）、顶排图标的间距档。
     ///
     /// `minimal`：精简视图顶上那块传 true —— **竖屏**再收成极简版（徽标 / 进度 / 播放暂停 / 全屏，
     /// 参考里圈住的就是这几样）；横屏（宽度够）回到完整版。全屏那层永远不传 true。
@@ -51,11 +61,11 @@ extension PlaybackView {
                 .contentShape(Rectangle())
             } else if minimalBar {
                 Spacer(minLength: 0)
-                bottomControls(compact: compact, minimal: true)
+                bottomControls(width: width, minimal: true)
             } else {
                 topIconRow(compact: compact)
                 Spacer(minLength: 0)
-                bottomControls(compact: compact, minimal: false)
+                bottomControls(width: width, minimal: false)
             }
         }
         .padding(.horizontal, 14)
@@ -178,6 +188,10 @@ extension PlaybackView {
     ///
     /// 宽版底排要 ~541pt（3 颗图标 90 + 六颗文字按钮 225 + 九个间隔 198 + 内边距 28）——
     /// 横屏（~844）与 iPad 都在线上；竖屏 iPhone（390 / 402 / 375）在线下。
+    ///
+    /// 从 M28P7 起这条线**只**给两处用：iOS 15 的回落判据（那条没有 `ViewThatFits`）、
+    /// 顶排图标的间距档。底排宽 / 窄在 iOS 16+ / macOS 13+ 一律按实测挑（见 ``AdaptiveFitRow``）
+    /// —— 估的 ~541pt 是按 iOS 系统字体量的，macOS 的 `Menu` 外壳与别的字号档位都不认这个数。
     static let barCompactWidth: CGFloat = 560
     /// 窄版的间距（10：9 颗 30pt 图标 + 8 个间隔 + 两侧内边距 ≈ 378pt，留得住 390 / 402）。
     static let barCompactSpacing: CGFloat = 10
@@ -212,19 +226,23 @@ extension PlaybackView {
     }
 
     /// 底排：参数徽标 + 进度 + 动作行。
-    private func bottomControls(compact: Bool, minimal: Bool) -> some View {
+    private func bottomControls(width: CGFloat, minimal: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if !statBadges.isEmpty {
                 badgesRow
             }
             progressRow
-            transportRow(compact: compact, minimal: minimal)
+            transportRow(width: width, minimal: minimal)
         }
         // 同上：这一条的空档也吃掉点按，别穿到画面上（按钮之间的空隙不是「画面」）。
         .contentShape(Rectangle())
     }
 
     /// 参数徽标（参考图那排 `HW HDR H265 4K 25FPS 5.6Mbps`）。
+    ///
+    /// 每条**都不许折行**（M28P7）：徽标里有「5.6 Mbps」这种带空格的文本，条一窄它先被折成
+    /// 两行 —— 整排的高度与基线全散（用户报「视频码率格式等显示错位」）。装不下先等比缩
+    /// （`minimumScaleFactor`）、再行尾截：**不折行、不越界**。整排钉在控制条最左边。
     private var badgesRow: some View {
         HStack(spacing: 12) {
             ForEach(statBadges, id: \.self) { badge in
@@ -232,8 +250,11 @@ extension PlaybackView {
                     .font(.caption2.weight(.semibold))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.95))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .shadow(color: .black.opacity(0.5), radius: 3, y: 1)
     }
 
@@ -274,32 +295,52 @@ extension PlaybackView {
     ///
     /// 极简版（`minimal`）：只有播放 / 暂停 + 右下角那颗「全屏」—— 参考里圈住的就是这两颗。
     /// 「全屏」那颗**永远在最右**（就地那块两套版式都在右下角；全屏那层没有它，参考图里也没有）。
-    private func transportRow(compact: Bool, minimal: Bool) -> some View {
-        HStack(spacing: compact ? Self.barCompactSpacing : 22) {
-            barIcon(playerState.isPlaying ? "pause.fill" : "play.fill", label: playerState.isPlaying ? "暂停" : "播放") {
-                Task { await togglePlayback() }
+    @ViewBuilder
+    private func transportRow(width: CGFloat, minimal: Bool) -> some View {
+        if minimal {
+            HStack(spacing: Self.barCompactSpacing) {
+                playPauseIcon
+                Spacer(minLength: 0)
+                fullScreenButton
             }
-            if minimal {
-                Spacer(minLength: 0)
-            } else {
-                if let next = nextEpisodeIndex {
-                    barIcon("forward.end.fill", label: "下一集") {
-                        Task { await switchEpisode(to: next) }
-                    }
+        } else {
+            AdaptiveFitRow(availableWidth: width, threshold: Self.barCompactWidth) {
+                transportRowContent(compact: false)
+            } narrow: {
+                transportRowContent(compact: true)
+            }
+        }
+    }
+
+    /// 动作行的内容（宽 / 窄两套版式共用，只差 `compact`）：图标都是 30×30 一格，
+    /// 文字按钮 / 菜单在窄版自动换成同含义的图标（动作与菜单内容一模一样）。
+    private func transportRowContent(compact: Bool) -> some View {
+        HStack(spacing: compact ? Self.barCompactSpacing : 22) {
+            playPauseIcon
+            if let next = nextEpisodeIndex {
+                barIcon("forward.end.fill", label: "下一集") {
+                    Task { await switchEpisode(to: next) }
                 }
-                Spacer(minLength: 0)
-                engineMenu(compact: compact)
-                subtitleMenu(compact: compact)
-                videoMenu(compact: compact)
-                audioMenu(compact: compact)
-                openingEndingMenu(compact: compact)
-                if playlist != nil {
-                    barTextButton("选集", icon: "list.bullet", compact: compact) {
-                        isEpisodeDrawerPresented = true
-                    }
+            }
+            Spacer(minLength: 0)
+            engineMenu(compact: compact)
+            subtitleMenu(compact: compact)
+            videoMenu(compact: compact)
+            audioMenu(compact: compact)
+            openingEndingMenu(compact: compact)
+            if playlist != nil {
+                barTextButton("选集", icon: "list.bullet", compact: compact) {
+                    isEpisodeDrawerPresented = true
                 }
             }
             fullScreenButton
+        }
+    }
+
+    /// 播放 / 暂停（三套版式共用的一颗：极简版与宽窄两版都摆它）。
+    private var playPauseIcon: some View {
+        barIcon(playerState.isPlaying ? "pause.fill" : "play.fill", label: playerState.isPlaying ? "暂停" : "播放") {
+            Task { await togglePlayback() }
         }
     }
 
