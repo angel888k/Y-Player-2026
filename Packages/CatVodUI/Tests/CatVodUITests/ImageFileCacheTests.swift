@@ -75,13 +75,16 @@ struct ImageFileCacheTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let cache = ImageFileCache(directory: directory, capacity: 1000)
 
-        await cache.store(Data(repeating: 0x48, count: 600), for: "https://example.com/first.png")
+        // 两份 400B 一起装得下（800 ≤ 1000），第三份才逼出淘汰。记 600B 的话第二份一进来就把
+        // 第一份挤走了 —— 「读一下先存的那份」根本读不到，测的就不是 touch 顺序（第一版就是这么红的）。
+        await cache.store(Data(repeating: 0x48, count: 400), for: "https://example.com/first.png")
         try? await Task.sleep(nanoseconds: 30_000_000)
-        await cache.store(Data(repeating: 0x49, count: 600), for: "https://example.com/second.png")
-        // 读一下「先存的那份」：它的时间戳变新，淘汰顺序跟着换。
+        await cache.store(Data(repeating: 0x49, count: 400), for: "https://example.com/second.png")
+        // 读一下「先存的那份」：它的时间戳变新，淘汰顺序跟着换（隔开一小拍，免得和上一条写同毫秒）。
+        try? await Task.sleep(nanoseconds: 20_000_000)
         _ = await cache.data(for: "https://example.com/first.png")
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        await cache.store(Data(repeating: 0x4A, count: 600), for: "https://example.com/third.png")
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        await cache.store(Data(repeating: 0x4A, count: 400), for: "https://example.com/third.png")
 
         #expect(await cache.data(for: "https://example.com/first.png") != nil, "读过的这份不该先被删")
         #expect(await cache.data(for: "https://example.com/second.png") == nil, "最久没读的这份先走")
