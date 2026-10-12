@@ -55,6 +55,7 @@ public extension AppModel {
             )
             // 站点集合变了：旧详情可能属于别的站点，不能复用。
             await detailCache.invalidateAll()
+            await searchCache.removeAll()
         } catch {
             hostSites = []
             hostStatus = .failed(reason: userFacingMessage(error))

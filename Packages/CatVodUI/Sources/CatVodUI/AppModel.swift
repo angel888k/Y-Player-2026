@@ -509,6 +509,10 @@ public final class AppModel: ObservableObject {
     let sessionTransport: URLSessionTransport
     /// 详情缓存（进程内共享）。
     let detailCache = DetailCache()
+
+    /// 聚合搜索的结果缓存（M28P5）：同「站点 + 关键词」重搜时先把这份给出去 ——
+    /// 用户口径「从已经缓存的站点搜索」（见 ``SearchResultCache``）。换接口 / 宿主站点刷新时清空。
+    let searchCache = SearchResultCache()
     /// 图片加载器（内存 + 磁盘缓存，M28 首验之二十九）：`RootView` 把它注入视图环境，
     /// 缓存目录与「缓存管理」同根（见 ``AppModel+ImageCache``）。
     public let imageLoader: ImageLoader
@@ -759,6 +763,8 @@ public final class AppModel: ObservableObject {
             resetAdSkip()
             // 配置已变更：缓存里的详情可能对应旧站点/旧线路，直接清空。
             await detailCache.invalidateAll()
+            // 聚合搜索缓存同理：站点集合 / 站点地址都换了，旧命中不该再拿出去。
+            await searchCache.removeAll()
             // 接口缓存自愈：按容量上限淘汰最旧的（当前接口的缓存不动）。
             enforceSourceCacheLimit()
             // JS 源：站点清单不在配置里，必须由内嵌 Node 宿主提供（macOS 进程 / iOS libnode）。

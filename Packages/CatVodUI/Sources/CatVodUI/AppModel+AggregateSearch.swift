@@ -33,6 +33,9 @@ extension AppModel {
     /// 生产（挂在流的 `onTermination` 上），在飞的请求随之取消。
     ///
     /// 口径（与别的搜索刻意不同，写下来免得被「顺手统一」）：
+    /// - **先吐缓存那份**（M28P5，用户口径「从已经缓存的站点搜索」）：首轮站点里凡是有
+    ///   `站点 + 关键词` 命中缓存的，**一字节网络都不发**先把它们回报出去（墙面立刻有内容），
+    ///   实时那轮照旧跑 —— 有新结果就覆盖，失败 / 这次零命中就把缓存那份摘掉；
     /// - 站点范围：``AggregateSearchRules/targets(sites:)``（索引站点优先）——
     ///   **首轮一条都没搜到时补搜其余可搜站点**：空墙不等于「别的站点没有」，这面墙是给人挑入口用的；
     /// - **逐站 best-effort**：某站失败只跳过它、不拖累别的站点；失败原因模型侧留着诊断，
@@ -87,6 +90,13 @@ extension AppModel {
         var reportedCount = 0
         var didFallBack = false
 
+        // 缓存那份先上墙（见本函数文档第一条）：同一部片重搜 / 从详情页回来，不用再从零等网络。
+        let cachedHits = await searchCache.hits(forSiteKeys: firstRound.map(\.key), keyword: trimmed)
+        if !cachedHits.isEmpty {
+            hits = cachedHits
+            report(settle())
+        }
+
         /// 把「目前已收到的」结算成一份 outcome：逐站回报与最终那份共用同一条。
         func settle() -> AggregateSearchOutcome {
             // 归位顺序统一照**站点清单**：首轮与补搜轮谁先回来都不算数。
@@ -107,12 +117,18 @@ extension AppModel {
         }
 
         /// 单站收尾：记账，然后把「目前已收到的」回报一次（先到先上墙）。
-        func note(_ outcome: SiteSearchOutcome) {
+        func note(_ outcome: SiteSearchOutcome) async {
             reportedCount += 1
             if let failure = outcome.failure {
                 failuresByKey[outcome.key] = failure
-            } else if !outcome.items.isEmpty {
+                // 失败**不动** hits：上面那份缓存命中留着（一次连不上不该把墙清空）。
+            } else if outcome.items.isEmpty {
+                // 这次一个也没搜到：把缓存那份摘掉 —— 不然墙会一直摆着过期命中。
+                hits[outcome.key] = nil
+            } else {
                 hits[outcome.key] = outcome.items
+                // 命中写进缓存：下一轮重搜先拿它上墙（见 ``SearchResultCache``）。
+                await searchCache.store(outcome.items, forSiteKey: outcome.key, keyword: trimmed)
             }
             report(settle())
         }
@@ -136,7 +152,7 @@ extension AppModel {
         sites: [Site],
         client: SiteClient,
         filler: PictureFiller,
-        onSite: (SiteSearchOutcome) -> Void
+        onSite: (SiteSearchOutcome) async -> Void
     ) async {
         await withTaskGroup(of: SiteSearchOutcome.self) { group in
             for site in sites {
@@ -152,7 +168,7 @@ extension AppModel {
                 }
             }
             for await outcome in group {
-                onSite(outcome)
+                await onSite(outcome)
             }
         }
     }

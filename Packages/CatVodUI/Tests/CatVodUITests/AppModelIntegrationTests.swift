@@ -188,4 +188,26 @@ struct AppModelIntegrationTests {
         // 注意：原始数组就是 3 条（含那条空白）—— 过滤只发生在 `configSubURLs` 那一层。
         #expect(fixture.model.state.loadedSource?.config.urls.count == 3)
     }
+
+    @Test("聚合搜索先吐缓存那份：同一部片重搜不再从零等（M28P5「从已经缓存的站点搜索」）")
+    func aggregateSearchServesCachedSitesFirst() async throws {
+        let fixture = try AppModelFixture()
+        defer { fixture.tearDown() }
+        let model = fixture.model
+        await fixture.load()
+
+        let cached = (1 ... 3).map { VodItem(vodID: "v\($0)", vodName: "狂王 \($0)") }
+        await model.searchCache.store(cached, forSiteKey: "a", keyword: "狂王")
+
+        var first: AggregateSearchOutcome?
+        for await outcome in model.searchAcrossSites(keyword: "狂王") {
+            if first == nil {
+                first = outcome
+            }
+        }
+
+        let seeded = try #require(first).sections.first
+        #expect(seeded.site.key == "a", "第一份就该带上缓存过的那个站点（一字节网络都不用发）")
+        #expect(seeded.items.count == 3)
+    }
 }
