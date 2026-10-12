@@ -180,6 +180,25 @@ struct DiscoverPageTests {
         #expect(DiscoverPosterCard.aspectRatio < 1)
     }
 
+    @Test("筛选条：上游给重复的 v（恐怖×2）/ 空 v（全部）、甚至重复的行也要能构造")
+    @MainActor
+    func filterStripToleratesUpstreamDuplicates() {
+        // 身份必须按位置给：`VodFilterValue.id == v`，而上游的 v 会重复（蜡笔 / 花卷实测），
+        // 拿 v 当 `ForEach` 的 id 会撞成重复 id —— SwiftUI 的表现跨系统版本不一致，轻则选中错位、
+        // 重则那一行点不动（M28P3）。
+        let duplicated = DiscoverFilterRow(
+            key: "class",
+            name: "全部剧情",
+            values: [
+                VodFilterValue(name: "全部", value: ""),
+                VodFilterValue(name: "恐怖", value: "/class/%E6%81%90%E6%80%96"),
+                VodFilterValue(name: "恐怖", value: "/class/%E6%81%90%E6%80%96"),
+            ],
+            selectedValue: ""
+        )
+        _ = DiscoverFilterStrip(rows: [duplicated, duplicated], onSelect: { _, _ in })
+    }
+
     // MARK: - DiscoverSiteList（站点切换面板）
 
     private func makeSite(key: String, name: String) -> Site {

@@ -33,13 +33,20 @@ struct DiscoverCategoryStrip: View {
 }
 
 /// 筛选区：一行一个筛选（左侧名可选）+ 右侧可横向滚动的胶囊。
+///
+/// ⚠️ **身份一律按位置，不拿上游数据当 `ForEach` 的 id**（2026-10-12 定，用户报「有的系统版本
+/// 上筛选点不了」）：上游的 `v` 不保证唯一 —— 实测「蜡笔 / 花卷」的剧情行有**两个「恐怖」**
+/// （`v` 都是 `/class/恐怖`）、很多行还带**空 `v` 的「全部」**。`VodFilterValue.id` 是 `v`，
+/// 拿它当 id 会撞成重复 id，SwiftUI 的行为在各系统版本上不一致：轻则选中态错位，
+/// 重则那一行点不动（复盘见 `docs/任务记录/M28P3-筛选胶囊按位置给身份.md`）。
+/// 行也一样：`row.key` 来自上游，重复就同样会撞。
 struct DiscoverFilterStrip: View {
     let rows: [DiscoverFilterRow]
     let onSelect: (_ row: DiscoverFilterRow, _ value: String) -> Void
 
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(rows) { row in
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 10) {
                     if row.showsName {
                         Text(row.name)
@@ -49,7 +56,7 @@ struct DiscoverFilterStrip: View {
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            ForEach(row.values) { value in
+                            ForEach(Array(row.values.enumerated()), id: \.offset) { _, value in
                                 DiscoverFilterChip(
                                     title: value.chipTitle,
                                     isSelected: row.isSelected(value)
