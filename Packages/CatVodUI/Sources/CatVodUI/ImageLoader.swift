@@ -52,8 +52,13 @@ public final class ImageLoader: @unchecked Sendable {
         configuration.urlCache = urlCache
         configuration.requestCachePolicy = .useProtocolCachePolicy
         configuration.protocolClasses = protocolClasses ?? configuration.protocolClasses
-        // 每个 host 的并发连接别开太大：图床很多是小站，猛并发反而慢且更容易被限。
-        configuration.httpMaximumConnectionsPerHost = 4
+        // 每个 host 的并发连接：**8**（M28P13 从 4 抬上来）。
+        //
+        // 为什么不抬更高：图床很多是小站，猛并发反而慢、也更容易被限（这条口径不变）。
+        // 为什么要抬：发现页/详情页一屏就是十几张同源封面（很多图床同 host），4 条连接意味着
+        // 「4 张一批」地铺 —— 用户报「各站点封面的加载速度也可以快点」；8 与浏览器同主机的
+        // 惯用上限一档（6~8），既快又不至于把图床打疼。
+        configuration.httpMaximumConnectionsPerHost = 8
         session = URLSession(configuration: configuration)
         diskCache = urlCache
         fileCache = ImageFileCache(directory: diskURL)

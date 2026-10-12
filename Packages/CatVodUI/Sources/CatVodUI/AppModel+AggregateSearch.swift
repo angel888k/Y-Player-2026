@@ -90,10 +90,15 @@ extension AppModel {
         var reportedCount = 0
         var didFallBack = false
 
-        // 缓存那份先上墙（见本函数文档第一条）：同一部片重搜 / 从详情页回来，不用再从零等网络。
-        let cachedHits = await searchCache.hits(forSiteKeys: firstRound.map(\.key), keyword: trimmed)
+        // 缓存那份先上墙（见本函数文档第一条；M28P13 起**跨全部可搜站点**去找）：
+        // 原先只看首轮那 ≤12 个站点的缓存 —— 而缓存命中常常落在别的站点上（首轮没搜到、
+        // 补搜轮才搜到的那种）：那种情况下「重搜同一部片」还是得等网络。现在有缓存的站点
+        // （≤10 分钟）直接上墙，并且**计入「参与」**（`searchedKeys`）—— 墙上立刻有内容，
+        // `enoughHitSites` 也立刻够数，整轮搜索几秒内收口（不再跑补搜轮）。
+        let cachedHits = await searchCache.hits(forSiteKeys: allSearchable.map(\.key), keyword: trimmed)
         if !cachedHits.isEmpty {
             hits = cachedHits
+            searchedKeys.formUnion(cachedHits.keys)
             report(settle())
         }
 

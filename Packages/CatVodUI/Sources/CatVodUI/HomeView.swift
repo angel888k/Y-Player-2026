@@ -132,7 +132,11 @@ public struct HomeView: View {
                 // 顺手落盘：冷启动 / 去别的 Tab 回来时据此还原（见 `syncHomeWithInterface`）。
                 model.discoverSiteKey = selectedSiteKey
                 invalidateContent()
-                Task { await loadHome(force: true) }
+                // **不带 force**（M28P13）：首页缓存与分类缓存都是**按站点**存的，站点换回刚看过的
+                // 那个时应当秒开 —— 原先这里写死 `force: true`，等于每次换站点都要重新打两趟站点接口
+                // （首页 → 分类，串行），「站点切换后加载慢」就是它。缓存过期（源缓存时间）或
+                // 没缓存时照旧联网；要强制刷新有下拉刷新那条路。
+                Task { await loadHome() }
             }
             .sheet(item: $webEntry) { entry in
                 // 配置中心这类「网页条目」：App 内打开（见 `WebEntryRules` / `WebPageSheet`）。
