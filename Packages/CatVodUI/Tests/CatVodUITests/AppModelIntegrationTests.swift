@@ -1,5 +1,6 @@
 @testable import CatVodCore
 @testable import CatVodNet
+import CatVodStore
 @testable import CatVodUI
 import Foundation
 import Testing
@@ -218,11 +219,10 @@ struct AppModelIntegrationTests {
         defer { fixture.tearDown() }
         await fixture.load()
         let site = try #require(fixture.model.allSites.first { $0.key == "a" })
-        await fixture.model.detailCache.store(
-            SpiderResult(list: [VodItem(vodID: "v1", vodName: "甲片", vodPic: "https://img.example/p.jpg")]),
-            site: site,
-            vodID: "v1"
-        )
+        // `SpiderResult` 只有 `public init()`（没有 memberwise init）：先建后填。
+        var seeded = SpiderResult()
+        seeded.list = [VodItem(vodID: "v1", vodName: "甲片", vodPic: "https://img.example/p.jpg")]
+        await fixture.model.detailCache.store(seeded, site: site, vodID: "v1")
 
         let hit = await fixture.model.cachedCoverURL(for: PlaybackKey(siteKey: "a", vodID: "v1"))
         let miss = await fixture.model.cachedCoverURL(for: PlaybackKey(siteKey: "a", vodID: "v2"))
