@@ -49,6 +49,19 @@ struct AggregateSearchTests {
         #expect(AggregateSearchRules.targets(sites: sites).map(\.key) == ["a", "b"])
     }
 
+    @Test("首轮截前 N 个：96 个站点的主接口不再「一次全发」（慢站点会把连接池堵死）")
+    func capsFirstRound() {
+        // 一个索引站点都没标：回落「全部可搜」之后还要照上限截。
+        let plain = (1 ... 30).map { site(key: "s\($0)") }
+        let targets = AggregateSearchRules.targets(sites: plain)
+        #expect(targets.count == AggregateSearchRules.firstRoundLimit)
+        #expect(targets.map(\.key) == (1 ... AggregateSearchRules.firstRoundLimit).map { "s\($0)" })
+
+        // 标了索引站点也一样截（顺序照站点清单）。
+        let indexed = (1 ... 20).map { site(key: "i\($0)", indexs: 1) }
+        #expect(AggregateSearchRules.targets(sites: indexed).count == AggregateSearchRules.firstRoundLimit)
+    }
+
     @Test("永久禁搜（searchable=0）的站点不进候选，哪怕标了 indexs")
     func skipsSearchDisabledSites() {
         let sites = [site(key: "a", indexs: 1, searchable: 0), site(key: "b", indexs: 1)]

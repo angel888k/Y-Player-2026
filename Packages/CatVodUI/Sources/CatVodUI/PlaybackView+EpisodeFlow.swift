@@ -55,7 +55,12 @@ extension PlaybackView {
         await engine.play()
     }
 
-    /// 从头播放：清掉进度记录并 seek 到 0。
+    /// 从头播放：清掉进度记录、回到 0 秒**接着播**。
+    ///
+    /// 为什么要显式 `play()`（M28P9）：这条路多是一集播完之后点的（列表里那颗「从头播放」），
+    /// 而三个内核在 `ended` 之后 `seek` 回去都**不会自己再播** —— AVPlayer 的 rate 还是 0、
+    /// mpv 停在 EOF、自研内核停在结束态。只 seek 不 play，点下去画面就停在 0 秒不动
+    /// （同一个文件里的 ``loopCurrentEpisode()`` 一直是 seek + play，这里漏了后半句）。
     func restartFromBeginning() async {
         latestPosition = 0
         isFinished = false
@@ -67,5 +72,6 @@ extension PlaybackView {
             return
         }
         await engine.seek(to: 0)
+        await engine.play()
     }
 }

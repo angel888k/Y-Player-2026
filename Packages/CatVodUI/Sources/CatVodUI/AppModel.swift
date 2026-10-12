@@ -632,7 +632,7 @@ public final class AppModel: ObservableObject {
         tmdbTransportOverride = tmdbTransport
         danmakuTransportOverride = danmakuTransport
         self.defaults = defaults
-        sessionTransport = URLSessionTransport()
+        sessionTransport = URLSessionTransport(sessionConfiguration: Self.siteSessionConfiguration())
         // 存储：优先 GRDB 落库（M08b）；打开失败退回内存实现并如实说明（不许静默）。
         // 这里只替换构造：两个 store 都是协议类型，详情页 / 追剧页 / 播放页一行都不用改。
         let storage = Self.openStorageDatabase(at: storageURL)
@@ -742,6 +742,8 @@ public final class AppModel: ObservableObject {
 
     /// 加载配置。
     public func load(forceRefresh: Bool = false) async {
+        // 冷启动计时的起点（幂等；手动加载不会再推后）。
+        StartupTrace.begin()
         let target = configURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else {
             state = .failed("请先填写配置地址（支持猫源 JSON 或 js2p 的 index.js）")
@@ -755,6 +757,7 @@ public final class AppModel: ObservableObject {
         do {
             let loaded = try await loadSource(target: target, forceRefresh: forceRefresh, repository: repository)
             state = .loaded(loaded)
+            StartupTrace.note("配置已加载", detail: "usedCache=\(loaded.usedCache)")
             // 广告清理规则随配置一起换新（M06d）：本机服务的 `/m3u8` 每个请求读一次，不重启服务。
             refreshAdRules()
             // 缓存里的传输也作废：header / 广告拦截 / 代理都来自旧配置（M06j）。
@@ -777,6 +780,7 @@ public final class AppModel: ObservableObject {
         refreshPlaybackNotice()
         // 站点清单可能已经整体换过（新接口 / 宿主新站点 / 加载失败后清空）：通知界面作废旧内容并重载。
         bumpSiteCatalogRevision()
+        StartupTrace.note("恢复流程完成")
     }
 
     /// 取配置：先看「源缓存时间」——有效期内**直接用本地缓存、一次网络请求都不发**；
@@ -825,9 +829,25 @@ public final class AppModel: ObservableObject {
         guard let config = state.loadedSource?.config else {
             return sessionTransport
         }
-        let transport = URLSessionTransport(configuration: Self.transportConfiguration(for: config))
+        let transport = URLSessionTransport(
+            configuration: Self.transportConfiguration(for: config),
+            sessionConfiguration: Self.siteSessionConfiguration()
+        )
         cachedTransport = transport
         return transport
+    }
+
+    /// 站点请求的 `URLSession` 配置：**每个 host 的并发连接抬到 12**（默认 6）。
+    ///
+    /// 为什么（用户报「搜索影视的速度还是慢」）：主接口的站点全是 js2p 站点，`api` 都指向
+    /// **同一个本机宿主**（`127.0.0.1:<port>`）—— `URLSession` 按 host 限并发（默认 6），
+    /// 聚合搜索那一波站点实际是「6 个一组」排队跑的；一波里混进几个慢站点（15 秒超时那一档），
+    /// 后面几组就全被堵住。抬到 12 与本机宿主的承受力匹配（node 侧是异步 I/O），
+    /// 聚合搜索的首波（`AggregateSearchRules.firstRoundLimit`）才能真正「同时起跑」。
+    static func siteSessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpMaximumConnectionsPerHost = 12
+        return configuration
     }
 
     /// 从接口配置造传输层配置：header / 广告拦截 / **代理选择器**。

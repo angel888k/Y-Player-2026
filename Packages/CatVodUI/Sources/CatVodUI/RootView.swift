@@ -89,19 +89,24 @@ public struct RootView: View {
         .task {
             // 冷启动恢复：本地保存了接口地址就自动加载一次，不必先去「设置 → 源地址」手动点「加载」；
             // 加载完成会自增 `siteCatalogRevision`，首页/搜索/追剧据此拿到站点（见 M02P9）。
-            await model.loadSavedSourceIfNeeded()
+            //
+            // 三件事**互不依赖，并着跑**（M28P9）：冷启动恢复里含「起内嵌 Node 宿主」，那是秒级的；
+            // 串着等它跑完再起本机服务 / 恢复下载，等于白加几秒 —— 用户报「冷启动加载感觉有点慢」，
+            // 这里是能立刻省下的一段。`liveBootEnabled` 要等配置落地再判（它来自直播配置）。
+            async let restoringSource: Void = model.loadSavedSourceIfNeeded()
+            // 本机代理服务（M6）：启动时就起来，播放时才有端口可用
+            // （`playbackResource(_:)` 是同步判定，不能在那里 await）。
+            // 走「开关 ↔ 服务」的对账入口：开关关着就不会白起服务（M06o）。
+            async let startingLocalServer: Void = model.syncLocalServerWithSwitch()
+            // 上次没下完的（被挂起 / 杀掉时留下的 `running` 在这里降级成 `waiting`，M10b/M25）：
+            // 启动就接着跑，不必先进「下载管理」页（M10h）。
+            async let restoringDownloads: Void = model.restoreDownloads()
+            _ = await (restoringSource, startingLocalServer, restoringDownloads)
             // 开机自启（M07d9）：当前直播源带 `boot`（或本机开关打开）→ 启动直接落在「直播」Tab
             // （上游 `ConfigEvent.BOOT` → `LiveActivity.start`）。只是初始 Tab 不同，别的不动。
             if model.liveBootEnabled {
                 selectedTab = .live
             }
-            // 本机代理服务（M6）：启动时就起来，播放时才有端口可用
-            // （`playbackResource(_:)` 是同步判定，不能在那里 await）。
-            // 走「开关 ↔ 服务」的对账入口：开关关着就不会白起服务（M06o）。
-            await model.syncLocalServerWithSwitch()
-            // 上次没下完的（被挂起 / 杀掉时留下的 `running` 在这里降级成 `waiting`，M10b/M25）：
-            // 启动就接着跑，不必先进「下载管理」页（M10h）。
-            await model.restoreDownloads()
             model.startDownloadDriverIfNeeded()
         }
         .onChange(of: scenePhase) { phase in

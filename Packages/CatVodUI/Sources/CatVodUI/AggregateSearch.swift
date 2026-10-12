@@ -46,18 +46,29 @@ enum AggregateSearchRules {
         return nil
     }
 
+    /// **首轮**搜几个站点（上限）。
+    ///
+    /// 为什么要有它（用户报「搜索影视的速度还是慢」）：主接口（kstore 那类）实测有 96 个站点，
+    /// **一个都没标** `indexs` —— 上面那条回落规则于是退化成「96 个一起发」。慢站点（那个接口里
+    /// 好几个站点 15 秒才超时）会把连接池占满，快站点排在后面干等，整面墙十几到几十秒才陆续有内容。
+    /// 首轮只取前 N 个（照站点清单顺序）：这一轮的任务是「先给人看」，几秒内该有东西。
+    /// 一个都没搜到时，补搜轮会把其余的接着搜完（见 `AppModel.searchAcrossSites`）——覆盖率不变。
+    static let firstRoundLimit = 12
+
     /// **首轮**搜哪些站点，保持站点清单的顺序：
     ///
     /// 1. 先取 ``searchableSites(sites:)``；
     /// 2. 其中有站点标了 `indexs == 1`（上游语义：**索引站点，参与聚合搜索**）就先只搜这些；
-    /// 3. 一个都没标就用全部可搜站点 —— 新配置常常没人标 `indexs`，回落总比空墙好。
+    /// 3. 一个都没标就用全部可搜站点 —— 新配置常常没人标 `indexs`，回落总比空墙好；
+    /// 4. 最后再截 ``firstRoundLimit`` 个：不截的话 96 个站点会把本机宿主与连接池堵死（见上）。
     ///
     /// 索引站点**一条都没搜到**时还要补搜其余可搜站点 —— 那一层在
     /// `AppModel.searchAcrossSites(keyword:)` 里（它要拿请求结果才决定），不在这条纯规则里。
     static func targets(sites: [Site]) -> [Site] {
         let searchable = searchableSites(sites: sites)
         let indexed = searchable.filter { $0.indexs == 1 }
-        return indexed.isEmpty ? searchable : indexed
+        let round = indexed.isEmpty ? searchable : indexed
+        return Array(round.prefix(firstRoundLimit))
     }
 
     /// 左栏要的站点串：**只留有命中的站点**（参考图左栏只列有东西的站点），

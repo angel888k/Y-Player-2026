@@ -146,7 +146,13 @@ extension AppModel {
         report(settle())
     }
 
-    /// 一轮并发搜索：**每站回来就回报一次**（逐站 best-effort；失败只记账，不拖累别的站点）。
+    /// 一轮搜索：**分波发**（每波 ``AggregateSearchRules/firstRoundLimit`` 个站点），
+    /// 每站回来就回报一次（逐站 best-effort；失败只记账，不拖累别的站点）。
+    ///
+    /// 为什么分波（用户报「搜索影视的速度还是慢」）：这一路全是打到**同一个本机宿主**的请求
+    /// （js2p 站点的 `api` 都是 `127.0.0.1:<port>`），`URLSession` 按 host 限并发 —— 一次把
+    /// 近百个站点全丢进去，快的也被排在慢的后面（慢站点 15 秒才超时）。分波之后每波都是
+    /// 「同时起跑、同时收尾」，补搜轮也一样（轮与轮之间仍是顺序的）。
     private func searchRound(
         _ keyword: String,
         sites: [Site],
@@ -154,21 +160,27 @@ extension AppModel {
         filler: PictureFiller,
         onSite: (SiteSearchOutcome) async -> Void
     ) async {
-        await withTaskGroup(of: SiteSearchOutcome.self) { group in
-            for site in sites {
-                group.addTask {
-                    do {
-                        let found = try await client.search(site: site, keyword: keyword)
-                        let filled = await filler.fill(site: site, result: found)
-                        return SiteSearchOutcome(key: site.key, items: filled.list, failure: nil)
-                    } catch {
-                        // 只把**可读文案**带过任务边界（`Error` 不保证 `Sendable`，与 `AggregateParser` 同一做法）。
-                        return SiteSearchOutcome(key: site.key, items: [], failure: userFacingMessage(error))
+        var index = 0
+        while index < sites.count {
+            let end = min(index + AggregateSearchRules.firstRoundLimit, sites.count)
+            let wave = Array(sites[index ..< end])
+            index = end
+            await withTaskGroup(of: SiteSearchOutcome.self) { group in
+                for site in wave {
+                    group.addTask {
+                        do {
+                            let found = try await client.search(site: site, keyword: keyword)
+                            let filled = await filler.fill(site: site, result: found)
+                            return SiteSearchOutcome(key: site.key, items: filled.list, failure: nil)
+                        } catch {
+                            // 只把**可读文案**带过任务边界（`Error` 不保证 `Sendable`，与 `AggregateParser` 同一做法）。
+                            return SiteSearchOutcome(key: site.key, items: [], failure: userFacingMessage(error))
+                        }
                     }
                 }
-            }
-            for await outcome in group {
-                await onSite(outcome)
+                for await outcome in group {
+                    await onSite(outcome)
+                }
             }
         }
     }

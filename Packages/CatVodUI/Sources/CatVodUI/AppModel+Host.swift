@@ -45,6 +45,7 @@ public extension AppModel {
             let bundleReplaced = !source.usedCache
             let snapshot = try await service.sites(forceRestartHost: forceRestart || bundleReplaced)
             hostSites = snapshot.sites
+            StartupTrace.note("宿主就绪", detail: "站点 \(snapshot.sites.count)")
             // 刚拿到清单 = 宿主现在活着（省掉一次探活）。
             hostHealth = .online
             let baseURL = await service.currentBaseURL()
