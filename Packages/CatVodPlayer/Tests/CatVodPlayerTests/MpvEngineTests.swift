@@ -446,10 +446,12 @@ struct MpvEngineTests {
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
         await first.value
 
-        #expect(rebuilds() == 1, "同一批尺寸只该重建一次 VO —— 重建一次画面就停一下，停两下就是用户报的「点全屏会顿」")
-        // 落的是**最后**那个：再报一次它不该再重建（假会话报不出 `osd-dimensions`，走的就是重建那条路）。
+        // 假会话从来不报 `osd-dimensions`：一次「没认下」会带出**一次重试**（M28P6），
+        // 所以这里数到的是「一次重建 + 一次重试」——同一批尺寸只落**最后**那个，
+        // 不会因为第一条尺寸（横屏槽位那版）再建一遍。
+        #expect(rebuilds() == 2, "同一批尺寸只建一次（外加没认下的重试一次）—— 多建一次画面就多停一下")
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
-        #expect(rebuilds() == 1)
+        #expect(rebuilds() == 2, "落定之后重复上报不再建")
         // 尺寸站稳后起的自愈探针在后台睡满下蹲时长（3.5s）—— 测试**替它把这觉睡完**再收尾，
         // 别让一个还在跑的 Task 拷着会话进下一个测试（探针本身只读属性、不改状态，断言不受它影响）。
         try? await Task.sleep(nanoseconds: 3_700_000_000)
@@ -465,11 +467,12 @@ struct MpvEngineTests {
         // 探针蹲满下蹲时长 + 500ms 匹配窗口之后才出结论；这里替它把时间走完，再看它没动过状态：
         // 没有第二条 `vo` 命令，也没有把 `appliedVideoAreaSize` 弄脏（再报同一个尺寸仍然不重建）。
         try? await Task.sleep(nanoseconds: 4_100_000_000)
+        // 一次重建 + 一次「没认下」的重试（假会话永远不认，M28P6），探针本身一条命令都不加。
         let rebuilds = session.commands.filter { $0 == ["set", "vo", "null"] }.count
-        #expect(rebuilds == 1)
-        #expect(session.commands.filter { $0 == ["set", "vo", "gpu-next"] }.count == 1)
+        #expect(rebuilds == 2)
+        #expect(session.commands.filter { $0 == ["set", "vo", "gpu-next"] }.count == 2)
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
-        #expect(session.commands.filter { $0 == ["set", "vo", "null"] }.count == 1)
+        #expect(session.commands.filter { $0 == ["set", "vo", "null"] }.count == 2)
     }
 
     @MainActor
@@ -500,7 +503,22 @@ struct MpvEngineTests {
         await engine.setVideoAreaSize(CGSize(width: 402, height: 226.125))
 
         let rebuilds = session.commands.filter { $0 == ["set", "vo", "null"] }.count
-        #expect(rebuilds == 1)
+        #expect(rebuilds == 2, "一次重建 + 一次没认下的重试（假会话不报 `osd-dimensions`）")
+    }
+
+    @Test("画面区尺寸：重建没认下会**重试一次**（VO 没建起来就是黑屏，不能放着不管）")
+    func videoAreaRebuildRetriesWhenNotConfirmed() async throws {
+        let (engine, session) = makeEngine()
+        try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
+
+        await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
+
+        // 假会话永远不报 `osd-dimensions`：第一次重建必定“没认下” —— 引擎应当在半拍后再建一次，
+        // 而不是把一张黑屏留在那儿（用户报的「切全屏有时候黑屏」）。
+        #expect(session.commands.filter { $0 == ["set", "vo", "null"] }.count == 2, "没认下要重试")
+        #expect(session.commands.filter { $0 == ["set", "vo", "gpu-next"] }.count == 2)
+        // 探针还在后台睡（3.5s）：替它睡完再收尾，别让它拷着会话进下一个用例。
+        try? await Task.sleep(nanoseconds: 3_700_000_000)
     }
 
     @Test("画面区尺寸：没有会话 / 尺寸非法时是安全空操作")

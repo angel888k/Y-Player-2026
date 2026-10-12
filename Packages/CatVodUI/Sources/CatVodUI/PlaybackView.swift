@@ -94,6 +94,9 @@ public struct PlaybackView: View {
     @State var engine: (any PlayerEngine)?
     /// 系统内核的画面层（M27）：一层自建的 `AVPlayerLayer`（`SystemVideoView` 把它挂进画面区）。
     /// 换掉 `AVKit.VideoPlayer` 就是为了让系统内核与另外两个内核共用同一套控制条与手势。
+    /// 画面区**当前**尺寸（点）：`onChange` 只在“变化”时来，而起播时尺寸可能早就稳了 ——
+    /// 记一份，引擎建好之后给 mpv **补报一次**（漏报会让它一直按建 VO 那一刻的窗口尺寸出画，M28P6）。
+    @State var videoAreaSize: CGSize = .zero
     @State var systemSurface: SystemVideoSurface?
     /// 画中画（M27，只有系统内核有公开 API 能做）：模型随播放页创建，
     /// 画面层在 `start()` 里挂上去（`attach(layer:)`）—— 见 `Platform/PlaybackPip.swift`。
@@ -556,6 +559,7 @@ public struct PlaybackView: View {
                 // 连着来的尺寸（转屏 + 就地放大）由引擎那边合并成**一次** VO 重建（M28 首验之二十六，
                 // 见 `MpvEngine.setVideoAreaSize`：每次重建画面都要停一下，别停两下）。
                 .onChange(of: proxy.size) { size in
+                    videoAreaSize = size
                     guard let mpv = engine as? MpvEngine else {
                         return
                     }
@@ -741,6 +745,11 @@ extension PlaybackView {
             // 续播：有进度记录就从上次位置起播（已看完或过短会从头，规则在 PlaybackProgress.resumePosition）。
             try await created.load(resumableResource())
             await created.play()
+            // 补报画面区尺寸（M28P6）：`.onChange` 只报“变化”，起播时尺寸已经稳了就一条都没有 ——
+            // mpv 的窗口尺寸是按它建 VO 那一刻定的，漏报会一直按旧尺寸出画（`--wid` 它不会自己发现）。
+            if let mpv = created as? MpvEngine, videoAreaSize.width > 0, videoAreaSize.height > 0 {
+                await mpv.setVideoAreaSize(videoAreaSize)
+            }
             // 套用存档里的倍速：必须在加载**之后**设 —— 引擎在 `load` 时会回到正常速度
             // （倍速属「本次播放的偏好」，引擎不跨资源记忆，见 `AVPlayerEngine.requestedRate`）。
             await created.setRate(speed)

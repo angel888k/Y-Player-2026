@@ -1,7 +1,7 @@
 import Foundation
 
 /// 画面区尺寸 → mpv 的转告（M27 首验之六之十起；M28 首验之二十六：合并 + 串行；之二十七：先探自认 +
-/// 时间账；之二十八：稳定后自愈探针）。
+/// 时间账；之二十八：稳定后自愈探针；M28P6：重建没认下就**重试一次**）。
 ///
 /// 为什么单拆一个文件：这套逻辑加上文档把 `MpvEngine` 的类型体推过了 SwiftLint `type_body_length`
 /// 的 warning 线（300）—— 与 `PlaybackView+*` / `VodDetailView+*` 同一套做法（拆职责，不拆碎）。
@@ -99,15 +99,35 @@ extension MpvEngine {
         let tornDownAt = Date()
         session.command(["set", "vo", "gpu-next"])
         let rebuiltAt = Date()
-        let matched = await waitForVideoOutput(session, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        var matched = await waitForVideoOutput(session, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        var retried = false
+        if !matched, sessionIsAlive(session) {
+            // **没认下 = VO 可能没建起来 ⇒ 画面是黑的，而且不会自己好**（M28P6，用户报「切全屏有时候黑屏」）。
+            // 转屏 / 就地放大那一下窗口还在动，建 VO 赶在中间就可能落空 —— 等半拍在**同一个会话**上再建一次。
+            // 换片 / 换内核之后这条就作废（判据同自愈探针：会话还是不是原来那个）。
+            try? await Task.sleep(nanoseconds: Self.videoOutputRetryDelayNanoseconds)
+            guard sessionIsAlive(session) else {
+                return
+            }
+            // 先看一眼「上一拍是不是只是慢」：重建本身要几百毫秒，慢半拍认下也算认 ——
+            // 已经认下了就不白拆一次 VO（每拆一次画面都要停一下）。
+            matched = await waitForVideoOutput(session, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+            if !matched {
+                retried = true
+                session.command(["set", "vo", "null"])
+                session.command(["set", "vo", "gpu-next"])
+                matched = await waitForVideoOutput(session, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+            }
+        }
         let confirmedAt = Date()
         let elapsed = Int(confirmedAt.timeIntervalSince(startedAt) * 1000)
         let tearDownMs = Int(tornDownAt.timeIntervalSince(startedAt) * 1000)
         let rebuildMs = Int(rebuiltAt.timeIntervalSince(tornDownAt) * 1000)
         let confirmMs = Int(confirmedAt.timeIntervalSince(rebuiltAt) * 1000)
         let matchedText = matched ? "是" : "否"
+        let retryText = retried ? "，重试 1 次后认下 = \(matchedText)" : ""
         let dimensions = session.propertyString("osd-dimensions") ?? "无"
-        let line = "画面区 \(area) 已重建 VO（\(elapsed) ms，认下 = \(matchedText)）；"
+        let line = "画面区 \(area) 已重建 VO（\(elapsed) ms，认下 = \(matchedText)\(retryText)）；"
             + "尺寸到于 \(arrived)｜拆 \(tearDownMs) ms｜建 \(rebuildMs) ms｜认下 \(confirmMs) ms；"
             + "重建前 \(dimensionsBefore)；重建后 \(dimensions)"
         MpvTrace.logger.notice("\(line, privacy: .public)")
@@ -207,6 +227,9 @@ extension MpvEngine {
         return videoOutputMatches(session, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
     }
 
+    /// 重建没认下时，隔多久重试一次（纳秒）：半拍 —— 转屏 / 放大那一下窗口还在动，
+    /// 建 VO 赶在中间可能落空，等它稳一点再建。
+    static let videoOutputRetryDelayNanoseconds: UInt64 = 300_000_000
     /// 等 mpv 认下新尺寸的上限（纳秒）：半秒（重建是一瞬的事，超时就是没认）。
     static let videoOutputMatchTimeoutNanoseconds: UInt64 = 500_000_000
     /// 轮询间隔（纳秒）：20ms —— 一帧多，比固定睡 300ms 更快也更准。
