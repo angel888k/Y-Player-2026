@@ -37,10 +37,10 @@ struct AggregateSearchTests {
         #expect(AggregateSearchRules.searchDisabledReason(jarSite)?.contains("JVM") == true)
     }
 
-    @Test("有索引站点就只搜「索引站点」——上游 indexs 的语义就是参与聚合搜索")
+    @Test("索引站点排最前，但不是「只搜它们」——其余站点照样跟在后面（M28P15 口径）")
     func prefersIndexSites() {
         let sites = [site(key: "a"), site(key: "b", indexs: 1), site(key: "c", indexs: 1)]
-        #expect(AggregateSearchRules.targets(sites: sites).map(\.key) == ["b", "c"])
+        #expect(AggregateSearchRules.targets(sites: sites).map(\.key) == ["b", "c", "a"])
     }
 
     @Test("一个索引站点都没有就回落全部可搜站点（新配置常常没人标 indexs）")
@@ -49,38 +49,26 @@ struct AggregateSearchTests {
         #expect(AggregateSearchRules.targets(sites: sites).map(\.key) == ["a", "b"])
     }
 
-    @Test("首轮截前 N 个：96 个站点的主接口不再「一次全发」（慢站点会把连接池堵死）")
-    func capsFirstRound() {
-        // 一个索引站点都没标：回落「全部可搜」之后还要照上限截。
+    @Test("先搜哪些：索引站点排最前，其余跟在后面；**不截断**（搜索要覆盖所有站点）")
+    func targetsOrderIsNotATruncation() {
+        // 30 个站点一个都没标索引：照站点清单顺序，一个都不少。
         let plain = (1 ... 30).map { site(key: "s\($0)") }
-        let targets = AggregateSearchRules.targets(sites: plain)
-        #expect(targets.count == AggregateSearchRules.firstRoundLimit)
-        #expect(targets.map(\.key) == (1 ... AggregateSearchRules.firstRoundLimit).map { "s\($0)" })
+        #expect(AggregateSearchRules.targets(sites: plain).map(\.key) == (1 ... 30).map { "s\($0)" })
 
-        // 标了索引站点也一样截（顺序照站点清单）。
-        let indexed = (1 ... 20).map { site(key: "i\($0)", indexs: 1) }
-        #expect(AggregateSearchRules.targets(sites: indexed).count == AggregateSearchRules.firstRoundLimit)
+        // 标了索引站点：它们排最前，其余照原顺序跟上（全都在，只是顺序不同）。
+        var mixed = (1 ... 6).map { site(key: "s\($0)") }
+        mixed[3] = site(key: "s4", indexs: 1)
+        mixed[5] = site(key: "s6", indexs: 1)
+        #expect(AggregateSearchRules.targets(sites: mixed).map(\.key) == ["s4", "s6", "s1", "s2", "s3", "s5"])
     }
 
-    @Test("补搜轮：够用就停 / 搜满上限也停 / 没得搜了就停（96 个站点不再全扫一遍）")
-    func fallbackBounds() {
-        // 还没命中、还有站点、还没搜满：继续。
-        #expect(AggregateSearchRules.shouldContinueFallback(hitSiteCount: 0, wavesSearched: 0, remainingSites: 90))
-        #expect(AggregateSearchRules.shouldContinueFallback(hitSiteCount: 2, wavesSearched: 2, remainingSites: 20))
-        // 够「挑入口」了：停。
-        #expect(!AggregateSearchRules.shouldContinueFallback(
-            hitSiteCount: AggregateSearchRules.enoughHitSites,
-            wavesSearched: 1,
-            remainingSites: 20
-        ))
-        // 搜满补搜轮上限：停。
-        #expect(!AggregateSearchRules.shouldContinueFallback(
-            hitSiteCount: 0,
-            wavesSearched: AggregateSearchRules.fallbackWaveLimit,
-            remainingSites: 20
-        ))
-        // 没什么可搜的了：停。
-        #expect(!AggregateSearchRules.shouldContinueFallback(hitSiteCount: 0, wavesSearched: 1, remainingSites: 0))
+    @Test("总时长预算：没到点就接着开新站点，到点就只等手里的（一轮搜索总要收尾）")
+    func searchTimeBudget() {
+        let now = Date()
+        let deadline = now.addingTimeInterval(AggregateSearchRules.searchTimeLimit)
+        #expect(AggregateSearchRules.shouldStartAnotherSite(now: now, deadline: deadline))
+        #expect(!AggregateSearchRules.shouldStartAnotherSite(now: deadline, deadline: deadline))
+        #expect(!AggregateSearchRules.shouldStartAnotherSite(now: deadline.addingTimeInterval(5), deadline: deadline))
     }
 
     @Test("永久禁搜（searchable=0）的站点不进候选，哪怕标了 indexs")

@@ -6,15 +6,13 @@ import Foundation
 struct AggregateSearchOutcome {
     /// 有命中的站点（左栏 + 右栏的数据源）。
     let sections: [AggregateSearchSection]
-    /// 参与本轮搜索的站点数（首轮 + 可能补搜的第二轮）—— 左栏「全部 (命中/参与)」的分母。
+    /// 参与本轮搜索的站点数（**全部可搜站点**，M28P15）—— 左栏「全部 (命中/参与)」与进度「已回 n/m」的分母。
     let searchedCount: Int
     /// **已回报**的站点数（含失败）—— 界面「已回 n/m」的进度分子。
     let reportedCount: Int
     /// 失败站点的可读原因（`站点名：原因`）。模型侧诊断留着，**界面按用户口径不再显示**
     /// （连接不上的站点不上墙、只显示搜到的）。
     let failures: [String]
-    /// 索引站点首轮零命中后是否补搜了其余可搜站点。
-    let didFallBackToAllSites: Bool
 }
 
 extension AppModel {
@@ -36,8 +34,8 @@ extension AppModel {
     /// - **先吐缓存那份**（M28P5，用户口径「从已经缓存的站点搜索」）：首轮站点里凡是有
     ///   `站点 + 关键词` 命中缓存的，**一字节网络都不发**先把它们回报出去（墙面立刻有内容），
     ///   实时那轮照旧跑 —— 有新结果就覆盖，失败 / 这次零命中就把缓存那份摘掉；
-    /// - 站点范围：``AggregateSearchRules/targets(sites:)``（索引站点优先）——
-    ///   **首轮一条都没搜到时补搜其余可搜站点**：空墙不等于「别的站点没有」，这面墙是给人挑入口用的；
+    /// - 站点范围：``AggregateSearchRules/targets(sites:)`` —— **全部可搜站点**（M28P15，用户口径
+    ///   「并发搜索接口的所有站点」）：索引站点排最前（它们通常秒回），其余照站点清单顺序接着进流水线；
     /// - **逐站 best-effort**：某站失败只跳过它、不拖累别的站点；失败原因模型侧留着诊断，
     ///   界面按用户口径**不上墙**（连接不上的站点不显示、只显示搜到的）；
     /// - 每站只取**第一页**：这面墙是「挑一个入口」用的，不是浏览器（要翻页去搜索页）；
@@ -64,16 +62,13 @@ extension AppModel {
         let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
         // 站点范围 = 能搜的 − 「筛选站源」里关掉的（两个入口共用这一条，见 searchEnabledSites）。
         let allSearchable = searchEnabledSites
-        let indexed = allSearchable.filter { $0.indexs == 1 }
-        let firstRound = indexed.isEmpty ? allSearchable : indexed
-        guard !trimmed.isEmpty, !firstRound.isEmpty else {
+        guard !trimmed.isEmpty, !allSearchable.isEmpty else {
             // 边角也要回报一份：消费端靠「至少一份」收尾（空态文案用它）。
             report(AggregateSearchOutcome(
                 sections: [],
-                searchedCount: firstRound.count,
+                searchedCount: allSearchable.count,
                 reportedCount: 0,
-                failures: [],
-                didFallBackToAllSites: false
+                failures: []
             ))
             return
         }
@@ -84,17 +79,16 @@ extension AppModel {
             allSearchable.map { ($0.key, siteDisplayName(for: $0)) },
             uniquingKeysWith: { first, _ in first }
         )
-        var searchedKeys = Set(firstRound.map(\.key))
+        // 「参与」= **全部可搜站点**（M28P15，用户口径：搜索要覆盖接口的所有站点）——
+        // 进度行「已回 n/m」的分母就是这个数，逐站回报时 n 往上走。
+        var searchedKeys = Set(allSearchable.map(\.key))
         var hits: [String: [VodItem]] = [:]
         var failuresByKey: [String: String] = [:]
         var reportedCount = 0
-        var didFallBack = false
 
         // 缓存那份先上墙（见本函数文档第一条；M28P13 起**跨全部可搜站点**去找）：
-        // 原先只看首轮那 ≤12 个站点的缓存 —— 而缓存命中常常落在别的站点上（首轮没搜到、
-        // 补搜轮才搜到的那种）：那种情况下「重搜同一部片」还是得等网络。现在有缓存的站点
-        // （≤10 分钟）直接上墙，并且**计入「参与」**（`searchedKeys`）—— 墙上立刻有内容，
-        // `enoughHitSites` 也立刻够数，整轮搜索几秒内收口（不再跑补搜轮）。
+        // 有缓存的站点（≤10 分钟）直接上墙（它们本来就在「参与」里）—— 重搜同一部片时
+        // 墙上一开始就有内容，网络那轮照旧跑（有新结果覆盖、零命中摘掉）。
         let cachedHits = await searchCache.hits(forSiteKeys: allSearchable.map(\.key), keyword: trimmed)
         if !cachedHits.isEmpty {
             hits = cachedHits
@@ -104,7 +98,7 @@ extension AppModel {
 
         /// 把「目前已收到的」结算成一份 outcome：逐站回报与最终那份共用同一条。
         func settle() -> AggregateSearchOutcome {
-            // 归位顺序统一照**站点清单**：首轮与补搜轮谁先回来都不算数。
+            // 归位顺序统一照**站点清单**：并发谁先回来都不算数。
             let searchedSites = allSearchable.filter { searchedKeys.contains($0.key) }
             let failures = searchedSites.compactMap { site -> String? in
                 guard let reason = failuresByKey[site.key] else {
@@ -116,8 +110,7 @@ extension AppModel {
                 sections: AggregateSearchRules.sections(sites: searchedSites, hits: hits, names: names),
                 searchedCount: searchedSites.count,
                 reportedCount: reportedCount,
-                failures: failures,
-                didFallBackToAllSites: didFallBack
+                failures: failures
             )
         }
 
@@ -138,70 +131,87 @@ extension AppModel {
             report(settle())
         }
 
-        await searchRound(trimmed, sites: firstRound, client: client, filler: filler, onSite: note)
-        if !Task.isCancelled, hits.isEmpty, !indexed.isEmpty, indexed.count < allSearchable.count {
-            // 索引站点一条都没有：把其余的接着搜（顺序照站点清单）—— **分波、够用就停**（M28P11）：
-            // 原先是一轮把剩下 94 个站点全扫完，界面上的「搜索中」要挂到扫完（分钟级）才结束。
-            // 现在每波 `firstRoundLimit` 个，墙上够 `enoughHitSites` 个站点命中、或搜满
-            // `fallbackWaveLimit` 波就收手（这面墙是「挑入口」用的，不是把 96 个站点全扫一遍）。
-            var waves = 0
-            while !Task.isCancelled,
-                  AggregateSearchRules.shouldContinueFallback(
-                      hitSiteCount: hits.count,
-                      wavesSearched: waves,
-                      remainingSites: allSearchable.count - searchedKeys.count
-                  )
-            {
-                let rest = allSearchable.filter { !searchedKeys.contains($0.key) }
-                let wave = Array(rest.prefix(AggregateSearchRules.firstRoundLimit))
-                guard !wave.isEmpty else {
-                    break
-                }
-                searchedKeys.formUnion(wave.map(\.key))
-                didFallBack = true
-                await searchRound(trimmed, sites: wave, client: client, filler: filler, onSite: note)
-                waves += 1
-            }
-        }
+        // 总时长预算：一次搜索从这一刻起算（到点后不再开新站点、在飞的等它们回来 —— 见 `searchRound`）。
+        let startedAt = Date()
+        let deadline = startedAt.addingTimeInterval(AggregateSearchRules.searchTimeLimit)
+        // 站点范围 = **全部可搜站点**（M28P15，用户口径「并发搜索接口的所有站点」）：
+        // `targets` 把索引站点排到最前（它们通常秒回），其余照站点清单顺序接着进流水线；
+        // 谁先回来谁先上墙（逐站回报），慢站点只占它自己那一格、由总预算兜底。
+        await searchRound(
+            trimmed,
+            sites: AggregateSearchRules.targets(sites: allSearchable),
+            client: client,
+            filler: filler,
+            deadline: deadline,
+            onSite: note
+        )
         report(settle())
+        // 诊断（M28P15）：把「这一轮到底搜了多少站点」钉进日志（用户 Mac 上 `grep 聚合搜索` 可核对）。
+        SearchTrace.noteFinished(
+            sites: allSearchable.count,
+            reported: reportedCount,
+            hitSites: hits.count,
+            elapsedMs: Int(Date().timeIntervalSince(startedAt) * 1000)
+        )
     }
 
-    /// 一轮搜索：**分波发**（每波 ``AggregateSearchRules/firstRoundLimit`` 个站点），
-    /// 每站回来就回报一次（逐站 best-effort；失败只记账，不拖累别的站点）。
+    /// 一圈搜索：**并发打**这些站点（同时在飞的站点数封顶 ``AggregateSearchRules/concurrentLimit``），
+    /// 每站回来立刻回报一次（逐站 best-effort；失败只记账，不拖累别的站点）。
     ///
-    /// 为什么分波（用户报「搜索影视的速度还是慢」）：这一路全是打到**同一个本机宿主**的请求
-    /// （js2p 站点的 `api` 都是 `127.0.0.1:<port>`），`URLSession` 按 host 限并发 —— 一次把
-    /// 近百个站点全丢进去，快的也被排在慢的后面（慢站点 15 秒才超时）。分波之后每波都是
-    /// 「同时起跑、同时收尾」，补搜轮也一样（轮与轮之间仍是顺序的）。
+    /// 为什么是「填满在飞的额度、谁回来补谁」而不是「一批一批等齐」（M28P15）：一批里只要有一个
+    /// 慢站点（15 秒超时那一档、甚至悬着），这一批的**所有**空位都得等它 —— 96 个站点会变成一串
+    /// 「等最慢的那个」的串行。这里改成流水线：一个回来就马上补下一个进去，慢站点只占它自己那一格。
+    ///
+    /// - Parameter deadline: 到点后不再补新的站点（在飞的等它们回来）—— 保证一轮搜索总能收尾。
     private func searchRound(
         _ keyword: String,
         sites: [Site],
         client: SiteClient,
         filler: PictureFiller,
+        deadline: Date,
         onSite: (SiteSearchOutcome) async -> Void
     ) async {
-        var index = 0
-        while index < sites.count {
-            let end = min(index + AggregateSearchRules.firstRoundLimit, sites.count)
-            let wave = Array(sites[index ..< end])
-            index = end
-            await withTaskGroup(of: SiteSearchOutcome.self) { group in
-                for site in wave {
-                    group.addTask {
-                        do {
-                            let found = try await client.search(site: site, keyword: keyword)
-                            let filled = await filler.fill(site: site, result: found)
-                            return SiteSearchOutcome(key: site.key, items: filled.list, failure: nil)
-                        } catch {
-                            // 只把**可读文案**带过任务边界（`Error` 不保证 `Sendable`，与 `AggregateParser` 同一做法）。
-                            return SiteSearchOutcome(key: site.key, items: [], failure: userFacingMessage(error))
-                        }
-                    }
-                }
-                for await outcome in group {
-                    await onSite(outcome)
-                }
+        await withTaskGroup(of: SiteSearchOutcome.self) { group in
+            var next = 0
+            // 先把在飞额度填满（流水线：一个回来就补下一个 —— 不是「一批等齐」，见上面的说明）。
+            while next < sites.count, next < AggregateSearchRules.concurrentLimit {
+                let site = sites[next]
+                next += 1
+                group.addTask { await Self.searchOneSite(site, keyword: keyword, client: client, filler: filler) }
             }
+            for await outcome in group {
+                await onSite(outcome)
+                // 预算内就补下一个（到点就不补了，在飞的照旧等回来）。
+                guard next < sites.count, !Task.isCancelled,
+                      AggregateSearchRules.shouldStartAnotherSite(now: Date(), deadline: deadline)
+                else {
+                    continue
+                }
+                let site = sites[next]
+                next += 1
+                group.addTask { await Self.searchOneSite(site, keyword: keyword, client: client, filler: filler) }
+            }
+        }
+    }
+
+    /// 搜一个站点：命中带回条目；失败只带回一句可读原因（逐站 best-effort）。
+    ///
+    /// `nonisolated static` 的理由：它要能进 `group.addTask` 的 `@Sendable` 闭包 ——
+    /// 那个闭包里**不能碰 `self`**（`AppModel` 是 `@MainActor` 类、不是 `Sendable`），
+    /// 所以做成静态、需要的四个值都由参数带进去。
+    private nonisolated static func searchOneSite(
+        _ site: Site,
+        keyword: String,
+        client: SiteClient,
+        filler: PictureFiller
+    ) async -> SiteSearchOutcome {
+        do {
+            let found = try await client.search(site: site, keyword: keyword)
+            let filled = await filler.fill(site: site, result: found)
+            return SiteSearchOutcome(key: site.key, items: filled.list, failure: nil)
+        } catch {
+            // 只把**可读文案**带过任务边界（`Error` 不保证 `Sendable`，与 `AggregateParser` 同一做法）。
+            return SiteSearchOutcome(key: site.key, items: [], failure: userFacingMessage(error))
         }
     }
 }

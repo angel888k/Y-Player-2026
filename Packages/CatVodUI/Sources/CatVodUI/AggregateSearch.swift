@@ -46,54 +46,44 @@ enum AggregateSearchRules {
         return nil
     }
 
-    /// **首轮**搜几个站点（上限）。
+    /// 一次搜索最多**同时**打几个站点（并发上限）。
     ///
-    /// 为什么要有它（用户报「搜索影视的速度还是慢」）：主接口（kstore 那类）实测有 96 个站点，
-    /// **一个都没标** `indexs` —— 上面那条回落规则于是退化成「96 个一起发」。慢站点（那个接口里
-    /// 好几个站点 15 秒才超时）会把连接池占满，快站点排在后面干等，整面墙十几到几十秒才陆续有内容。
-    /// 首轮只取前 N 个（照站点清单顺序）：这一轮的任务是「先给人看」，几秒内该有东西。
-    /// 一个都没搜到时，补搜轮会把其余的接着搜完（见 `AppModel.searchAcrossSites`）——覆盖率不变。
-    static let firstRoundLimit = 12
+    /// 用户口径（M28P15）：「搜索要并发搜接口的**所有**站点」—— 所以这个数字管的是并发，
+    /// **不是**「只搜前 N 个」。取 12 的理由：主接口（js2p）的站点 `api` 都指向同一个本机宿主
+    /// （`127.0.0.1:<port>`），而传输层每个 host 就是 12 条连接（`AppModel.siteSessionConfiguration`）
+    /// —— 与它对齐，再多也是在连接池里排队。
+    static let concurrentLimit = 12
 
-    /// 补搜轮最多再搜几波（每波 ``firstRoundLimit`` 个站点）。
+    /// 一轮搜索的总时长预算（秒）：到点后**不再开新的站点**，在飞的等它们回来。
     ///
-    /// 为什么要它（M28P11，用户第三次报「搜索影视的速度还是慢」）：实测主接口 96 个站点里
-    /// 一半是慢站点 / 死站点（15 秒才超时、有的干脆悬着），而**标了 `indexs` 的只有 2 个**
-    /// （「豆瓣|首页」「日期:…」——它们对任意关键词都在几毫秒内返回**空列表**）。
-    /// 于是每次搜索都要走「首轮 2 个（秒回、零命中）→ 补搜轮把剩下 94 个全扫一遍」：
-    /// 界面上的「搜索中」要挂到一整轮扫完才结束（分钟级），这就是「还是慢」。
-    static let fallbackWaveLimit = 3
+    /// 为什么要有个总预算：口径是「搜所有站点」，可主接口里就是有一批慢站点 / 死站点
+    /// （实测：15 秒才连接重置、甚至悬着不返回）。没有总预算，一次搜索可能永远收不了尾、
+    /// 界面一直挂在「搜索中」；有预算则「到点收工、墙上已有的就是结果」，而且**通常几秒就完**
+    /// （并发 + 逐站回报：快的站点第一两秒就上墙了）。
+    static let searchTimeLimit: TimeInterval = 30
 
-    /// 墙上有几个站点命中就够「挑入口」了：够数就停止补搜（剩下的站点下次再搜）。
-    static let enoughHitSites = 3
-
-    /// 补搜轮还要不要接着搜（**纯函数**，有单测）：够用就停。
-    ///
-    /// - Parameters:
-    ///   - hitSiteCount: 现在墙上有几个站点命中；
-    ///   - wavesSearched: 补搜轮已经搜了几波；
-    ///   - remainingSites: 还没搜过的站点数（0 = 没什么可搜的了）。
-    static func shouldContinueFallback(hitSiteCount: Int, wavesSearched: Int, remainingSites: Int) -> Bool {
-        guard remainingSites > 0, wavesSearched < fallbackWaveLimit else {
-            return false
-        }
-        return hitSiteCount < enoughHitSites
+    /// 还开不开新的一站（**纯函数**，有单测）：`now` 还没到 `deadline` 就开，到了就只等手里的。
+    static func shouldStartAnotherSite(now: Date, deadline: Date) -> Bool {
+        now < deadline
     }
 
-    /// **首轮**搜哪些站点，保持站点清单的顺序：
+    /// **先搜**哪些站点（顺序；不代表范围 —— 范围是「所有可搜站点」）：
     ///
     /// 1. 先取 ``searchableSites(sites:)``；
-    /// 2. 其中有站点标了 `indexs == 1`（上游语义：**索引站点，参与聚合搜索**）就先只搜这些；
-    /// 3. 一个都没标就用全部可搜站点 —— 新配置常常没人标 `indexs`，回落总比空墙好；
-    /// 4. 最后再截 ``firstRoundLimit`` 个：不截的话 96 个站点会把本机宿主与连接池堵死（见上）。
+    /// 2. 其中有站点标了 `indexs == 1`（上游语义：**索引站点，参与聚合搜索**）就把它们排在最前；
+    /// 3. 一个都没标就照站点清单顺序从头搜。
     ///
-    /// 索引站点**一条都没搜到**时还要补搜其余可搜站点 —— 那一层在
-    /// `AppModel.searchAcrossSites(keyword:)` 里（它要拿请求结果才决定），不在这条纯规则里。
+    /// 索引站点只是**排前面**：其余的站点由 `AppModel.searchAcrossSites(keyword:)` 接着并发搜完
+    /// （用户口径 M28P15：搜索要覆盖接口的所有站点）。
     static func targets(sites: [Site]) -> [Site] {
         let searchable = searchableSites(sites: sites)
         let indexed = searchable.filter { $0.indexs == 1 }
-        let round = indexed.isEmpty ? searchable : indexed
-        return Array(round.prefix(firstRoundLimit))
+        guard !indexed.isEmpty else {
+            return searchable
+        }
+        // 索引站点在前；其余照原顺序跟在后面。
+        let indexedKeys = Set(indexed.map(\.key))
+        return indexed + searchable.filter { !indexedKeys.contains($0.key) }
     }
 
     /// 左栏要的站点串：**只留有命中的站点**（参考图左栏只列有东西的站点），
