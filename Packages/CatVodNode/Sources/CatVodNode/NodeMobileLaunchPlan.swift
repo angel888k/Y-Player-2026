@@ -9,7 +9,12 @@ import Foundation
 /// 约定与参考实现一致（`nodejs-mobile-cordova` 的 `CDVNodeJS.mm` + `NodeJSRunner.mm`）：
 /// - `argv[0]` 固定为 `"node"`；
 /// - 末尾是脚本路径，于是 `process.argv[1]` 必须以 `index.js` 结尾 —— 这正是 bundle 的自启动条件；
-/// - 可选 `-r <preload>`：在 bundle 之前先加载一段补丁脚本（预留能力，当前不启用）。
+/// - 固定带 `--no-experimental-fetch`：iOS 版 libnode 没有 WebAssembly，而只要全局
+///   `fetch`/`Headers`/`Request`/`Response`/`FormData` 还挂着（node 18 的 `setupFetch`），
+///   bundle 的 `globalThis.X ||= 自家实现` 就会先**读**那些惰性 getter，把 undici 拽进来
+///   并当场抛 `ReferenceError: WebAssembly is not defined`（2026-10-12 实测，见 ``NodePreloadScript``）。
+///   这个开关让 node 索性不定义那一族全局；
+/// - 可选 `-r <preload>`：在 bundle 之前先加载一段补丁脚本。
 public struct NodeMobileLaunchPlan: Sendable, Equatable {
     /// 传给 `node_start(argc, argv)` 的参数列表。
     public let arguments: [String]
@@ -20,6 +25,9 @@ public struct NodeMobileLaunchPlan: Sendable, Equatable {
 
     public init(configuration: NodeRuntimeConfiguration, preloadURL: URL? = nil) {
         var arguments = ["node"]
+        // 自启动条件只认「argv[1] 以 index.js 结尾」，而 node 会先吃掉自己的选项
+        // （`--no-experimental-fetch` / `-r` 都不会进 `process.argv`），所以顺序不影响契约。
+        arguments.append("--no-experimental-fetch")
         if let preloadURL {
             arguments.append(contentsOf: ["-r", preloadURL.path])
         }

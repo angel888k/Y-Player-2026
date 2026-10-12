@@ -10,12 +10,21 @@ import Foundation
 ///   会让 node 调 `process.exit()`，而它退出就等于**宿主 App 退出**；
 /// - 我们 `dup2` 抓到的 stdout 缓冲**随进程一起消失**，事后无从取证。
 ///
-/// 因此预载做两件**只影响诊断、不改变 bundle 行为**的事：
+/// 因此预载做三件事：
 ///
 /// 1. 把运行环境（版本、`argv`、`cwd`、关键 env、核心模块可用性）与致命错误
 ///    **逐行追加到 `YPLAYER_NODE_LOG`** —— 进程死了文件还在，这是唯一能带回来的证据；
 /// 2. 拦截 `process.exit` / `uncaughtException` / `unhandledRejection`：记录堆栈并**保活**。
-///    这样「宿主起不来」会变成界面上的「宿主未就绪 + 日志尾部」，而不是闪退。
+///    这样「宿主起不来」会变成界面上的「宿主未就绪 + 日志尾部」，而不是闪退；
+/// 3. **摘掉 undici 背着的全局接口**（只在没有 `WebAssembly` 的 iOS libnode 上）：
+///    node 18 里 `fetch`/`Headers`/`Request`/`Response`/`FormData` 都由 undici 背书
+///    （`fetch` 是包装函数，其余四个是**惰性 getter**）—— **读一下**就会加载 undici 的
+///    模块图，而它在没有 WebAssembly 的 iOS 上加载即抛
+///    `ReferenceError: WebAssembly is not defined`（2026-10-12 实测：kstore 的 6.5 MB
+///    bundle 启动时中招，宿主拿不到就绪行，落盘日志里是完整 undici 栈）。
+///    bundle 自带的兜底（`globalThis.X ||= 自家实现`）恰恰死在「先读一下」上；
+///    把这一族摘掉，它就会装上自己的 node-fetch v3。
+///    启动参数那边还有一层 `--no-experimental-fetch`（见 ``NodeMobileLaunchPlan``）。
 ///
 /// 平台无关（只依赖 Foundation）：macOS 上也能单测脚本内容与写盘行为。
 public enum NodePreloadScript {
@@ -55,6 +64,39 @@ public enum NodePreloadScript {
       write('preload entry=' + (process.argv[1] || '<none>'));
       write('preload DEV_HTTP_PORT=' + process.env.DEV_HTTP_PORT
         + ' HOST=' + process.env.HOST);
+
+      /* nodejs-mobile 18（fork 的 lib/internal/process/pre_execution.js「setupFetch」）里：
+       * `fetch` 是包着 undici 的函数，`FormData`/`Headers`/`Request`/`Response` 是**惰性 getter** ——
+       * 读一下就 require('internal/deps/undici/undici')，而 iOS 版 libnode 没有 WebAssembly，
+       * undici 的模块图在加载时就会抛 `ReferenceError: WebAssembly is not defined`
+       * （llhttp wasm；2026-10-12 实测：kstore 的 6.5 MB bundle 启动时中招，宿主卡死）。
+       * bundle 本来有兜底（`globalThis.X ||= 自家实现`），却被这个「先读一下」毁掉 ——
+       * 所以这里在 bundle 之前把这一族全局接口摘掉，只查属性描述符、**不读取访问器**
+       * （读取本身就会触发加载）。`Blob` 来自 buffer、不背 undici，不动它。
+       * 启动参数那边还有一层 `--no-experimental-fetch`（见 NodeMobileLaunchPlan），
+       * 两层都生效时这一族本来就不存在，这里会记下「一个都没有」。 */
+      if (typeof WebAssembly === 'undefined') {
+        var undiciBackedGlobals = ['fetch', 'Headers', 'Request', 'Response', 'FormData'];
+        var removedGlobals = [];
+        undiciBackedGlobals.forEach(function (name) {
+          if (!Object.getOwnPropertyDescriptor(globalThis, name)) {
+            return;
+          }
+          var removed = false;
+          try { removed = delete globalThis[name]; } catch (deleteError) {}
+          if (!removed) {
+            try {
+              Object.defineProperty(globalThis, name, { value: undefined, writable: true, configurable: true });
+              removed = true;
+            } catch (defineError) {}
+          }
+          if (removed) {
+            removedGlobals.push(name);
+          }
+        });
+        write('preload 摘掉 undici 背着的全局接口（无 WebAssembly 的 iOS libnode）: '
+          + (removedGlobals.length > 0 ? removedGlobals.join(', ') : '(一个都没有)'));
+      }
 
       /* iOS 版 libnode 不提供全部核心模块（无 child_process / worker_threads）。
        * 逐个试加载并记录：这样「bundle 一起手就没有就绪行」时有第一手证据 —— 正是

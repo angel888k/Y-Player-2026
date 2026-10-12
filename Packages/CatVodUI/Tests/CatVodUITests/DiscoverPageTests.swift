@@ -54,6 +54,29 @@ struct DiscoverPageTests {
         #expect(merged2.filters == richer.filters)
     }
 
+    // MARK: - DiscoverLoadEpoch
+
+    @Test("加载代次：新一次加载让旧号作废（旧请求晚到的内容 / 报错都不再写）")
+    func loadEpochBeginInvalidatesOlder() {
+        var epoch = DiscoverLoadEpoch()
+        let first = epoch.begin()
+        #expect(epoch.isCurrent(first))
+        let second = epoch.begin()
+        #expect(!epoch.isCurrent(first), "旧号必须失效，否则晚到的失败会盖在新内容上")
+        #expect(epoch.isCurrent(second))
+    }
+
+    @Test("加载代次：作废事件（换站点 / 换接口 / 清空内容）让所有在飞的加载失效")
+    func loadEpochInvalidateVoidsInflight() {
+        var epoch = DiscoverLoadEpoch()
+        let inflight = epoch.begin()
+        epoch.invalidate()
+        #expect(!epoch.isCurrent(inflight))
+        // 作废之后发起的新加载照常生效。
+        let next = epoch.begin()
+        #expect(epoch.isCurrent(next))
+    }
+
     // MARK: - SiteSelection
 
     @Test("选站点还原：当前选择优先；没了用上次保存的；都没有才回落首个")

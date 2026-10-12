@@ -32,6 +32,17 @@ struct NodePreloadScriptTests {
         #expect(NodePreloadScript.source.contains("module MISSING"))
     }
 
+    @Test("无 WebAssembly 的 iOS libnode：摘掉整族 undici 全局 —— 读一下惰性 getter 就会把 undici 拽进来炸")
+    func neutralizesUndiciGlobalsWithoutWebAssembly() {
+        let source = NodePreloadScript.source
+        #expect(source.contains("typeof WebAssembly === 'undefined'"))
+        #expect(source.contains("'fetch', 'Headers', 'Request', 'Response', 'FormData'"))
+        // 必须用描述符判定：`typeof globalThis.fetch` 这类**读取**会触发 node 的惰性 getter，
+        // 那正是要避开的动作（读一下就 require undici）。
+        #expect(source.contains("Object.getOwnPropertyDescriptor(globalThis, name)"))
+        #expect(source.contains("delete globalThis[name]"))
+    }
+
     @Test("物化到临时目录：内容可读回，且同内容不重复写")
     func materializeIsIdempotent() throws {
         let url = try NodePreloadScript.materialize()
@@ -68,6 +79,7 @@ struct NodePreloadLaunchPlanTests {
         #expect(
             plan.arguments == [
                 "node",
+                "--no-experimental-fetch",
                 "-r",
                 "/tmp/yplayer-node/yplayer-node-preload.js",
                 "/tmp/bundle/index.js",

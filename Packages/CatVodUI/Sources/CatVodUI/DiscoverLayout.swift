@@ -34,6 +34,37 @@ enum DiscoverPaging {
     }
 }
 
+/// 发现页「这次加载还算不算数」的代次账（M28 首验之三十二）。
+///
+/// 为什么需要它：`loadHome` / `loadCategory` / `loadMore` / `loadSections` 都是
+/// 「发起 → await → 写状态」。写之前用户可能已经换了站点 / 换了分类，或者又发起了更新的一次
+/// 加载；旧请求晚到的结果如果照写，会：
+///
+/// - 把已经正常的页面**涂上一条过期红字**（用户报的「站点加载正常却显示网络报错」）；
+/// - 或把新内容**整页盖回旧内容**（快速连点分类 / 筛选时看得见）。
+///
+/// 规则：`begin()` 占一个新号；`invalidate()` 让所有在飞的号作废（换站点 / 换接口时用）；
+/// 写状态前 `isCurrent(_:)` 不为真就整段丢弃 —— 不重试、不提示，「新的那次」会给出最终状态。
+struct DiscoverLoadEpoch {
+    private(set) var current = 0
+
+    /// 占一个新号（每次发起加载）。
+    mutating func begin() -> Int {
+        current += 1
+        return current
+    }
+
+    /// 作废所有在飞的加载（换站点 / 换接口 / 清空内容）。
+    mutating func invalidate() {
+        current += 1
+    }
+
+    /// 这个号还是不是当前号。
+    func isCurrent(_ epoch: Int) -> Bool {
+        epoch == current
+    }
+}
+
 /// 发现页的**内容合并**：分类 / 翻页响应落回 `result` 前的保护规则。
 ///
 /// 为什么要有它：分类条（`class`）与筛选行（`filters`）的数据都由**首页**响应提供，

@@ -13,11 +13,15 @@ import NodeMobile
 /// | 就绪 | 把 fd 1/2 重定向到管道，按行解析 `CatVodSpiderios listening on …` | `docs/js2p宿主契约.md` |
 ///
 /// 硬约束（nodejs-mobile 的既定事实，不是我们的选择）：
-/// - **每进程只能起一个 Node 实例**，`node_start` 不可重入；
+/// - **每进程只能起一个 Node 实例**，`node_start` 不可重入 —— 第二次调用会在
+///   `InitializeNodeWithArgs` 的 `CHECK(!init_called…)` 上 **abort 整个进程**
+///   （fork v18.20.4 的 `src/node.cc`），所以「还能不能启动」由 ``NodeMobileStartLedger``
+///   在调用之前回答，见 `start()`；
 /// - 没有 `child_process`；iOS 无 JIT；必须跑在独立线程上。
 ///
 /// 因此 ``stop()`` 只能**断开日志采集**：Node 实例与它监听的本地服务仍在运行，
-/// 再次 ``start()`` 会返回同一个 baseURL 而不会重复启动。要真正重启只能重启 App。
+/// 再次 ``start()`` 会返回同一个 baseURL / 接着等就绪（见 `resumeStartedNode()`），
+/// 同一个脚本被新的宿主服务接管时走账本。要真正重启 / 换脚本只能重启 App ——
 /// 这条限制写进返回值与文档，而不是假装「停掉了」。
 public actor NodeMobileRuntime: NodeRuntimeLaunching {
     /// 「运行时可改」而不是 `let`：日志开关（``NodeRuntimeConfiguration/persistsHostOutput``）
@@ -60,13 +64,46 @@ public actor NodeMobileRuntime: NodeRuntimeLaunching {
                 reason: "脚本文件名必须是 index.js（当前 \(configuration.scriptURL.lastPathComponent)），否则 bundle 不会自启动"
             )
         }
-        guard !nodeStarted else {
+        // 本实例已经启动过、但还没拿到就绪行：不能再来一次 `node_start`，只能接着等
+        // （就绪行可能只是比上一次的等待窗口来得晚 —— 直接拒绝会把「再等等就好」变成
+        // 「重启 App 才能再试」，那正是用户首验截图上的那条消息）。
+        if nodeStarted {
+            return try await resumeStartedNode()
+        }
+
+        // 进程级账本：内嵌 node 每进程只能启动一次，第二次 `node_start` 会 abort 整个 App ——
+        // 必须先问账本（见 ``NodeMobileStartLedger``），而不是指望它报错。
+        let scriptPath = configuration.scriptURL.path
+        switch NodeMobileStartLedger.shared.claim(scriptPath: scriptPath) {
+        case .launch:
+            break
+        case let .reuse(port):
+            if let port, let url = NodeReadiness.baseURL(port: port) {
+                // 同一个脚本的实例还在跑：接管地址即可（本运行时看不到它的 stdout，
+                // 诊断以落盘日志为准 —— 那份日志本来就是为「跨运行时回读」设计的）。
+                nodeStarted = true
+                isReady = true
+                readyPort = port
+                return url
+            }
             throw NodeRuntimeError.launchFailed(
-                reason: "nodejs-mobile 每进程只允许一个 Node 实例；当前实例已启动但尚未拿到就绪行，无法再次启动"
+                reason: "同一个脚本的宿主已经在启动、还没拿到就绪行：内嵌 Node 每进程只能启动一次，"
+                    + "先等它；一直不就绪就重启 App 再试"
+            )
+        case let .blocked(existingPath):
+            throw NodeRuntimeError.launchFailed(
+                reason: "内嵌 Node 每进程只能启动一次：当前进程跑的是另一个脚本（\(existingPath)），"
+                    + "不能再启动 \(scriptPath)。想换 JS 接口（或换过版本后重新加载）需要重启 App。"
             )
         }
 
-        try startStdoutCapture()
+        do {
+            try startStdoutCapture()
+        } catch {
+            // 还没走到 `node_start`：把账还回去 —— 别把一次纯管道故障记成「本进程起过 node」。
+            NodeMobileStartLedger.shared.abandon(scriptPath: scriptPath)
+            throw error
+        }
 
         let (plan, logURL) = makeLaunchPlan()
         preloadLogURL = logURL
@@ -78,6 +115,33 @@ public actor NodeMobileRuntime: NodeRuntimeLaunching {
         startNodeThread(plan: plan)
 
         return try await waitForReadiness()
+    }
+
+    /// 本实例**已经**启动过 node、但还没拿到就绪行时的续等（`start()` 的第二入口）。
+    ///
+    /// 为什么不是直接报错：`node_start` 不可能重来，而就绪行可能只是比上一次的等待窗口
+    /// 来得晚（bundle 首次拉远端配置 / 冷网）。续等让每次「重试」都有意义；真的没来，
+    /// 报的仍是带输出的超时 —— 不是一句无从下手的「无法再次启动」。
+    func resumeStartedNode() async throws -> URL {
+        if let code = lastExitCode {
+            throw exitedBeforeReadyError(code: code)
+        }
+        // `stop()` 断开过采集：续等之前接回来（幂等），否则就绪行永远到不了这里。
+        try startStdoutCapture()
+        return try await waitForReadiness()
+    }
+
+    /// 「就绪前退出」错误 + iOS 特有的出路（内嵌 node 不能重启，只能重启 App）。
+    ///
+    /// 提示挂在输出末尾：``NodeRuntimeError/exitedBeforeReady(code:output:)`` 的文案会把整段
+    /// 输出展示出来，而这条错误在 iOS 上几乎只有一种出路，不写出来用户只剩一个 exit code。
+    func exitedBeforeReadyError(code: Int32) -> NodeRuntimeError {
+        var output = recentOutput(limit: 20).joined(separator: "\n")
+        if !output.isEmpty {
+            output += "\n"
+        }
+        output += "[YPlayer] 内嵌 node 每进程只能启动一次；重启 App 后可以再试"
+        return .exitedBeforeReady(code: code, output: output)
     }
 
     /// 断开日志采集（**不是**停掉 Node —— 见类型注释）。
@@ -139,6 +203,11 @@ extension NodeMobileRuntime {
     /// 为什么不靠 nodejs-mobile 的 bridge：bridge 是 cordova 插件用 JS 预载实现的，
     /// 我们只需要 bundle 打印的那一行就绪日志 —— 直接抓 fd 更少依赖、也更接近 macOS 的进程方式。
     func startStdoutCapture() throws {
+        // 幂等：`stop()` 之后续等就绪时要再挂一次；已经挂着就什么都不做 ——
+        // 二次 `dup2` 会把管道 fd 当成「保存的 stdout」记下来，`restoreStdoutCapture()` 还错。
+        guard pipeReadFD < 0 else {
+            return
+        }
         var fds: [Int32] = [0, 0]
         guard pipe(&fds) == 0 else {
             throw NodeRuntimeError.launchFailed(reason: "无法创建 stdout 管道（errno \(errno)）")
@@ -268,6 +337,8 @@ extension NodeMobileRuntime {
         }
         isReady = true
         readyPort = port
+        // 账本记下实际端口：同一个脚本被新的宿主服务接管时（换回同一个接口），要把地址带回去。
+        NodeMobileStartLedger.shared.noteReady(port: port)
         let pending = waiters
         waiters.removeAll()
         for continuation in pending {
@@ -282,17 +353,12 @@ extension NodeMobileRuntime {
             // 就绪之后退出：保留 readyPort 供诊断（与 adapter 的行为一致）。
             return
         }
-        failWaiters(
-            with: .exitedBeforeReady(code: code, output: recentOutput(limit: 20).joined(separator: "\n"))
-        )
+        failWaiters(with: exitedBeforeReadyError(code: code))
     }
 
     func waitForReadiness() async throws -> URL {
         if !isReady, let code = lastExitCode {
-            throw NodeRuntimeError.exitedBeforeReady(
-                code: code,
-                output: recentOutput(limit: 20).joined(separator: "\n")
-            )
+            throw exitedBeforeReadyError(code: code)
         }
         let timeout = configuration.readinessTimeout
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in

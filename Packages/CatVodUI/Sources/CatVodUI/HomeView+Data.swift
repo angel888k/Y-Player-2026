@@ -108,8 +108,9 @@ extension HomeView {
         guard !targets.isEmpty else {
             return
         }
+        let epoch = beginDiscoverLoad()
         isLoadingSections = true
-        defer { isLoadingSections = false }
+        defer { if isCurrentDiscoverLoad(epoch) { isLoadingSections = false } }
         let client = model.makeSiteClient()
         var loaded: [DiscoverSection] = []
         await withTaskGroup(of: DiscoverSection?.self) { group in
@@ -130,6 +131,9 @@ extension HomeView {
                 }
             }
         }
+        guard isCurrentDiscoverLoad(epoch) else {
+            return
+        }
         sections = targets.compactMap { target in
             loaded.first { $0.id == target.typeID }
         }
@@ -146,6 +150,23 @@ extension HomeView {
         reachedEnd = false
         result = SpiderResult()
         errorText = ""
+        // 在飞的加载一律作废：它们的返回（内容或报错）都属于「上一个站点 / 上一个接口」。
+        loadEpoch.invalidate()
+    }
+
+    /// 开始一次加载：占一个新的代次号（判定与理由见 ``DiscoverLoadEpoch``）。
+    func beginDiscoverLoad() -> Int {
+        let epoch = loadEpoch.begin()
+        return epoch
+    }
+
+    /// 这次加载的号还是不是当前号；不是就说明它已被更新的一次加载 / 作废事件取代。
+    ///
+    /// 每个 `await` 之后的写（`result` / `errorText` / `sections` / `selectedCategoryID` /
+    /// `isLoading`）之前都要过这一关：不过关就整段丢弃 —— 不重试、不提示，
+    /// 因为「新的那次」会给出最终状态。
+    func isCurrentDiscoverLoad(_ epoch: Int) -> Bool {
+        loadEpoch.isCurrent(epoch)
     }
 
     /// 加载首页（分类 + 首屏内容）。
@@ -156,12 +177,17 @@ extension HomeView {
         if !force, !result.categories.isEmpty {
             return
         }
+        let epoch = beginDiscoverLoad()
         isLoading = true
         errorText = ""
-        defer { isLoading = false }
+        defer { if isCurrentDiscoverLoad(epoch) { isLoading = false } }
 
         do {
-            result = try await loadHomeResult(site: site, force: force)
+            let home = try await loadHomeResult(site: site, force: force)
+            guard isCurrentDiscoverLoad(epoch) else {
+                return
+            }
+            result = home
             let firstCategoryID = result.categories.first?.typeID ?? ""
             if selectedCategoryID.isEmpty {
                 selectedCategoryID = firstCategoryID
@@ -171,6 +197,9 @@ extension HomeView {
                 await loadCategory(categoryID: targetCategory, site: site, force: force)
             }
         } catch {
+            guard isCurrentDiscoverLoad(epoch) else {
+                return
+            }
             errorText = describe(error)
         }
     }
@@ -215,11 +244,12 @@ extension HomeView {
         guard !targetCategory.isEmpty else {
             return
         }
+        let epoch = beginDiscoverLoad()
         isLoading = true
         errorText = ""
         // 整页替换式加载：每次都要重新判断「能不能继续往下加载」。
         reachedEnd = false
-        defer { isLoading = false }
+        defer { if isCurrentDiscoverLoad(epoch) { isLoading = false } }
 
         // 首页缓存（设置 → 数据 → 缓存管理 → 首页缓存时间）：命中就直接用，一个请求都不发。
         let cacheKey = HomeCacheStore.Key(
@@ -229,6 +259,9 @@ extension HomeView {
             extend: extend
         )
         if !force, let cached = model.cachedHomeResult(cacheKey) {
+            guard isCurrentDiscoverLoad(epoch) else {
+                return
+            }
             result = DiscoverContentMerge.content(preservingCategories: cached, current: result)
             if selectedCategoryID != targetCategory {
                 selectedCategoryID = targetCategory
@@ -244,6 +277,9 @@ extension HomeView {
                 extend: extend
             )
             let filled = await model.makePictureFiller().fill(site: targetSite, result: category)
+            guard isCurrentDiscoverLoad(epoch) else {
+                return
+            }
             if filled.hasList || filled.hasCategories || filled.code == 0 {
                 result = DiscoverContentMerge.content(preservingCategories: filled, current: result)
                 model.storeHomeResult(filled, key: cacheKey)
@@ -252,6 +288,9 @@ extension HomeView {
                 selectedCategoryID = targetCategory
             }
         } catch {
+            guard isCurrentDiscoverLoad(epoch) else {
+                return
+            }
             errorText = describe(error)
         }
     }
@@ -269,9 +308,10 @@ extension HomeView {
             return
         }
         let nextPage = page + 1
+        let epoch = beginDiscoverLoad()
         isLoading = true
         errorText = ""
-        defer { isLoading = false }
+        defer { if isCurrentDiscoverLoad(epoch) { isLoading = false } }
 
         let cacheKey = HomeCacheStore.Key(
             siteKey: targetSite.key,
@@ -280,6 +320,9 @@ extension HomeView {
             extend: extend
         )
         if let cached = model.cachedHomeResult(cacheKey) {
+            guard isCurrentDiscoverLoad(epoch) else {
+                return
+            }
             appendPage(cached, number: nextPage)
             return
         }
@@ -292,9 +335,15 @@ extension HomeView {
                 extend: extend
             )
             let filled = await model.makePictureFiller().fill(site: targetSite, result: category)
+            guard isCurrentDiscoverLoad(epoch) else {
+                return
+            }
             appendPage(filled, number: nextPage)
             model.storeHomeResult(filled, key: cacheKey)
         } catch {
+            guard isCurrentDiscoverLoad(epoch) else {
+                return
+            }
             errorText = describe(error)
         }
     }

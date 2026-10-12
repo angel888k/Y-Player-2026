@@ -28,6 +28,10 @@ public struct HomeView: View {
     @State var page = 1
     @State var isLoading = false
     @State var errorText = ""
+    /// 「这次加载还算不算数」的代次账（判定与理由见 ``DiscoverLoadEpoch``）：
+    /// 过期请求的返回（内容或报错）一律丢弃 —— 用户报的「站点加载正常却显示网络报错」
+    /// 就是旧请求晚到的失败盖在了新内容上。
+    @State var loadEpoch = DiscoverLoadEpoch()
     /// 上一次翻页拿到了空列表：上游没给 `pagecount` 时靠它停住「上拉加载」。
     @State var reachedEnd = false
     /// 「查找站点」弹层（站点菜单里的入口）是否展开。

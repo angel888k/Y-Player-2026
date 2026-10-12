@@ -128,7 +128,8 @@ let x = await e.db.get("/config/sites/list", []);
 | 运行时 | 真 Node（**18.x**；bundle 使用 fastify 5 与 `node:` 前缀导入） |
 | 环境变量 | `PORT`（宿主分配）、`HOST=127.0.0.1`、`NODE_ENV=production`；不要设 `CATVOD_DISABLE_AUTOSTART` |
 | 工作目录 | 可写目录（bundle 使用 `fs` 写缓存） |
-| argv[1] | 必须是 `.../index.js`（自启动条件依赖该后缀） |
+| argv[1] | 必须是 `.../index.js`（自启动条件依赖该后缀；node 自己的选项 `--no-experimental-fetch` / `-r` 不会进 `process.argv`） |
+| 全局 Web API | **iOS 上必须不可用**：`fetch` / `Headers` / `Request` / `Response` / `FormData` 在 node 18 都由 undici 背书，而 iOS libnode 没有 WebAssembly —— 读一下（哪怕是 `||=`）就会抛 `WebAssembly is not defined`。见第七节 |
 | stdout/stderr | 必须采集：解析就绪行与端口、记录错误 |
 | 网络 | 出站 HTTP/HTTPS（`net`/`tls`/`dns`） |
 | 可选注入 | `globalThis.catDartServerPort()` + 宿主 `POST /msg` 端点（接收 `messageToDart` 通知） |
@@ -152,3 +153,26 @@ let x = await e.db.get("/config/sites/list", []);
 `index.js` 与 `index.js.md5` 成对：先取 32 字节摘要 → 与本地缓存摘要比对 → 一致则直接执行缓存中的 `index.js`，不一致才重新下载 6.29MB。
 实现：`CatVodCore/Config/ConfigLocator.swift`（`digestURL(for:)`、`needsDownload(remoteDigest:localDigest:)`）+ `MD5`（纯 Swift，RFC 1321，已用 RFC 向量与本次实测摘要覆盖）。
 
+## 七、iOS 承载的三条硬约束（2026-10-12 实测补记）
+
+用户实测（kstore 6.5 MB bundle，模拟器）暴露的三个问题与对应措施 —— 前两条是 nodejs-mobile /
+node 18 的既定事实，不是 bundle 的 bug：
+
+1. **不能有全局 `fetch` 一族**。node 18 的 `setupFetch`（fork 的
+   `lib/internal/process/pre_execution.js`）把 `fetch` 定义成包着 undici 的函数、
+   `FormData`/`Headers`/`Request`/`Response` 定义成**惰性 getter** —— 读一下就
+   `require('internal/deps/undici/undici')`，而 iOS 版 libnode 没有 WebAssembly，
+   undici 的模块图在加载时（llhttp wasm）就抛 `ReferenceError: WebAssembly is not defined`，
+   bundle 表现为「一起手就没有就绪行」。bundle 本来有 `globalThis.X ||= 自家实现` 的兜底，
+   恰恰死在那个「先读一下」上。
+   → 启动参数固定带 `--no-experimental-fetch`（`NodeMobileLaunchPlan`），预载脚本再兜底把
+   这一族摘掉（`NodePreloadScript`，只查属性描述符、不读取访问器）。之后 bundle 会装自己的
+   node-fetch v3（它自己的日志：「已全局切换至 node-fetch v3 作为请求实现」）。
+   本机复现：node 22 + 模拟「无 WebAssembly」，patch 前同栈必炸，patch 后 2 秒打印就绪行。
+2. **`node_start` 每进程只能成功一次**。`node_start` = `node::Start` →
+   `InitializeNodeWithArgs` 的 `CHECK(!init_called.exchange(true))`：第二次调用**不是报错，
+   是 abort 整个 App**。所以换 JS 接口（或 `stopHost()` 之后重载）不能真的重启宿主 ——
+   由 `NodeMobileStartLedger` 在调用之前挡住：同一脚本复用地址，换脚本如实报
+   「需要重启 App」。
+3. **同一次启动里没拿到就绪行 ≠ 放弃**。原实现直接抛「已启动但尚未拿到就绪行，无法再次启动」；
+   改为续等一个窗口（`resumeStartedNode()`）—— 就绪行可能只是比上一次的等待窗口来得晚。
