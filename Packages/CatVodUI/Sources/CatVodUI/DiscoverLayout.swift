@@ -3,6 +3,7 @@ import CatVodCore
 // 本文件从 M02P16 起用到 `CGFloat`（Tab 栏收放的手势位移）。Swift 不会传递依赖的 import，
 // 所以这里显式带上 Foundation（Darwin 上它 re-export CoreGraphics，`CGFloat` 出于此）。
 import Foundation
+
 // 本文件在 M28 首验之二十九之后还放了 ``BookTabBarHider``（`ViewModifier`）与
 // ``DiscoverTabBarGate``（`ObservableObject`）—— 都要 SwiftUI。
 import SwiftUI

@@ -138,7 +138,7 @@ struct DiscoverPosterCard: View {
     /// 海报图的目标显示尺寸（点）：宽度必给（横向分区 = 固定卡宽；纵向网格 = 估的格宽），
     /// 高度按卡片比例补 —— **刻意不用 `GeometryReader`**（懒容器里几十个会拖垮布局，
     /// 上机帧账抓过单帧 100~170ms）。
-    var targetSize: CGSize? = nil
+    var targetSize: CGSize?
 
     private var isCircularCard: Bool {
         PosterCardLayout.isCircular(style)

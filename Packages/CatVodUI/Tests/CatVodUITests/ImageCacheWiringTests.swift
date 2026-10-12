@@ -1,5 +1,5 @@
-import Foundation
 @testable import CatVodUI
+import Foundation
 import Testing
 
 /// 图片缓存接进「缓存管理」（M28 首验之二十九）：占用算得进「全部缓存」、清得掉 ——

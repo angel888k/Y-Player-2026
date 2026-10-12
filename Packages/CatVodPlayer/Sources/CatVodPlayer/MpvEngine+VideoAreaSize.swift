@@ -140,11 +140,11 @@ extension MpvEngine {
             guard !Task.isCancelled, let self else {
                 return
             }
-            guard await self.sessionIsAlive(session) else {
+            guard await sessionIsAlive(session) else {
                 return
             }
             let startedAt = Date()
-            let matched = await self.waitForVideoOutput(
+            let matched = await waitForVideoOutput(
                 session,
                 pixelWidth: pixelWidth,
                 pixelHeight: pixelHeight

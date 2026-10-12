@@ -1,6 +1,6 @@
+@testable import CatVodUI
 import Combine
 import Foundation
-@testable import CatVodUI
 import Testing
 
 /// 发现页底部 Tab 栏的「门」（M28 首验之二十九）：**只在 `isHidden` 真的翻转时**才广播 ——

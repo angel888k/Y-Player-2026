@@ -1,5 +1,5 @@
-import Foundation
 @testable import CatVodUI
+import Foundation
 import SwiftUI
 import Testing
 

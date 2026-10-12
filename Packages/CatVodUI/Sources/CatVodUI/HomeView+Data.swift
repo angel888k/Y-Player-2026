@@ -156,8 +156,7 @@ extension HomeView {
 
     /// 开始一次加载：占一个新的代次号（判定与理由见 ``DiscoverLoadEpoch``）。
     func beginDiscoverLoad() -> Int {
-        let epoch = loadEpoch.begin()
-        return epoch
+        return loadEpoch.begin()
     }
 
     /// 这次加载的号还是不是当前号；不是就说明它已被更新的一次加载 / 作废事件取代。

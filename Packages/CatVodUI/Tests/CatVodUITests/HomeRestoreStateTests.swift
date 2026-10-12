@@ -1,7 +1,7 @@
 import CatVodCore
 import CatVodSource
-import Testing
 @testable import CatVodUI
+import Testing
 
 /// 冷启动恢复中的判定（M28 首验之三十一）：发现页在「保存过接口、站点清单还没出来」的窗口里
 /// 显示「站点加载中…」，其余情况不能盖住原有文案。

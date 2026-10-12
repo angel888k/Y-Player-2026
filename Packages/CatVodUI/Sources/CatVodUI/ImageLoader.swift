@@ -86,7 +86,7 @@ public final class ImageLoader: @unchecked Sendable {
         await MainActor.run { arrival.notifyWaiting(url: url) }
         return try await memory.image(for: url, targetSize: targetSize) { [session] _, size in
             let (data, response) = try await session.data(from: requestURL)
-            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            if let http = response as? HTTPURLResponse, !(200 ..< 300).contains(http.statusCode) {
                 throw ImageLoadError.badStatus(http.statusCode)
             }
             guard let image = platformDownsample(data, to: size) else {

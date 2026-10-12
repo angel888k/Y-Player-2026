@@ -1,5 +1,5 @@
-import Foundation
 @testable import CatVodUI
+import Foundation
 import Testing
 
 /// 到达合流器（M28 首验之二十九）：一簇图一起回来时只刷一次；每个订阅者都能收到（fan-out）。

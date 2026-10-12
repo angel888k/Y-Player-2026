@@ -57,6 +57,7 @@ public struct HomeView: View {
     private var tabBarGate: DiscoverTabBarGate {
         .shared
     }
+
     /// 本 Tab 的沉浸页登记簿（详情 / 播放压上来时也要收栏）；登记方见 ``ImmersiveTabBarPageModifier``。
     @EnvironmentObject private var immersiveTabBar: ImmersiveTabBarState
     /// 滚动帧探针（只在模拟器上生效）：拖动期间记帧、松手出一条日志 —— 「还卡」要有帧账才谈得上修。
@@ -167,7 +168,7 @@ public struct HomeView: View {
 
     // MARK: - 主体
 
-    @ViewBuilder private var content: some View {
+    private var content: some View {
         contentBodyStack
     }
 
@@ -294,8 +295,8 @@ public struct HomeView: View {
                                             // 原来给 112x112，图按方框解完再被放大回 168 高，白白糊一截。
                                             targetSize: CGSize(
                                                 width: Self.sectionCardWidth,
-                                                height: Self.sectionCardWidth / DiscoverPosterCard.aspectRatio,
-                                            ),
+                                                height: Self.sectionCardWidth / DiscoverPosterCard.aspectRatio
+                                            )
                                         )
                                         .frame(width: Self.sectionCardWidth)
                                     }

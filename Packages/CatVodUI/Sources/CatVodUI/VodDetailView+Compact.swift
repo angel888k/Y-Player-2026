@@ -220,17 +220,17 @@ extension VodDetailView {
         // 这块铺满整个槽位：解码尺寸按槽位的典型宽度估（只影响清晰度，不参与排版）。
         CachedImage(url: detail.artwork, targetSize: CGSize(width: 420, height: 0), aspectRatio: 16.0 / 9.0)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(Color.black.opacity(0.25))
-        .overlay(
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 54))
-                .foregroundStyle(.white.opacity(0.92))
-        )
-        .clipped()
-        .contentShape(Rectangle())
-        .onTapGesture {
-            startInlinePlaybackFromSlot()
-        }
+            .overlay(Color.black.opacity(0.25))
+            .overlay(
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 54))
+                    .foregroundStyle(.white.opacity(0.92))
+            )
+            .clipped()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                startInlinePlaybackFromSlot()
+            }
     }
 
     /// 就地那块「放大成全屏」（M27 首验之四）：把状态一翻 —— **同一块画面**跟着铺满整屏，

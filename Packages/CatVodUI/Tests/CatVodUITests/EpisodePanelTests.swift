@@ -1,7 +1,7 @@
+@testable import CatVodUI
 import CoreGraphics
 import SwiftUI
 import Testing
-@testable import CatVodUI
 
 /// 选集面板的几何（M28 首验之三十）：面板宽 = 可用宽的三分之一，夹在 [min, max]。
 /// 纯函数有单测，视图只照它画。

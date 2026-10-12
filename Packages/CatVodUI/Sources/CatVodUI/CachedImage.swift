@@ -15,7 +15,7 @@ struct CachedImage: View {
     /// 图片地址（空串 / 非法地址直接显示占位）。
     let url: String
     /// 目标显示尺寸（点）：宽度必给；高度不给就按 `aspectRatio` 算。
-    var targetSize: CGSize? = nil
+    var targetSize: CGSize?
     /// 目标宽高比（宽 ÷ 高）：只用来把 `targetSize` 补全成完整盒子（下采样按最大边，多算无妨）。
     var aspectRatio: CGFloat = 2.0 / 3.0
     /// 内容缩放模式：海报铺满（默认）/ 频道图标等比放下。
@@ -95,18 +95,8 @@ struct CachedImage: View {
     static let placeholderWidth: CGFloat = 120
 }
 
-// MARK: - 环境注入
-
-/// 图片加载器（`RootView` 注入带沙盒目录的那份；预览 / 单测自动回落到 ``ImageLoader/shared``）。
-private struct CachedImageLoaderKey: EnvironmentKey {
-    static let defaultValue = ImageLoader.shared
-}
-
 extension EnvironmentValues {
-    var cachedImageLoader: ImageLoader {
-        get { self[CachedImageLoaderKey.self] }
-        set { self[CachedImageLoaderKey.self] = newValue }
-    }
+    @Entry var cachedImageLoader: ImageLoader = .shared
 }
 
 extension View {
