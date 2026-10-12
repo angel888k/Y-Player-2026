@@ -73,10 +73,10 @@ struct FavoriteRow: View {
     let favorite: Favorite
     /// 站点展示名（记录里可能为空，由列表按当前接口回退后传入）。
     let siteName: String
-    /// 该站点是否仍在当前接口里（false 时无法进详情，行内说明原因）。
-    let isOpenable: Bool
     /// 行封面：记录自带优先；没带时由列表用**站点缓存**兜底补一份（都不行 = 空串 → 占位）。
     let coverURL: String
+    /// 该站点是否仍在当前接口里（false 时无法进详情，行内说明原因）。
+    let isOpenable: Bool
     /// 多选态下的勾选状态；nil 表示当前不在多选态（不画圆点）。
     let isSelected: Bool?
 
