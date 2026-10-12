@@ -48,6 +48,12 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
     /// 「那一顿是重建本身还是重建撞了转屏动画」靠它与重建的落点对齐时间轴才能分。
     var lastVideoAreaReportAt: Date?
     var lastVideoAreaSize: CGSize?
+    /// mpv 报过 `file-loaded` 没有（**每次 load / teardown 归零**）。
+    ///
+    /// 给「画面区尺寸」那条线用（M28P12）：`osd-dimensions` 读不到时要分两种情形 ——
+    /// **VO 还没生出来**（起播那一下，别拆它）与 **VO 没建起来**（片已经 loaded 过，那就是坏了，
+    /// 照旧走重建兜底，M28P6）。
+    var hasLoadedFile = false
     /// 尺寸站稳后的**自愈探针**（M28 首验之二十八，见 `MpvEngine+VideoAreaSize.swift`）：
     /// 就是一条拿日志的观察任务，不改播放行为 —— 它试的是「mpv 会不会自己认下新尺寸」。
     var videoSettleProbeTask: Task<Void, Never>?
@@ -211,6 +217,7 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
         state = .idle
         duration = 0
         lastTime = 0
+        hasLoadedFile = false
     }
 
     // MARK: - 内部
@@ -285,6 +292,7 @@ public actor MpvEngine: PlayerEngine, PlaybackStatsProviding {
             break
         case .fileLoaded:
             // mpv 加载完即开始播（若用户此前按了暂停，`pause` 属性变化会把状态纠正过来）。
+            hasLoadedFile = true
             update(.playing)
             emitTrackList()
         case let .endFile(reason):

@@ -81,6 +81,18 @@ extension MpvEngine {
         let pixelWidth = max(Int((size.width * scale).rounded()), 1)
         let pixelHeight = max(Int((size.height * scale).rounded()), 1)
         let area = "\(pixelWidth)x\(pixelHeight)（点 \(Int(size.width))x\(Int(size.height))）"
+        // VO 还没出生（起播那一下：`loadfile` 刚下，mpv 正在建 VO）—— **先等它出来**，
+        // 别在这一刻拆它：拆了再建是几百毫秒，中间还没有画面（M28P12，用户报「点击播放后
+        // 加载状态时间太长」有一截就是它）。
+        // 「片已经 loaded 过还看不到 VO」**不算**这一条 —— 那是 M28P6 的「VO 没建起来」，
+        // 照旧重建兜底（黑屏不能放着不管）。
+        if !hasLoadedFile, session.propertyString("osd-dimensions") == nil {
+            let appeared = await waitForVideoOutputAppear(session)
+            if appeared, videoOutputMatches(session, pixelWidth: pixelWidth, pixelHeight: pixelHeight) {
+                MpvTrace.logger.notice("画面区 \(area, privacy: .public) VO 出生时就认下了这个尺寸，没重建 VO")
+                return
+            }
+        }
         // 重建之前 mpv 认的是什么尺寸：与重建后那一条对照，能看出「这次重建到底换没换掉那个尺寸」
         // （M28 首验之二十八）。
         let dimensionsBefore = session.propertyString("osd-dimensions") ?? "无"
@@ -212,6 +224,27 @@ extension MpvEngine {
         }
         return dimensions.contains("\"w\":\(pixelWidth)") && dimensions.contains("\"h\":\(pixelHeight)")
     }
+
+    /// 等 mpv 把 VO 建出来（只看「有没有 `osd-dimensions`」，不看尺寸对不对）。
+    ///
+    /// 为什么单开一条（M28P12）：`videoOutputMatches` 对「还没有 `osd-dimensions`」也给 false，
+    /// 而「还没有」既可能是「尺寸不对」也可能是「VO 还没生出来」—— 起播那一下正是后者，
+    /// 那时拆 VO（`vo=null`）会把正在建的 VO 按掉，白搭几百毫秒黑屏。
+    func waitForVideoOutputAppear(_ session: any MpvSession) async -> Bool {
+        var remaining = Self.videoOutputBirthTimeoutNanoseconds
+        while remaining > 0 {
+            if session.propertyString("osd-dimensions") != nil {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: Self.videoOutputPollNanoseconds)
+            remaining -= min(Self.videoOutputPollNanoseconds, remaining)
+        }
+        return session.propertyString("osd-dimensions") != nil
+    }
+
+    /// 等 VO 出生的上限（纳秒）：800ms —— 起播时 MoltenVK 要建整条 Vulkan 设备（几百毫秒量级），
+    /// 给足；等不到就照旧走重建那条路（那时是真的没建起来 / 建得不对）。
+    static let videoOutputBirthTimeoutNanoseconds: UInt64 = 800_000_000
 
     /// 等 mpv 认下这个尺寸：认下返回 `true`，超时返回 `false`（上限见常量 —— 重建是一瞬的事，
     /// 别在这儿死等）。

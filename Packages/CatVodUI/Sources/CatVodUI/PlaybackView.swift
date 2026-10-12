@@ -814,7 +814,13 @@ extension PlaybackView {
             case let .error(message):
                 errorText = message
             case let .timeChanged(current, duration):
-                latestDuration = duration
+                // 时长**只在变了的时候写**（M28P12）：MPV 的位置事件是按帧来的（每秒几十条），
+                // 而时长每帧都一样 —— 每条都往 `@State` 里写一遍，等于把下面那条「界面节流」
+                // 白做：整页 body 会被按帧重建，播放中那点卡顿就有它一份
+                // （用户报「正常速度播放下有时候会卡顿」）。
+                if duration != latestDuration {
+                    latestDuration = duration
+                }
                 // 界面节流（M28 收尾）：MPV 的位置事件是**按帧**来的（每秒几十条），
                 // 每一条都写一遍界面状态就是几十次全页重建 —— 0.1 秒踩一个采样点够用了
                 // （覆盖层的顺滑靠外推，不靠事件频率，见 ``PlaybackClock``）。

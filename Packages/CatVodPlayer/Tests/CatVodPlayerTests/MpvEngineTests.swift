@@ -432,7 +432,9 @@ struct MpvEngineTests {
 
     @Test("画面区尺寸：连着来的两次上报只重建一次 VO，落最后那个（转屏 + 就地放大）")
     func videoAreaSizeCoalescesBurst() async throws {
-        let (engine, session) = makeEngine()
+        // 脚本一个「VO 已经存在、但尺寸不对」的 osd-dimensions：这样引擎直接走「重建」那条路，
+        // 不用先等 VO 出生（M28P12 的等待只针对「还没有 VO」的起播那一下）。
+        let (engine, session) = makeEngine(propertyStrings: ["osd-dimensions": #"{"w":2,"h":2}"#])
         try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
         func rebuilds() -> Int {
             session.commands.filter { $0 == ["set", "vo", "null"] }.count
@@ -459,7 +461,7 @@ struct MpvEngineTests {
 
     @Test("画面区尺寸：自愈探针只是旁听 —— 不追加 vo 命令、也不弄脏账本")
     func videoAreaSettleProbeIsObservationOnly() async throws {
-        let (engine, session) = makeEngine()
+        let (engine, session) = makeEngine(propertyStrings: ["osd-dimensions": #"{"w":2,"h":2}"#])
         try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
 
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
@@ -496,7 +498,7 @@ struct MpvEngineTests {
 
     @Test("画面区尺寸：同一个尺寸重复上报不重建 VO")
     func videoAreaSizeSkipsIdentical() async throws {
-        let (engine, session) = makeEngine()
+        let (engine, session) = makeEngine(propertyStrings: ["osd-dimensions": #"{"w":2,"h":2}"#])
         try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
 
         await engine.setVideoAreaSize(CGSize(width: 402, height: 226.125))
@@ -510,6 +512,9 @@ struct MpvEngineTests {
     func videoAreaRebuildRetriesWhenNotConfirmed() async throws {
         let (engine, session) = makeEngine()
         try await engine.load(MediaResource(url: "https://cdn.example.com/a.m3u8"))
+        // 先喂一条 `file-loaded`：这条用例说的是「**片已经加载过**，VO 还是没建起来」（M28P6 那种黑屏），
+        // 而不是「起播那一下 VO 还在出生」—— 后者引擎会先等一会儿（M28P12），不走这条兜底。
+        engine.handle(.fileLoaded)
 
         await engine.setVideoAreaSize(CGSize(width: 874, height: 402))
 
