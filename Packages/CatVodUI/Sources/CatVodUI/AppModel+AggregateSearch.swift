@@ -151,7 +151,9 @@ extension AppModel {
             sites: allSearchable.count,
             reported: reportedCount,
             hitSites: hits.count,
-            elapsedMs: Int(Date().timeIntervalSince(startedAt) * 1000)
+            elapsedMs: Int(Date().timeIntervalSince(startedAt) * 1000),
+            concurrency: AggregateSearchRules.concurrentLimit,
+            requestTimeoutSeconds: AggregateSearchRules.searchRequestTimeoutSeconds
         )
     }
 
@@ -171,6 +173,11 @@ extension AppModel {
         deadline: Date,
         onSite: (SiteSearchOutcome) async -> Void
     ) async {
+        // 诊断（M28P17）：记「全部开搜 / 末站回报」两个时刻 —— 墙钟的尾巴到底在网络还是在回填，
+        // 一眼看出来（见 `SearchTrace.noteRound`）。
+        let roundStart = Date()
+        var startedAllMs: Int?
+        var receivedAllMs: Int?
         await withTaskGroup(of: SiteSearchOutcome.self) { group in
             var next = 0
             // 先把在飞额度填满（流水线：一个回来就补下一个 —— 不是「一批等齐」，见上面的说明）。
@@ -179,8 +186,12 @@ extension AppModel {
                 next += 1
                 group.addTask { await Self.searchOneSite(site, keyword: keyword, client: client, filler: filler) }
             }
+            if next >= sites.count {
+                startedAllMs = Self.milliseconds(since: roundStart)
+            }
             for await outcome in group {
                 await onSite(outcome)
+                receivedAllMs = Self.milliseconds(since: roundStart)
                 // 预算内就补下一个（到点就不补了，在飞的照旧等回来）。
                 guard next < sites.count, !Task.isCancelled,
                       AggregateSearchRules.shouldStartAnotherSite(now: Date(), deadline: deadline)
@@ -190,8 +201,17 @@ extension AppModel {
                 let site = sites[next]
                 next += 1
                 group.addTask { await Self.searchOneSite(site, keyword: keyword, client: client, filler: filler) }
+                if next >= sites.count {
+                    startedAllMs = Self.milliseconds(since: roundStart)
+                }
             }
         }
+        SearchTrace.noteRound(sites: sites.count, startedAllMs: startedAllMs, receivedAllMs: receivedAllMs)
+    }
+
+    /// 从某一刻到现在的毫秒数（诊断用）。
+    private nonisolated static func milliseconds(since start: Date) -> Int {
+        Int(Date().timeIntervalSince(start) * 1000)
     }
 
     /// 搜一个站点：命中带回条目；失败只带回一句可读原因（逐站 best-effort）。

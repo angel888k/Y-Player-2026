@@ -1,5 +1,6 @@
 import CatVodCore
 import CatVodSource
+import Foundation
 import SwiftUI
 
 /// 聚合搜索的「墙面」（M11 片 5，参考图一）：左栏「站点 + 命中数」，右栏竖幅海报网格。
@@ -220,17 +221,29 @@ struct AggregateSearchWall: View {
         sections = []
         searchedCount = 0
         reportedCount = 0
-        // 逐站上墙（M28 首验之二十三）：每站回来先贴一次 —— 慢站点 / 连不上的站点不拖住整面墙；
+        // 逐站上墙（M28 首验之二十三）改成**攒一簇刷一拍**（M28P17）：站点的第一两秒会集中回来
+        // 几十份，每份都重建一遍墙（「全部」档位上千个格子）会把主线程占住 —— 连生产侧的回填
+        // 都跟着慢。首份立即上墙、之后最快 90ms 一拍，最后一份必刷（见 `SearchWallApplyGate`）。
         // 流转完（离开 / 换关键词）生产侧随之取消。
+        var gate = SearchWallApplyGate()
+        var pending: AggregateSearchOutcome?
         for await outcome in model.searchAcrossSites(keyword: keyword) {
             // 搜索途中关键词 / 筛选站源又变了：只认最后发起的那一轮（旧流可能还会吐一份）。
             guard generation == loadGeneration else {
                 return
             }
-            apply(outcome)
+            pending = outcome
+            if gate.shouldApply(now: Date()) {
+                apply(outcome)
+                pending = nil
+            }
         }
         guard generation == loadGeneration else {
             return
+        }
+        if let pending {
+            // 收尾必刷：进度行与 sections 都要落在最终那份上。
+            apply(pending)
         }
         // 选中的站点这一轮没命中（或站点清单 / 开关变过）：回落「全部」，别停在一张空网格上。
         if let key = selectedSiteKey, !sections.contains(where: { $0.id == key }) {
@@ -252,5 +265,28 @@ struct AggregateSearchWall: View {
         let item: VodItem
 
         var id: String { site.key + "|" + item.vodID }
+    }
+}
+
+/// 逐站回报刷墙的**节流闸**（M28P17）：一簇回报只刷一拍 —— 与 `ImageArrivalCoalescer`
+/// 同一套思路（那边管图片到达，这边管搜索结果到达）。
+///
+/// 为什么要它：墙是 `LazyVGrid`，「全部」档位把各站条目摞起来（上千个格子）；逐站回报有
+/// 几十份（站点的第一两秒集中回来）—— 每份都重建一遍墙会把主线程占住，连生产侧的回填都跟着慢。
+/// 攒 90ms 一刷：上墙节奏不变（人眼看还是「边搜边出」），渲染次数掉一个量级。
+/// 纯逻辑（时间注入），有单测。
+struct SearchWallApplyGate {
+    /// 两次上墙的最小间隔（秒）：90ms，与 `ImageArrivalCoalescer.defaultFlushDelay` 同一档。
+    static let interval: TimeInterval = 0.09
+
+    private var lastAppliedAt: Date = .distantPast
+
+    /// 这份要不要现在上墙？要：当场记账；不要：等下一份（收尾那份由调用方无条件补刷）。
+    mutating func shouldApply(now: Date) -> Bool {
+        guard now.timeIntervalSince(lastAppliedAt) >= Self.interval else {
+            return false
+        }
+        lastAppliedAt = now
+        return true
     }
 }
