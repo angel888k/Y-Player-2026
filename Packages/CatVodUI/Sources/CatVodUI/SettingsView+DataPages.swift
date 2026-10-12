@@ -311,10 +311,35 @@ struct SettingsCacheView: View {
         }
     }
 
+    /// 「缓存」这一页要显示的各缓存占用（M28P19）：原来是**计算属性**，页面每重建一次就把
+    /// 四个目录挨个遍历一遍 —— 图片目录里几千个文件，光那一份每轮就要枚举 4 遍
+    /// （两行开关 ×2 + 全部缓存 + 说明区），缓存越攒越大、这一页越卡。
+    /// 现在「进页面 / 每次清空之后」各算一次，行与说明都读这份快照。
+    private struct CacheSizeSnapshot {
+        var sourceSummary: SourceCacheStore.Summary?
+        var homeSummary: HomeCacheStore.Summary?
+        var liveEPGByteCount: Int64
+        var imageByteCount: Int64
+
+        var sourceByteCount: Int64 { sourceSummary?.totalByteCount ?? 0 }
+        var homeByteCount: Int64 { homeSummary?.byteCount ?? 0 }
+        var totalByteCount: Int64 { sourceByteCount + homeByteCount + liveEPGByteCount + imageByteCount }
+        var formattedTotal: String { SourceCacheStore.Summary.format(byteCount: totalByteCount) }
+        var formattedImage: String { SourceCacheStore.Summary.format(byteCount: imageByteCount) }
+
+        static let empty = CacheSizeSnapshot(
+            sourceSummary: nil,
+            homeSummary: nil,
+            liveEPGByteCount: 0,
+            imageByteCount: 0
+        )
+    }
+
     @ObservedObject var model: AppModel
     @State private var isConfirmingClear = false
     @State private var clearTarget: ClearTarget = .source
     @State private var actionMessage = ""
+    @State private var sizes = CacheSizeSnapshot.empty
 
     var body: some View {
         List {
@@ -330,19 +355,19 @@ struct SettingsCacheView: View {
             }
             // 换接口后旧 bundle 会永久残留（每个 ≈ 6 MB）：参考图没有这一项，
             // 但它是 M02P7 就有的真实能力，丢掉会让用户没地方回收这块空间 —— 只在真的有残留时出现。
-            if let orphanSize = model.sourceCacheSummary()?.formattedOrphanSize,
-               (model.sourceCacheSummary()?.orphanByteCount ?? 0) > 0
-            {
+            if let summary = sizes.sourceSummary, summary.orphanByteCount > 0 {
                 Section("回收") {
-                    Button("清理其他接口残留（\(orphanSize)）") {
+                    Button("清理其他接口残留（\(summary.formattedOrphanSize)）") {
                         let removed = model.pruneOrphanSourceCaches()
                         actionMessage = "已清理 \(removed) 个其他接口的缓存文件"
+                        refreshCacheSizes()
                     }
                 }
             }
         }
         .adaptiveListStyle()
         .navigationTitle("缓存管理")
+        .task { refreshCacheSizes() }
         .confirmationDialog(clearTarget.confirmTitle, isPresented: $isConfirmingClear, titleVisibility: .visible) {
             Button("清空", role: .destructive) { performClear() }
             Button("取消", role: .cancel) { }
@@ -353,11 +378,11 @@ struct SettingsCacheView: View {
 
     /// 说明区文案：把「两个时间怎么生效」「当前各占多少」写清楚，不必靠猜。
     private var explanationText: String {
-        let sourcePart = model.sourceCacheSummary()
+        let sourcePart = sizes.sourceSummary
             .map { "源缓存 \($0.entryCount) 个文件、\($0.formattedTotalSize)" } ?? "源缓存目录不可读"
-        let homePart = model.homeCacheSummary()
+        let homePart = sizes.homeSummary
             .map { "首页缓存 \($0.entryCount) 个文件、\($0.formattedSize)" } ?? "首页缓存目录不可读"
-        let imagePart = "图片缓存 \(SourceCacheStore.Summary.format(byteCount: model.clearableImageCacheByteCount))"
+        let imagePart = "图片缓存 \(sizes.formattedImage)"
         return "源缓存时间：接口配置在有效期内**直接读本地、不联网**，过期或手动「刷新接口」才重新下载"
             + "（js2p 接口例外：每次加载只拉几十字节的 `.md5` 摘要，变了才重下 bundle —— 上游给的就是增量更新）；"
             + "首页缓存时间：首页与分类列表在有效期内直接读本地缓存。"
@@ -400,7 +425,7 @@ struct SettingsCacheView: View {
             }
             .pickerStyle(.menu)
 
-            clearRow(title: "源缓存数据", target: .source, isEnabled: model.sourceCacheByteCount > 0)
+            clearRow(title: "源缓存数据", target: .source, isEnabled: sizes.sourceByteCount > 0)
 
             Picker("首页缓存时间", selection: $model.homeCacheLifetime) {
                 ForEach(CacheLifetime.allCases, id: \.self) { lifetime in
@@ -409,18 +434,18 @@ struct SettingsCacheView: View {
             }
             .pickerStyle(.menu)
 
-            clearRow(title: "首页缓存数据", target: .home, isEnabled: model.homeCacheByteCount > 0)
+            clearRow(title: "首页缓存数据", target: .home, isEnabled: sizes.homeByteCount > 0)
 
             // 直播节目单（文件形态，M07d7）：清掉只是下次进直播页重下 —— 与上面两行同一套「看得见、清得掉」。
-            clearRow(title: "直播节目单缓存", target: .epg, isEnabled: model.liveEPGCacheByteCount > 0)
+            clearRow(title: "直播节目单缓存", target: .epg, isEnabled: sizes.liveEPGByteCount > 0)
 
             // 图片缓存（M28 首验之二十九）：海报/封面的内存 + 磁盘缓存，与上面同一套「看得见、清得掉」。
-            clearRow(title: "图片缓存数据", target: .images, isEnabled: model.clearableImageCacheByteCount > 0)
+            clearRow(title: "图片缓存数据", target: .images, isEnabled: sizes.imageByteCount > 0)
 
             clearRow(
-                title: "全部缓存 (\(model.formattedTotalCacheSize))",
+                title: "全部缓存 (\(sizes.formattedTotal))",
                 target: .all,
-                isEnabled: model.totalCacheByteCount > 0
+                isEnabled: sizes.totalByteCount > 0
             )
 
             if !actionMessage.isEmpty {
@@ -456,21 +481,36 @@ struct SettingsCacheView: View {
         switch clearTarget {
         case .source:
             actionMessage = "已清理源缓存 \(model.clearSourceCache()) 个文件"
+            refreshCacheSizes()
         case .home:
             actionMessage = "已清理首页缓存 \(model.clearHomeCache()) 个文件"
+            refreshCacheSizes()
         case .epg:
             actionMessage = "已清理直播节目单缓存 \(model.clearLiveEPGCache()) 个文件"
+            refreshCacheSizes()
         case .images:
             Task {
                 let removed = await model.clearImageCache()
                 actionMessage = "已清理图片缓存 \(removed) 个文件"
+                refreshCacheSizes()
             }
         case .all:
             Task {
                 let removed = await model.clearAllCaches()
                 actionMessage = "已清理全部缓存 \(removed) 个条目"
+                refreshCacheSizes()
             }
         }
+    }
+
+    /// 重算一遍各缓存占用（进页面 / 每次清空之后 —— 别的时机数字不会变，见 ``CacheSizeSnapshot``）。
+    private func refreshCacheSizes() {
+        sizes = CacheSizeSnapshot(
+            sourceSummary: model.sourceCacheSummary(),
+            homeSummary: model.homeCacheSummary(),
+            liveEPGByteCount: model.liveEPGCacheByteCount,
+            imageByteCount: model.clearableImageCacheByteCount
+        )
     }
 }
 
