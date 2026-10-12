@@ -115,10 +115,10 @@ struct ImageLoaderTests {
         // 「详情页大图不会被网格小图顶掉」没变：内存缓存仍按「URL + 尺寸」分条。
         #expect(StubImageProtocol.requestCount == 1, "同一张图的两种尺寸不该下两次")
         #expect(
-            loader.cachedImage(for: "https://example.com/d.png", targetSize: CGSize(width: 16, height: 16)) === small,
+            loader.memory.cachedImage(for: "https://example.com/d.png", targetSize: CGSize(width: 16, height: 16)) === small,
             "小尺寸那份还在内存缓存里"
         )
-        #expect(loader.cachedImage(for: "https://example.com/d.png", targetSize: CGSize(width: 32, height: 32)) != nil)
+        #expect(loader.memory.cachedImage(for: "https://example.com/d.png", targetSize: CGSize(width: 32, height: 32)) != nil)
     }
 
     @Test("磁盘那份跨实例复用：新 loader 同目录再取一次，不再发网络请求（重启后也省）")

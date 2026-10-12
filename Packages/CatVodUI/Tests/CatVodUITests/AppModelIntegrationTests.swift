@@ -206,7 +206,8 @@ struct AppModelIntegrationTests {
             }
         }
 
-        let seeded = try #require(first).sections.first
+        let outcome = try #require(first)
+        let seeded = try #require(outcome.sections.first)
         #expect(seeded.site.key == "a", "第一份就该带上缓存过的那个站点（一字节网络都不用发）")
         #expect(seeded.items.count == 3)
     }
