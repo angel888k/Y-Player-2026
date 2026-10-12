@@ -15,10 +15,13 @@ struct NodeMobileLaunchPlanTests {
         )
     }
 
-    @Test("argv = [node, <script>]，满足 bundle 自启动条件")
+    @Test("argv：固定带 --no-experimental-fetch，末尾仍是脚本（自启动条件成立）")
     func arguments() {
         let plan = NodeMobileLaunchPlan(configuration: configuration())
-        #expect(plan.arguments == ["node", "/tmp/index.js"])
+        // 开关必须钉住：iOS libnode 没有 WebAssembly，不摘掉 undici 那一族全局接口，
+        // bundle 一起手就会在 `globalThis.X ||= 自家实现` 的读取上抛错（见 NodePreloadScript）。
+        #expect(plan.arguments == ["node", "--no-experimental-fetch", "/tmp/index.js"])
+        // node 会先吃掉自己的选项，`process.argv[1]` 仍是脚本路径 —— 自启动只认这个后缀。
         #expect(plan.satisfiesAutoStartContract)
     }
 
@@ -34,7 +37,15 @@ struct NodeMobileLaunchPlanTests {
             configuration: configuration(),
             preloadURL: URL(fileURLWithPath: "/tmp/preload.js")
         )
-        #expect(plan.arguments == ["node", "-r", "/tmp/preload.js", "/tmp/index.js"])
+        #expect(
+            plan.arguments == [
+                "node",
+                "--no-experimental-fetch",
+                "-r",
+                "/tmp/preload.js",
+                "/tmp/index.js",
+            ]
+        )
     }
 
     @Test("环境变量：只注入端口/监听地址/日志开关，且不设 CATVOD_DISABLE_AUTOSTART")
@@ -54,7 +65,8 @@ struct NodeMobileLaunchPlanTests {
         let result: (Int32, String?) = plan.withCArguments { argc, argv in
             (argc, argv[Int(argc) - 1].map { String(cString: $0) })
         }
-        #expect(result.0 == 2)
+        // argc 跟参数表走（不写死 2：argv 里加开关不该再来改这里），最后一项必须是脚本路径。
+        #expect(result.0 == Int32(plan.arguments.count))
         #expect(result.1 == "/tmp/index.js")
     }
 }
