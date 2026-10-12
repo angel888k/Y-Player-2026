@@ -7,8 +7,12 @@ import Foundation
 /// 每次都重建请求既慢又容易被站点限流。
 ///
 /// **挡板（哪些情况不缓存）** —— 宁可少缓存，也不要让用户看到过期或会话态数据：
-/// 1. **设置类 / Spider 站点**：`type=3`（js2p 的 CatSpider HTTP、JAR、Python）的详情可能携带
-///    会话态信息（本地 Node 端口、动态生成的 api/url），缓存后重新进入会拿到失效地址 → 不缓存；
+/// 1. **设置类与非 js2p 的 Spider 站点**：JAR / Python / 设置类（`type=3` 但 `api` 不含 `/spider/`）
+///    的详情可能携带会话态信息，缓存后重新进入会拿到失效地址 → 不缓存。
+///    **js2p 的 CatSpider HTTP 站点（M28P10 起）允许缓存**：它的播放地址是播放时现换的
+///    （`.spider` → `POST /play`），详情里只有线路 / 选集（集 id 是站点路径，不是会过期的直链），
+///    缓存不会让播放拿到失效地址；而主接口 96 个站点里 95 个是它 —— 不缓存等于每次点封面
+///    都重打一次宿主（用户报「点击封面后的加载速度有点慢」）。
 /// 2. **失败或空结果**：`msg` 非空（上游约定「msg 非空视为错误响应」）或 `list` 为空 → 不缓存，
 ///    否则等于把一次偶发故障固化下来；
 /// 3. **显式失效**：`invalidate` / `invalidateAll` 与 `forceRefresh`（下拉刷新、换源、重载配置前）必须能绕过缓存。
@@ -71,9 +75,14 @@ public actor DetailCache {
 
     /// 挡板 1：该站点的详情是否允许缓存。
     ///
-    /// 只有 CMS 通道（`type 0/1/2/4`）允许缓存；`type=3` 的 Spider / 设置类站点一律直连不缓存。
+    /// - CMS 通道（`type 0/1/2/4`）：允许；
+    /// - js2p 的 CatSpider HTTP（`type=3` 且 `api` 含 `/spider/`）：**允许**（M28P10，理由见类型注释）；
+    /// - 其余 Spider（JAR / Python / 设置类）：不缓存。
+    ///
+    /// 换接口 / 宿主重启会连缓存一起作废（`AppModel.load` / `refreshHost` 里的
+    /// `detailCache.invalidateAll()`）—— 本地端口变了也不会拿着旧地址用。
     nonisolated public static func shouldCache(site: Site) -> Bool {
-        site.kind != .spider
+        site.kind != .spider || site.isCatSpiderHTTP
     }
 
     /// 挡板 2：该结果是否值得缓存。

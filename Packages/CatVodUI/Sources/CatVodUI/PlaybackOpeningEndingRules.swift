@@ -43,6 +43,16 @@ enum PlaybackOpeningEndingRules {
         max(opening, resume)
     }
 
+    /// 这份进度记录能不能拿来续播（**纯函数**，有单测）：只有「记录那一集 == 现在这一集」才谈得上。
+    ///
+    /// 为什么要有它（M28P10，用户报「选集播放或者下一集播放应该是从头播放」）：进度是**按片**记的
+    /// （键 = 站点 + 影片），集下标存在记录里 —— 换集之后拿到的还是上一集的记录，位置与片头/片尾
+    /// 标记全都不属于这一集：照用就会「切过去直接跳到上一集看到的位置」，甚至被上一集的片尾标记
+    /// 当场带走。`-1`（未知）一律不认 —— 宁可从头播，也别猜。
+    static func isSameEpisode(savedEpisodeIndex: Int, currentEpisodeIndex: Int) -> Bool {
+        savedEpisodeIndex >= 0 && savedEpisodeIndex == currentEpisodeIndex
+    }
+
     /// 该不该跳片尾（上游 `VodPlaybackController.onTimeChanged`）：标了片尾、且已经播到那儿。
     static func shouldSkipEnding(position: Double, duration: Double, ending: Double) -> Bool {
         ending > 0 && duration > 0 && position + ending >= duration

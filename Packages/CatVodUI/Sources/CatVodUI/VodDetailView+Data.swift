@@ -235,10 +235,12 @@ extension VodDetailView {
             return nil
         }
         model.notePlaybackInfo(from: result)
-        await model.loadSubtitles(SubtitleRequest(
+        // 字幕丢后台（见 `loadSubtitlesInBackground`）：换集（下一集 / 选集）的起播也在赶时间 ——
+        // 别再让「下字幕」挡在「换资源」前面。
+        model.loadSubtitlesInBackground(
             sources: result.subs,
             headers: HTTPHeaderMerger.merge([site.header, result.header])
-        ))
+        )
         guard let playURL = result.primaryPlaybackURL,
               !playURL.isEmpty,
               !result.requiresParsing

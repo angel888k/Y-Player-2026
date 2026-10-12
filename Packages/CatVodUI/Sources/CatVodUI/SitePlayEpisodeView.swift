@@ -108,10 +108,10 @@ struct SitePlayEpisodeView: View {
                     playlist: playlist,
                     lineSwitcher: lineSwitcher,
                     onStart: {
+                        // 起播清残留；字幕与「播放信息」**不在这里清**（M28P10）：这一集的它们
+                        // 是进播放页之前就装好的（见 `loadResource()`）—— 在这里清等于当场抹掉。
                         model.resetAdSkip()
                         model.clearDanmaku()
-                        model.clearSubtitles()
-                        model.clearPlaybackInfo()
                     },
                     playbackInfoRows: model.playbackInfoRows,
                     isFavorite: isFavorite,
@@ -183,10 +183,11 @@ struct SitePlayEpisodeView: View {
             // 前两个直接显示（M09d），字幕交给取用链（M09c）。
             model.notePlaybackInfo(from: result)
             embeddedDanmaku = result.danmaku
-            await model.loadSubtitles(SubtitleRequest(
+            // 字幕丢后台（见 `loadSubtitlesInBackground`）：别让「下字幕」挡在「建播放页」前面。
+            model.loadSubtitlesInBackground(
                 sources: result.subs,
                 headers: HTTPHeaderMerger.merge([site.header, result.header])
-            ))
+            )
             guard let playURL = result.primaryPlaybackURL, !playURL.isEmpty else {
                 errorText = "站点 play 接口没有返回播放地址（flag=\"\(lineName)\"）。"
                 return

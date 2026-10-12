@@ -85,18 +85,38 @@ struct DetailCacheTests {
         #expect(stats.count == 2)
     }
 
-    @Test("设置类 / Spider 站点不缓存（挡板 1）")
-    func spiderBypass() async throws {
+    @Test("js2p 站点也缓存（M28P10）：第二次进详情不再打宿主")
+    func spiderCacheHit() async throws {
         let site = spiderSite()
-        #expect(!DetailCache.shouldCache(site: site))
+        #expect(DetailCache.shouldCache(site: site))
+
+        let (provider, transport) = makeProvider()
+        let first = try await provider.detail(site: site, vodID: "1")
+        #expect(first.list.count == 1)
+        // 第一次包含 `POST /init` + `POST /detail` 两次往返（init 每个站点只发一次）。
+        let afterFirst = await transport.count()
+
+        _ = try await provider.detail(site: site, vodID: "1")
+        let afterSecond = await transport.count()
+        #expect(afterSecond == afterFirst, "第二次进详情应当命中缓存，一次宿主都不打")
+
+        let stats = await provider.cacheStatistics()
+        #expect(stats.hits == 1)
+    }
+
+    @Test("JAR / 设置类 Spider 仍不缓存（挡板 1）")
+    func spiderBypass() async throws {
+        // js2p（api 含 /spider/）在 M28P10 起**允许**缓存（见上一条）；这里盯的是其余 Spider。
+        let jar = Site(key: "jar", name: "JAR 站", type: 3, api: "csp_test")
+        #expect(!DetailCache.shouldCache(site: jar))
         #expect(DetailCache.shouldCache(site: cmsSite()))
 
         let cache = DetailCache()
         let result = try decodeResult(detailJSON)
-        let stored = await cache.store(result, site: site, vodID: "1")
+        let stored = await cache.store(result, site: jar, vodID: "1")
         #expect(!stored)
 
-        let cached = await cache.result(site: site, vodID: "1")
+        let cached = await cache.result(site: jar, vodID: "1")
         #expect(cached == nil)
 
         let stats = await cache.statistics()

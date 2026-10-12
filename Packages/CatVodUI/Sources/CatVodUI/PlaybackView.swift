@@ -860,11 +860,20 @@ extension PlaybackView {
         else {
             return activeResource
         }
+        // 画面比例按片记忆（M03P19，对齐上游 `History.scale`）：认不出的值回落「适应」。
+        // 它与哪一集无关，所以放在「是不是同一集」判定**之前**照旧套用。
+        scaleMode = PlaybackScaleMode.decode(saved.scale)
+        // 进度记录是**按片**记的（键 = 站点 + 影片），集下标存在记录里 —— 记录属于别的集时
+        // 位置与片头/片尾标记都不能拿过来（M28P10，用户报「选集播放或者下一集播放应该是从头播放」）。
+        guard PlaybackOpeningEndingRules.isSameEpisode(
+            savedEpisodeIndex: saved.episodeIndex,
+            currentEpisodeIndex: activeProgressContext.episodeIndex
+        ) else {
+            return activeResource
+        }
         let resume = saved.resumePosition()
         openingMark = saved.opening
         endingMark = saved.ending
-        // 画面比例按片记忆（M03P19，对齐上游 `History.scale`）：认不出的值回落「适应」。
-        scaleMode = PlaybackScaleMode.decode(saved.scale)
         // 起播位置：片头与上次位置取靠后的那个（上游 `VodHistoryPolicy.startPositionMs`）。
         // 「自动识别片头片尾」关掉时不看片头标记（标记照旧留着、也还能手动标，只是不自动跳）——
         // 见 `PlaybackControlSettings`。
@@ -883,7 +892,10 @@ extension PlaybackView {
     }
 
     /// 落一次进度（节流；`force` 用于暂停 / 播放结束 / 离开页面）。
-    func persist(force: Bool) async {
+    ///
+    /// - Parameter episodeIndexOverride: 用这个集下标写（换线路用：同一集在两条线路上的下标
+    ///   可能不同，而续播判定看的是「记录里的集下标 == 现在选集的下标」—— 见 ``switchLine(to:)``）。
+    func persist(force: Bool, episodeIndexOverride: Int? = nil) async {
         guard let activeProgressContext, let progressStore, latestPosition > 0 else {
             return
         }
@@ -901,7 +913,7 @@ extension PlaybackView {
                 opening: openingMark,
                 ending: endingMark,
                 scale: scaleMode.rawValue,
-                episodeIndex: activeProgressContext.episodeIndex,
+                episodeIndex: episodeIndexOverride ?? activeProgressContext.episodeIndex,
                 updatedAt: now,
                 metadata: activeProgressContext.metadata
             )
@@ -928,6 +940,9 @@ extension PlaybackView {
             errorText = "这一集没法在播放页直接换（需要解析链的集请回详情页点它）。"
             return
         }
+        // 先把这一集看到哪**落一次**（force：平时的落盘是节流的，最多会丢十几秒；而下一行起
+        // 上下文就变成新的一集了 —— 这份位置属于旧的集下标，再写就晚了）。
+        await persist(force: true)
         currentEpisodeIndex = index
         playlist.onIndexChanged?(index)
         await applyEpisode(
@@ -939,7 +954,9 @@ extension PlaybackView {
 
     /// 换集 / 换线路的**共同落点**（M12P1 / M03P17）：换资源 → 清界面状态 → 在**同一个引擎**上重新 load。
     ///
-    /// 位置靠进度记录续上（调用方负责先把当前位置 `persist` 下去）；
+    /// 位置：**同一集才续播**（换集 = 从头播，判定见 ``PlaybackOpeningEndingRules/isSameEpisode``）；
+    /// 换线路是同一集（按集名对上的），调用方要按**新线路的集下标**把位置重记一次，否则下标不同
+    /// 会被判成换集、从头播（见 ``switchLine(to:)``）。
     /// 弹幕按集名重新搜 —— 换集时集名变了要重搜，换线路时集名没变（就是同一集）也不会白跑。
     func applyEpisode(_ next: PlaybackEpisodeResource, fallbackTitle: String, episodeName: String) async {
         activeResource = next.resource

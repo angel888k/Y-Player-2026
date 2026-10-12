@@ -50,6 +50,9 @@ extension PlaybackView {
             errorText = "「\(line)」上没有找到这一集，换线路没成。"
             return
         }
+        // 同一集在两条线路上的**下标可能不同**（按集名对的），而续播判定看的是「记录里的集下标
+        // == 现在选集的下标」—— 按新线路的下标把这份位置重记一次，换线路才不会被判成换集（M28P10）。
+        await persist(force: true, episodeIndexOverride: next.progressContext.episodeIndex)
         selectedLine = line
         lineSwitcher.onLineChanged?(line)
         await applyEpisode(next, fallbackTitle: activeTitle, episodeName: episodeName)

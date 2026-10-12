@@ -37,6 +37,15 @@ struct PlaybackOpeningEndingRulesTests {
         #expect(PlaybackOpeningEndingRules.startPosition(opening: 0, resume: 0) == 0)
     }
 
+    @Test("只有「记录那一集 == 现在这一集」才续播：换集（选集 / 下一集）一律从头")
+    func sameEpisodeOnly() {
+        #expect(PlaybackOpeningEndingRules.isSameEpisode(savedEpisodeIndex: 3, currentEpisodeIndex: 3))
+        #expect(!PlaybackOpeningEndingRules.isSameEpisode(savedEpisodeIndex: 3, currentEpisodeIndex: 4))
+        // 未知集下标（-1，老记录）不认：宁可从头播。
+        #expect(!PlaybackOpeningEndingRules.isSameEpisode(savedEpisodeIndex: -1, currentEpisodeIndex: 0))
+        #expect(!PlaybackOpeningEndingRules.isSameEpisode(savedEpisodeIndex: 0, currentEpisodeIndex: -1))
+    }
+
     @Test("跳片尾：位置 + 片尾 >= 总时长；没标片尾 / 时长未知都不跳")
     func skipEnding() {
         #expect(PlaybackOpeningEndingRules.shouldSkipEnding(position: 2590, duration: 2700, ending: 120))

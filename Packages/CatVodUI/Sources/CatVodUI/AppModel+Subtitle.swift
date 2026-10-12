@@ -36,6 +36,26 @@ public extension AppModel {
         }
     }
 
+    /// **起播前别等字幕**（M28P10）：清掉上一集那份（同步，免得串集），下载丢后台。
+    ///
+    /// 为什么要它：`loadSubtitles` 是网络活（按站点给的 `subs` 去下字幕文件）。原先三处调用点
+    /// 都是 `await model.loadSubtitles(...)` 挡在「构造播放资源」前面 —— 用户报的
+    /// 「播放视频前的加载速度有点慢」有一截就是它（字幕没下回来，播放页就不建）。
+    /// 播放页观察的是 `model.subtitleCues`，下回来那份自己会上屏（没下回来就先不显示字幕）。
+    ///
+    /// - Parameters:
+    ///   - sources: 站点给的候选字幕源（空数组 = 这一集没字幕，只做清空）。
+    ///   - headers: 取字幕要带的 header。
+    func loadSubtitlesInBackground(sources: [SubtitleSource], headers: [String: String]) {
+        clearSubtitles()
+        guard !sources.isEmpty else {
+            return
+        }
+        Task { [weak self] in
+            await self?.loadSubtitles(SubtitleRequest(sources: sources, headers: headers))
+        }
+    }
+
     /// 清掉字幕状态与已载入的 cue（换集 / 退出播放时用）。
     func clearSubtitles() {
         subtitleCues = []

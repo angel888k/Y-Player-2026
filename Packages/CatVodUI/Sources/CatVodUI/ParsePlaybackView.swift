@@ -72,10 +72,9 @@ struct ParsePlaybackView: View {
                     },
                     onPlaybackStats: { model.notePlaybackStats($0) },
                     onStart: {
+                        // 同上（M28P10）：字幕与「播放信息」进播放页之前就装好了，这里不清它们。
                         model.resetAdSkip()
                         model.clearDanmaku()
-                        model.clearSubtitles()
-                        model.clearPlaybackInfo()
                     },
                     playbackInfoRows: model.playbackInfoRows,
                     isFavorite: isFavorite,
@@ -102,10 +101,11 @@ struct ParsePlaybackView: View {
             // 结果体里的字段在这里落地（与 `SitePlayEpisodeView` 同一套）：
             // 解析来源与描述给播放页显示，字幕交给取用链。
             model.notePlaybackInfo(from: detail)
-            await model.loadSubtitles(SubtitleRequest(
+            // 字幕丢后台（见 `loadSubtitlesInBackground`）：别让「下字幕」挡在「开始解析」前面。
+            model.loadSubtitlesInBackground(
                 sources: detail.subs,
                 headers: HTTPHeaderMerger.merge([site.header, detail.header])
-            ))
+            )
             await resolve()
         }
     }
