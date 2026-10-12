@@ -1,5 +1,6 @@
 import CatVodCore
 @testable import CatVodUI
+import Foundation
 import Testing
 
 @Suite("聚合搜索：搜哪些站点 / 结果怎么归位")
