@@ -10,10 +10,11 @@ extension LibraryView {
         scope == .history ? records.count : favorites.count
     }
 
-    /// 重新读取两个 store（都是内存实现，代价可忽略）。
+    /// 重新读取两个 store（都是内存实现，代价可忽略），顺带把「记录里没封面」的行补上站点缓存那份。
     func reload() async {
         records = await model.progressStore.all()
         favorites = await model.favoriteStore.favorites()
+        await resolveCovers()
         // 记录被别处删掉（例如详情页「从头播放」清了进度）时，清掉已失效的选择。
         let alive = Set(scope == .history ? records.map(\.key.storageKey) : favorites.map(\.key.storageKey))
         selection = selection.intersection(alive)
@@ -95,5 +96,27 @@ extension LibraryView {
     var favoritesEmptyHint: String {
         "还没有收藏：在影片详情页点工具栏的「收藏」即可加入这里。"
             + "收藏也只存在内存里（杀进程即丢），落库在 M8。"
+    }
+
+    /// 封面兜底（M28P22）：只给**记录里没封面**的行找，来源是站点缓存（``AppModel/cachedCoverURL(for:)``），
+    /// 一字节网络都不发；找不到的行照旧占位。
+    func resolveCovers() async {
+        var resolved: [String: String] = [:]
+        for record in records where record.picture.isEmpty {
+            if let url = await model.cachedCoverURL(for: record.key) {
+                resolved[record.key.storageKey] = url
+            }
+        }
+        for favorite in favorites where favorite.picture.isEmpty {
+            if let url = await model.cachedCoverURL(for: favorite.key) {
+                resolved[favorite.key.storageKey] = url
+            }
+        }
+        covers = resolved
+    }
+
+    /// 这一行最终显示的封面：记录自带优先（它就是站点当时给的那份）；没有才用兜底那份。
+    func coverURL(for key: PlaybackKey, stored: String) -> String {
+        stored.isEmpty ? (covers[key.storageKey] ?? "") : stored
     }
 }

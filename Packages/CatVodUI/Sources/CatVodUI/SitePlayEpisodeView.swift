@@ -21,6 +21,9 @@ struct SitePlayEpisodeView: View {
     let episode: PlaylistParser.Episode
     /// 影片名（用于播放页标题）。
     let title: String
+    /// 封面（进度记录 →「播放历史」用；M28P22 起从详情页条目带过来 ——
+    /// 以前这里没有这一项，选集播放那条链路写进历史的记录在「播放历史」里没有封面）。
+    let picture: String
     /// 当前线路名（协议里的 `flag`）。
     let lineName: String
     let episodeIndex: Int
@@ -66,7 +69,7 @@ struct SitePlayEpisodeView: View {
             episodeIndex: episodeIndex,
             metadata: PlaybackEntryMetadata(
                 vodName: title,
-                picture: "",
+                picture: picture,
                 siteName: site.name.isEmpty ? site.key : site.name,
                 lineName: lineName,
                 episodeName: episode.displayName

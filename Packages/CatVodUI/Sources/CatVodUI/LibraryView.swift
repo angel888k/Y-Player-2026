@@ -40,6 +40,8 @@ public struct LibraryView: View {
     @State var scope: LibraryScope = .history
     @State var records: [PlaybackProgress] = []
     @State var favorites: [Favorite] = []
+    /// 封面兜底（M28P22）：记录里没封面时，从**站点缓存**里补的那份（键 = `PlaybackKey.storageKey`）。
+    @State var covers: [String: String] = [:]
     /// 是否处于多选态。
     ///
     /// 刻意**不用** SwiftUI 的 `EditMode`：它是 iOS/tvOS 专有（macOS 上 `EditMode` / `\.editMode`
@@ -133,6 +135,7 @@ public struct LibraryView: View {
         let content = HistoryRow(
             record: record,
             siteName: siteName(for: record.key),
+            coverURL: coverURL(for: record.key, stored: record.picture),
             isSelected: isSelecting ? isSelected(record.key) : nil
         )
         if isSelecting {
@@ -154,6 +157,7 @@ public struct LibraryView: View {
         let content = FavoriteRow(
             favorite: favorite,
             siteName: siteName(for: favorite.key),
+            coverURL: coverURL(for: favorite.key, stored: favorite.picture),
             isOpenable: targetSite != nil,
             isSelected: isSelecting ? isSelected(favorite.key) : nil
         )

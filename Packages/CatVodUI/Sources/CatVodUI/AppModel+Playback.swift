@@ -1,6 +1,7 @@
 import CatVodCore
 import CatVodPlayer
 import CatVodSource
+import CatVodStore
 import Foundation
 
 // 「播放设置」的接线：内核/解码方式的可用性判定与提示文案。
@@ -42,5 +43,22 @@ public extension AppModel {
             notes.append("\(decoderMode.displayName)对\(preferredEngine.displayName)无效：系统播放器由系统自行决定解码方式")
         }
         playbackNotice = notes.joined(separator: "\n")
+    }
+
+    /// 追剧列表（播放历史 / 收藏）的**封面兜底**（M28P22，用户口径「封面要跟随站点、优先从缓存加载」）：
+    /// 记录里没存封面（老记录 / 以前的选集播放链路）时，按「站点 + vodID」到站点缓存里找 ——
+    /// 覆盖「本机刚看过 / 刚播过」这条主线（图往往已经进过图片缓存，上墙即秒出），一字节网络都不发。
+    ///
+    /// 为什么不顺带读首页缓存文件：那是按「站点 + 分类 + 页」存的大 JSON（每个几百 KB），
+    /// 为一行封面整目录解码不划算；站点不在当前接口里（换接口后的旧记录）也直接给 nil。
+    internal func cachedCoverURL(for key: PlaybackKey) async -> String? {
+        guard let site = allSites.first(where: { $0.key == key.siteKey }),
+              let detail = await detailCache.result(site: site, vodID: key.vodID),
+              let picture = detail.list.first?.vodPic,
+              !picture.isEmpty
+        else {
+            return nil
+        }
+        return picture
     }
 }

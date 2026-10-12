@@ -211,4 +211,24 @@ struct AppModelIntegrationTests {
         #expect(seeded.site.key == "a", "第一份就该带上缓存过的那个站点（一字节网络都不用发）")
         #expect(seeded.items.count == 3)
     }
+
+    @Test("追剧封面兜底：记录里没封面时从站点缓存（详情缓存）里找，不联网（M28P22）")
+    func cachedCoverFallsBackToSiteCache() async throws {
+        let fixture = try AppModelFixture()
+        defer { fixture.tearDown() }
+        await fixture.load()
+        let site = try #require(fixture.model.allSites.first { $0.key == "a" })
+        await fixture.model.detailCache.store(
+            SpiderResult(list: [VodItem(vodID: "v1", vodName: "甲片", vodPic: "https://img.example/p.jpg")]),
+            site: site,
+            vodID: "v1"
+        )
+
+        let hit = await fixture.model.cachedCoverURL(for: PlaybackKey(siteKey: "a", vodID: "v1"))
+        let miss = await fixture.model.cachedCoverURL(for: PlaybackKey(siteKey: "a", vodID: "v2"))
+        let unknownSite = await fixture.model.cachedCoverURL(for: PlaybackKey(siteKey: "nope", vodID: "v1"))
+        #expect(hit == "https://img.example/p.jpg")
+        #expect(miss == nil)
+        #expect(unknownSite == nil)
+    }
 }

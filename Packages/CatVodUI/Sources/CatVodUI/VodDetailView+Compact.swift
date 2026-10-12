@@ -178,6 +178,7 @@ extension VodDetailView {
                 site: site,
                 episode: target.episode,
                 title: vod?.vodName ?? "",
+                picture: vod?.vodPic ?? "",
                 lineName: currentLine?.name ?? "",
                 episodeIndex: target.index,
                 progressKey: progressKey,
