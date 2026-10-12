@@ -140,11 +140,19 @@ struct DiagnosticsReport: Sendable, Equatable {
     }
 
     /// 时间戳：固定 `yyyy-MM-dd HH:mm:ss`（跨机器比对用，不跟随区域设置的长短写法）。
-    static func timestamp(_ date: Date) -> String {
+    ///
+    /// formatter 建一次复用（M28P21）：这条在接口页**每次渲染**与诊断报告组装里会被反复调，
+    /// 每调一次现建一个 `DateFormatter` 是白花（同 M28P19 那批）。
+    /// 线程安全：`DateFormatter` 自 iOS 7 起只读即线程安全，这里只 `string(from:)`。
+    nonisolated(unsafe) private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    static func timestamp(_ date: Date) -> String {
+        timestampFormatter.string(from: date)
     }
 
     /// 空值统一写成「—」。
