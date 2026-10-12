@@ -155,7 +155,7 @@ struct AggregateSearchWall: View {
         ) {
             ForEach(visibleEntries) { entry in
                 NavigationLink {
-                    VodDetailView(model: model, site: entry.site, vodID: entry.item.vodID)
+                    VodDetailView(model: model, site: entry.site, vodID: entry.item.vodID, preview: entry.item)
                 } label: {
                     DiscoverPosterCard(item: entry.item)
                 }

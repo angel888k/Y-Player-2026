@@ -75,10 +75,26 @@ public struct VodDetailView: View {
     /// 上面那件事的进度 / 结果文案（换地址串行做，一格一格更新）。
     @State var resolvingDownloadsText = ""
 
-    public init(model: AppModel, site: Site?, vodID: String) {
+    /// 列表卡片上带过来的那一条（片名 / 封面）：详情还没回来时先用它显示标题 ——
+    /// 用户在卡片上已经看见这个名字了，别让他对着「详情」两个字等接口（M28P14）。
+    public let preview: VodItem?
+
+    public init(model: AppModel, site: Site?, vodID: String, preview: VodItem? = nil) {
         self.model = model
         _site = State(initialValue: site)
         _vodID = State(initialValue: vodID)
+        self.preview = preview
+    }
+
+    /// 页面标题：详情的片名 > 列表带过来的片名 > 「详情」。
+    var displayTitle: String {
+        if let name = vod?.vodName, !name.isEmpty {
+            return name
+        }
+        if let name = preview?.vodName, !name.isEmpty {
+            return name
+        }
+        return "详情"
     }
 
     var vod: VodItem? {
@@ -111,7 +127,7 @@ public struct VodDetailView: View {
 
     public var body: some View {
         content
-            .navigationTitle(vod?.vodName.isEmpty == false ? (vod?.vodName ?? "详情") : "详情")
+            .navigationTitle(displayTitle)
             // 详情页是沉浸页：登记给本 Tab 的根页面，由它把底部 Tab 栏收起来（见 Platform/AdaptiveTabBar.swift）。
             .immersiveTabBarPage()
             // 就地放大那块（M27 首验之四）：导航栏（返回 / 收藏 / 换源）一起藏，画面铺满整屏。

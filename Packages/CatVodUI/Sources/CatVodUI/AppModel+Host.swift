@@ -49,6 +49,15 @@ public extension AppModel {
             // 刚拿到清单 = 宿主现在活着（省掉一次探活）。
             hostHealth = .online
             let baseURL = await service.currentBaseURL()
+            // 落一份快照（M28P14）：下次冷启动先把站点摆出来，不用等宿主（见 ``HostSiteSnapshotStore``）。
+            hostSiteSnapshots.save(
+                HostSiteSnapshotStore.Snapshot(
+                    baseURL: baseURL?.absoluteString ?? "",
+                    sites: snapshot.sites,
+                    disabledSiteCount: snapshot.disabledSiteCount
+                ),
+                forScriptURL: scriptURL
+            )
             hostStatus = .running(
                 baseURL: baseURL?.absoluteString ?? "",
                 siteCount: snapshot.sites.count,
@@ -79,6 +88,23 @@ public extension AppModel {
     /// （M16P6 当时留的口子就是这个）。
     func refreshSiteInitFailures() async {
         siteInitFailures = await spiderInitializer.failureNotes()
+    }
+
+    /// 冷启动：把上次落盘的站点清单先摆出来（M28P14，见 ``HostSiteSnapshotStore``）。
+    ///
+    /// 只对 JS 源有意义（别的源的站点就在配置里）。摆出来之后**立刻通知界面**（自增 revision）——
+    /// 发现页据此用「首页缓存」渲染那个站点的内容；宿主起来后 ``refreshHost(for:forceRestart:)``
+    /// 再整体替换一次（端口也跟着对齐）。
+    internal func publishCachedHostSites(for source: LoadedSource) {
+        guard source.kind == .javaScript, let scriptURL = source.cachedURL else {
+            return
+        }
+        guard let snapshot = hostSiteSnapshots.load(forScriptURL: scriptURL), !snapshot.sites.isEmpty else {
+            return
+        }
+        hostSites = snapshot.sites
+        StartupTrace.note("站点快照已就位", detail: "站点 \(snapshot.sites.count)（宿主还在起）")
+        bumpSiteCatalogRevision()
     }
 
     /// 停止宿主并清空宿主站点。

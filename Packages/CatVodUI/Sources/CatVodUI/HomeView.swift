@@ -390,7 +390,7 @@ public struct HomeView: View {
             .buttonStyle(.plain)
         } else {
             NavigationLink {
-                VodDetailView(model: model, site: selectedSite, vodID: item.vodID)
+                VodDetailView(model: model, site: selectedSite, vodID: item.vodID, preview: item)
             } label: {
                 label()
             }
