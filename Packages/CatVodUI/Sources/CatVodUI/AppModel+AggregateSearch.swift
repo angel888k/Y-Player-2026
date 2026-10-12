@@ -190,8 +190,9 @@ extension AppModel {
                 startedAllMs = Self.milliseconds(since: roundStart)
             }
             for await outcome in group {
-                await onSite(outcome)
+                // 先记「到达」再处理：到达时刻才是网络尾巴；刷墙回报的开销不该算进去（M28P18）。
                 receivedAllMs = Self.milliseconds(since: roundStart)
+                await onSite(outcome)
                 // 预算内就补下一个（到点就不补了，在飞的照旧等回来）。
                 guard next < sites.count, !Task.isCancelled,
                       AggregateSearchRules.shouldStartAnotherSite(now: Date(), deadline: deadline)

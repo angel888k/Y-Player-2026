@@ -104,6 +104,21 @@ struct CatSpiderInitializerTests {
         #expect(total == 3)
     }
 
+    @Test("init 的超时被压到上限（2s）；动作照旧用站点自己的超时（M28P18）")
+    func initTimeoutIsCapped() async throws {
+        let transport = CatSpiderRouteRecorder()
+        let client = SiteClient(transport: transport, initializer: CatSpiderInitializer())
+        var site = spiderSite()
+        site.timeout = 15
+
+        _ = try await client.home(site: site)
+
+        let initTimeout = await transport.requests.first(where: { $0.url.lastPathComponent == "init" })?.timeout
+        let homeTimeout = await transport.requests.first(where: { $0.url.lastPathComponent == "home" })?.timeout
+        #expect(initTimeout == CatSpiderInitializer.requestTimeoutCap)
+        #expect(homeTimeout == 15)
+    }
+
     @Test("不同站点各自 init 一次（记忆键是 api 全路径）")
     func separateSitesInitSeparately() async throws {
         let transport = CatSpiderRouteRecorder()

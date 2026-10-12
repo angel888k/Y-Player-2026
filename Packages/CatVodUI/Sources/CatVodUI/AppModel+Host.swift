@@ -66,6 +66,8 @@ public extension AppModel {
             // 站点集合变了：旧详情可能属于别的站点，不能复用。
             await detailCache.invalidateAll()
             await searchCache.removeAll()
+            // 宿主活着、清单也就位了：把 js2p 的 init 挪到这段空闲里预热（M28P18）。
+            startSitePrewarm()
         } catch {
             hostSites = []
             hostStatus = .failed(reason: userFacingMessage(error))
@@ -88,6 +90,51 @@ public extension AppModel {
     /// （M16P6 当时留的口子就是这个）。
     func refreshSiteInitFailures() async {
         siteInitFailures = await spiderInitializer.failureNotes()
+    }
+
+    /// 站点清单就绪后**预热** js2p 的 `POST /init`（M28P18）。
+    ///
+    /// 为什么要预热：init 是「建 spider 实例」的准备步骤 —— 本地宿主几毫秒就回；但死站点的
+    /// init 会悬到超时，第一次聚合搜索就得为它白等一截（上机实测：`末站回报 − 全部开搜 ≈ 16 秒`
+    /// = 8 秒 init + 8 秒 search）。把它挪到「清单刚就绪、人还在发现页」这段空闲里跑掉，
+    /// 搜索时绝大多数站点已经 init 过（``CatSpiderInitializer`` 对已完成的站点是瞬回）。
+    ///
+    /// 口径：只挑**能跑的 js2p 站点**；并发 6（不给宿主与连接池添堵）；失败照旧只记账
+    /// （init 的语义：只发一次、失败不阻断），所以这里**不 await**。
+    internal func startSitePrewarm() {
+        let client = makeSiteClient()
+        let targets = hostSites.compactMap { site -> CatSpiderHTTPClient? in
+            guard site.availability.isAvailable else {
+                return nil
+            }
+            guard case let .catSpider(spider)? = try? client.resolve(site) else {
+                return nil
+            }
+            return spider
+        }
+        guard !targets.isEmpty else {
+            return
+        }
+        let initializer = spiderInitializer
+        Task {
+            await withTaskGroup(of: Void.self) { group in
+                var next = 0
+                let limit = 6
+                while next < targets.count, next < limit {
+                    let target = targets[next]
+                    next += 1
+                    group.addTask { await initializer.ensureInitialized(target) }
+                }
+                for await _ in group {
+                    guard next < targets.count else {
+                        continue
+                    }
+                    let target = targets[next]
+                    next += 1
+                    group.addTask { await initializer.ensureInitialized(target) }
+                }
+            }
+        }
     }
 
     /// 冷启动：把上次落盘的站点清单先摆出来（M28P14，见 ``HostSiteSnapshotStore``）。

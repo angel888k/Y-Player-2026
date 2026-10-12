@@ -24,6 +24,14 @@ import Foundation
 ///   我们保持同样行为（动作自己会把可读错误抛给界面），但把原因记下来供诊断；
 /// - 并发调用**共享同一次请求**：第二个调用会等第一个完成，而不是各自再发一次。
 public actor CatSpiderInitializer {
+    /// init 请求的超时上限（秒）。
+    ///
+    /// 为什么要有它（M28P18 上机实测）：死站点的 init 会和动作各耗一份超时 ——
+    /// 「末站回报 − 全部开搜 ≈ 16 秒」正是 8 秒 init + 8 秒 search；把 init 压到 2 秒后，
+    /// 单站最坏 10 秒，宿主直连对照的 ~10 秒墙钟终于对得上。
+    /// init 只是「做准备」：参考实现里它失败都不阻断动作，这里超时也一样（只记进失败账）。
+    static let requestTimeoutCap: TimeInterval = 2
+
     /// 每个站点一次；保存 Task 而不是 Bool，这样并发调用能等到同一个结果。
     private var attempts: [String: Task<String?, Never>] = [:]
     private var failures: [String: String] = [:]
@@ -40,8 +48,15 @@ public actor CatSpiderInitializer {
             return
         }
         let task = Task<String?, Never> { [client] in
+            // 用**副本**跑 init：它的超时不跟着站点 / 动作走（见 `requestTimeoutCap`）。
+            let limited = CatSpiderHTTPClient(
+                baseURL: client.baseURL,
+                transport: client.transport,
+                headers: client.headers,
+                timeout: min(client.timeout, CatSpiderInitializer.requestTimeoutCap)
+            )
             do {
-                _ = try await client.initialize()
+                _ = try await limited.initialize()
                 return nil
             } catch {
                 return "\(error)"
