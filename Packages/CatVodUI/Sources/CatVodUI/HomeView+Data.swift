@@ -23,7 +23,7 @@ extension HomeView {
         "\(page)-\(result.list.count)"
     }
 
-    /// 切换分类（分类条点击）：重置筛选与翻页，然后加载第一页。
+    /// 切换分类（分类条点击）：重置筛选与翻页、**当场清掉旧内容**，然后加载第一页。
     ///
     /// 为什么不做成 `Binding` + `.onChange`：`loadHome()` / `loadCategory()` 内部也会回写
     /// `selectedCategoryID`，用 onChange 会把「一次加载」变成两次请求（同分类同页各发一遍）。
@@ -34,8 +34,7 @@ extension HomeView {
         }
         selectedCategoryID = categoryID
         extend = [:]
-        page = 1
-        reachedEnd = false
+        beginCategorySwitch()
         Task { await loadCategory() }
     }
 
@@ -47,9 +46,38 @@ extension HomeView {
             return
         }
         extend[row.key] = value
+        beginCategorySwitch()
+        Task { await loadCategory() }
+    }
+
+    /// 换分类 / 改筛选那一刻：**当场**把上一个上下文作废（用户报「点击切换后不是立马刷新」）。
+    ///
+    /// 三件事，缺一不可：
+    /// 1. 在飞的加载立刻失效（`loadEpoch.invalidate()`）：它们属于上一个分类 / 上一组筛选，
+    ///    晚到的返回不该再写进这份界面（与换站点那条路 `invalidateContent()` 同理）；
+    /// 2. 内容清空、加载态亮起（`isLoading = true`）：页面当场切到「加载中…」＋转圈，
+    ///    而不是把旧片单一直摆到新请求回来。清的是内容、不是分类条（见 ``DiscoverCategorySwitch``）；
+    /// 3. `page` / `reachedEnd` 回位：新分类从第一页开始，上拉判定重来。
+    ///    列表清空让底部那块 `.task(id: loadMoreTrigger)` **整块不在树上** —— 键虽然变了
+    ///    （page 回到 1），也不会当场又发一次翻页（旧写法会，见 ``DiscoverCategorySwitch``）。
+    func beginCategorySwitch() {
+        loadEpoch.invalidate()
         page = 1
         reachedEnd = false
-        Task { await loadCategory() }
+        errorText = ""
+        isLoading = true
+        result = DiscoverCategorySwitch.clearedContent(result)
+    }
+
+    /// 当前列表属于哪个分类：用户选的那个；还没选上（首屏加载中）就是分类条的第一个。
+    /// 翻页回来要核对它 —— 中途换过分类的话，那份返回不该再往列表尾巴上追加（见 ``loadMore()``）。
+    var contentCategoryID: String {
+        selectedCategoryID.isEmpty ? (result.categories.first?.typeID ?? "") : selectedCategoryID
+    }
+
+    /// 这份返回是不是还属于「当前这份内容」：分类没换、筛选没改（换站点由代次号管）。
+    func isSameContentContext(category: String, filters: [String: String]) -> Bool {
+        contentCategoryID == category && extend == filters
     }
 
     /// 让首页与「当前接口的站点清单」保持一致。
@@ -236,6 +264,15 @@ extension HomeView {
     /// - Parameter force: 为 true 时绕过首页缓存（下拉刷新用 —— 原工具栏「刷新」按钮
     ///   M28 首验之二十删掉了）；其余入口（切换分类、应用筛选、翻页）都允许命中缓存。
     func loadCategory(categoryID: String? = nil, site: Site? = nil, force: Bool = false) async {
+        // 先把「这次加载」立起来再判参数：`beginCategorySwitch()` 会把 `isLoading` 先拨到 true，
+        // 早期返回（没有站点 / 没有分类）不经过 `defer` 的话，加载态就永远收不回去了。
+        let epoch = beginDiscoverLoad()
+        isLoading = true
+        errorText = ""
+        // 整页替换式加载：每次都要重新判断「能不能继续往下加载」。
+        reachedEnd = false
+        defer { if isCurrentDiscoverLoad(epoch) { isLoading = false } }
+
         guard let targetSite = site ?? selectedSite else {
             return
         }
@@ -243,12 +280,6 @@ extension HomeView {
         guard !targetCategory.isEmpty else {
             return
         }
-        let epoch = beginDiscoverLoad()
-        isLoading = true
-        errorText = ""
-        // 整页替换式加载：每次都要重新判断「能不能继续往下加载」。
-        reachedEnd = false
-        defer { if isCurrentDiscoverLoad(epoch) { isLoading = false } }
 
         // 首页缓存（设置 → 数据 → 缓存管理 → 首页缓存时间）：命中就直接用，一个请求都不发。
         let cacheKey = HomeCacheStore.Key(
@@ -302,10 +333,13 @@ extension HomeView {
         guard let targetSite = selectedSite, !isLoading else {
             return
         }
-        let current = selectedCategoryID.isEmpty ? (result.categories.first?.typeID ?? "") : selectedCategoryID
+        let current = contentCategoryID
         guard !current.isEmpty else {
             return
         }
+        // 这次翻页属于哪个上下文（分类 + 筛选）：回来要核对 —— 中途换过分类 / 改过筛选的话，
+        // 这份返回就不该再往列表尾巴上追加（``DiscoverCategorySwitch`` 注释里的那条岔路）。
+        let contextFilters = extend
         let nextPage = page + 1
         let epoch = beginDiscoverLoad()
         isLoading = true
@@ -319,7 +353,7 @@ extension HomeView {
             extend: extend
         )
         if let cached = model.cachedHomeResult(cacheKey) {
-            guard isCurrentDiscoverLoad(epoch) else {
+            guard isCurrentDiscoverLoad(epoch), isSameContentContext(category: current, filters: contextFilters) else {
                 return
             }
             appendPage(cached, number: nextPage)
@@ -334,13 +368,13 @@ extension HomeView {
                 extend: extend
             )
             let filled = await model.makePictureFiller().fill(site: targetSite, result: category)
-            guard isCurrentDiscoverLoad(epoch) else {
+            guard isCurrentDiscoverLoad(epoch), isSameContentContext(category: current, filters: contextFilters) else {
                 return
             }
             appendPage(filled, number: nextPage)
             model.storeHomeResult(filled, key: cacheKey)
         } catch {
-            guard isCurrentDiscoverLoad(epoch) else {
+            guard isCurrentDiscoverLoad(epoch), isSameContentContext(category: current, filters: contextFilters) else {
                 return
             }
             errorText = describe(error)

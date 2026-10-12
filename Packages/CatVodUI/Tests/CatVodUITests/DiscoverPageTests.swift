@@ -54,6 +54,23 @@ struct DiscoverPageTests {
         #expect(merged2.filters == richer.filters)
     }
 
+    // MARK: - DiscoverCategorySwitch
+
+    @Test("切换分类 / 筛选：当场清内容，但分类条与筛选数据要留着（「点了不是立马刷新」的锚点）")
+    func categorySwitchClearsContent() {
+        var current = SpiderResult()
+        current.categories = [VodCategory(typeID: "1", typeName: "玩偶电影")]
+        current.filters = ["1": [VodFilter(key: "area", name: "地区", initialValue: "全部")]]
+        current.list = [VodItem(vodID: "a", vodName: "上一分类的片子")]
+        current.pagecount = 9
+
+        let cleared = DiscoverCategorySwitch.clearedContent(current)
+        #expect(cleared.list.isEmpty, "旧片单必须当场清掉 —— 不然点下去看着像没反应")
+        #expect(cleared.pagecount == 0)
+        #expect(cleared.categories == current.categories, "分类条要留着：用户下一手就是点它")
+        #expect(cleared.filters == current.filters, "筛选按分类 ID 取，留着不影响新分类")
+    }
+
     // MARK: - DiscoverLoadEpoch
 
     @Test("加载代次：新一次加载让旧号作废（旧请求晚到的内容 / 报错都不再写）")
