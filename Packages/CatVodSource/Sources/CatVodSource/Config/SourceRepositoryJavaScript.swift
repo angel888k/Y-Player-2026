@@ -88,9 +88,10 @@ extension SourceRepository {
 
     /// 取远端 32 字节摘要；任何异常都返回 nil。
     ///
-    /// 三条与参考实现一致的口径：
+    /// 口径：
     /// - **3 秒超时**：复用判定要抢在用户感知之前给结论；
-    /// - 内容必须形如 32 位十六进制，否则按「没有校验值」处理；
+    /// - 内容里要能找出一枚 32 位十六进制摘要（纯摘要，或 `md5sum` 那种
+    ///   `<hash>  index.js` 写法 —— M28P24 起后者也认），否则按「没有校验值」处理；
     /// - 失败不抛错 —— 调用方据此决定是否退回缓存。
     func fetchDigest(_ url: URL?) async -> String? {
         guard let url else {
@@ -104,7 +105,11 @@ extension SourceRepository {
         }
         let text = String(data: response.body, encoding: .utf8) ?? ""
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return MD5.isDigest(value) ? value : nil
+        if MD5.isDigest(value) {
+            return value
+        }
+        // 不是「光秃秃 32 字节」也不急着放弃：抠第一段合法摘要（M28P24）。
+        return MD5.firstDigest(in: text)
     }
 
     /// 读取本地已落盘的摘要（可能为空或坏值，由调用方按「无摘要」处理）。

@@ -204,7 +204,7 @@ private final class EventBox: @unchecked Sendable {
 ///
 /// 用 ``TinyMP4Fixture`` 现场编的小文件当片源（不打网络）；
 /// 「画面 / 声音到底出没出」要等接线后上机看，这里钉的是**喂帧喂块语义与生命周期**。
-@Suite("FFmpeg 真会话（M04P9/M04P11）")
+@Suite("FFmpeg 真会话（M04P9/M04P11）"), .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈")
 struct LibavFFmpegSessionTests {
     /// 等条件成立（轮询 20ms）：超时就失败，不挂死。
     private func waitUntil(timeout: Double = 3, _ condition: () -> Bool) async -> Bool {

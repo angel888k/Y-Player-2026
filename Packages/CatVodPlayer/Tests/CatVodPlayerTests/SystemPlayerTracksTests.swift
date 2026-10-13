@@ -8,7 +8,7 @@ import Testing
 /// `AVMediaSelectionGroup` 拿不到真数据，所以「能选出几条轨」只能在真机/模拟器上人工确认。
 /// 这里钉住**没有媒体时的行为**：不崩、列表为空、选择是安全的空操作。
 @MainActor
-@Suite("系统内核：轨道（无媒体时的边界）")
+@Suite("系统内核：轨道（无媒体时的边界）"), .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈")
 struct SystemPlayerTracksTests {
     @Test("没有条目时：三个类别都没有可选项")
     func trackListEmptyWithoutItem() {

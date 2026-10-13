@@ -7,7 +7,7 @@ import Testing
 /// 自研内核的视频解码层（M04P7）：VideoToolbox 硬解 → CVPixelBuffer。
 ///
 /// 输入用 ``TinyMP4Fixture`` 现场编的小文件；不打网络。
-@Suite("Libav 视频解码（M04P7）")
+@Suite("Libav 视频解码（M04P7）"), .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈")
 struct LibavVideoDecoderTests {
     @Test("没打开的输入：明确报错")
     func openWithoutInput() {

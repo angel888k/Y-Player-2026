@@ -96,6 +96,36 @@ struct ConfigLocatorTests {
         let source = try #require(ConfigLocator.locate("https://example.com/tvbox/config.md5"))
         #expect(source.kind == .json)
     }
+
+    @Test("从文本里抠第一段摘要：md5sum 写法 / 带引号都认，40 位 sha1 不吃（M28P24）")
+    func firstDigestFromText() {
+        let digest = "35dcc10d533153dbb94298792664ad04"
+        #expect(MD5.firstDigest(in: "\(digest)  index.js") == digest)
+        #expect(MD5.firstDigest(in: "{\"md5\":\"\(digest)\"}") == digest)
+        #expect(MD5.firstDigest(in: digest.uppercased()) == digest)
+        #expect(MD5.firstDigest(in: "没有摘要") == nil)
+        #expect(MD5.firstDigest(in: "da39a3ee5e6b4b0d3255bfef95601890afd80709 \(digest)") == digest)
+    }
+
+    @Test("`.js.md5` 带查询串（token / 版本号）：仍走 JS 源，查询串原样保留（M28P24）")
+    func digestFileWithQueryStaysJavaScript() throws {
+        let source = try #require(ConfigLocator.locate("https://host/cat/index.js.md5?v=3"))
+        #expect(source.kind == .javaScript)
+        #expect(source.url?.absoluteString == "https://host/cat/index.js?v=3")
+        #expect(source.digestURL?.absoluteString == "https://host/cat/index.js.md5?v=3")
+    }
+
+    @Test("后缀大小写不敏感；`.js?t=` 的校验地址拼在路径之后（M28P24）")
+    func digestSuffixCaseAndQuery() throws {
+        let upper = try #require(ConfigLocator.locate("https://host/cat/index.JS.MD5"))
+        #expect(upper.kind == .javaScript)
+        #expect(upper.url?.absoluteString == "https://host/cat/index.JS")
+        #expect(upper.digestURL?.absoluteString == "https://host/cat/index.JS.md5")
+
+        let query = try #require(ConfigLocator.locate("https://host/cat/main.js?t=2026"))
+        #expect(query.kind == .javaScript)
+        #expect(query.digestURL?.absoluteString == "https://host/cat/main.js.md5?t=2026")
+    }
 }
 
 @Suite("媒体直链嗅探")

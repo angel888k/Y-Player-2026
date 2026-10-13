@@ -7,7 +7,7 @@ import Testing
 /// Libav 音频解码（M04P10）：真解码器 + swresample + `TinyMP4Fixture`（带 AAC 音轨）。
 ///
 /// 用统一 demux（`LibavInput.nextPacket`）喂包 —— 与将来会话的路数一致。
-@Suite("Libav 音频解码（M04P10）")
+@Suite("Libav 音频解码（M04P10）"), .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈")
 struct LibavAudioDecoderTests {
     @Test("拿到的下标不是音频流：明确拦住（M04P16 换轨的入口要靠它）")
     func rejectsNonAudioStream() async throws {

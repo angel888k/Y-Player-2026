@@ -10,7 +10,7 @@ import Testing
 /// 为什么不断言 `player.rate`：CI 上拿不到 ready 的 `AVPlayerItem`，`AVFoundation` 会在没就绪时
 /// 把 rate 自己推回 0，断言它只会得到偶发红。真实生效由真机/模拟器人工确认（见 M02P15 的验收一节）。
 @MainActor
-@Suite("系统内核：倍速不会被「暂停再播」吃掉")
+@Suite("系统内核：倍速不会被「暂停再播」吃掉"), .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈")
 struct SystemPlayerRateTests {
     @Test("加载资源后回到正常速度（倍速属「本次播放的偏好」，引擎不跨资源记忆）")
     func loadResetsRate() async throws {

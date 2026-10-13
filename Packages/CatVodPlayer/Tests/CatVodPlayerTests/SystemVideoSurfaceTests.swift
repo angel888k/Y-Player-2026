@@ -7,7 +7,7 @@ import Testing
 /// `@MainActor`：`AVPlayerEngine` 是主 actor 类（iOS 18 起 `AVPlayer` 受主线程约束），
 /// 建引擎与读画面层都得在主 actor 上。
 @MainActor
-@Suite("系统内核：画面层（M27）")
+@Suite("系统内核：画面层（M27）"), .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈")
 struct SystemVideoSurfaceTests {
     @Test("引擎建出来时，画面层已经挂上了它自己的播放器")
     func engineWiresLayer() {

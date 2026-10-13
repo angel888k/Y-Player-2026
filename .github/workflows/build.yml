@@ -47,6 +47,9 @@ jobs:
   core-tests:
     name: SwiftPM tests
     runs-on: macos-26
+    # 兜底：任何一段单测挂死，别拖满 GitHub 的 6 小时上限（2026-10-12 被拖过两次，
+    # 6 小时才失败，release 直接错过）。60 分钟足够跑完 7 个包（含冷缓存构建）。
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode
@@ -66,7 +69,12 @@ jobs:
         run: swift test --package-path Packages/CatVodNet
       - name: CatVodSource tests
         run: swift test --package-path Packages/CatVodSource
+      # CatVodPlayer 是唯一要碰**真实影音栈**的包（AVAssetWriter 现场编 MP4 / AVPlayer /
+      # VideoToolbox）。GitHub 运行器是虚拟机：这类调用在它上面会**阻塞**（实测两次 6 小时挂死，
+      # 日志停在 `IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver`）—— 相关套件已在
+      # 测试代码里用 `VideoStackAvailability` 在 CI 上跳过（本地照跑）；这里再给一步 20 分钟兜底。
       - name: CatVodPlayer tests
+        timeout-minutes: 20
         run: swift test --package-path Packages/CatVodPlayer
       - name: CatVodStore tests
         run: swift test --package-path Packages/CatVodStore

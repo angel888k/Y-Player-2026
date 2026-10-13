@@ -106,8 +106,13 @@ public enum ConfigLocator {
     /// 输入是 JS 源的 `.md5` 校验文件时，返回它对应的 JS 地址；否则 nil。
     ///
     /// **这是正规输入**：参考实现明确写着「用户填的是 `.../index.js.md5`」。
-    /// 判定基于**完整文件名**（`…js.md5`），不只看扩展名：普通的 `x.md5` 也可能是别的校验文件，
-    /// 不能想当然当成 JS 源。
+    /// 判定基于**完整文件名**（`…js.md5`，大小写不敏感），不只看扩展名：普通的 `x.md5`
+    /// 也可能是别的校验文件，不能想当然当成 JS 源。
+    ///
+    /// 后缀判定走**「路径 + 查询串切分」**，不是整串 `hasSuffix`（M28P24）：源地址常带查询串
+    /// （token / 版本号，如 `…/index.js.md5?v=3`），整串判定会把它漏掉 —— 漏掉之后它会掉进
+    /// 「JSON 配置」那条路，用户看到的就是「这个 .js.md5 接口导入后不能用」。
+    /// 查询串与 fragment 在切完后缀后**原样保留**。
     public static func javascriptURLDroppingDigestSuffix(_ url: URL) -> URL? {
         let name = url.lastPathComponent
         guard name.lowercased().hasSuffix(digestSuffix) else {
@@ -117,19 +122,29 @@ public enum ConfigLocator {
         guard baseName.lowercased().hasSuffix(".js") else {
             return nil
         }
-        let text = url.absoluteString
-        guard text.hasSuffix(digestSuffix) else {
+        let (head, tail) = splitQueryAndFragment(url.absoluteString)
+        guard head.lowercased().hasSuffix(digestSuffix) else {
             return nil
         }
-        return URL(string: String(text.dropLast(digestSuffix.count)))
+        return URL(string: String(head.dropLast(digestSuffix.count)) + tail)
     }
 
-    /// JS 源对应的校验地址：`index.js` → `index.js.md5`。
+    /// 把地址切成「路径部分 + （查询串 / fragment）部分」：后缀判定只该看前一半。
+    private static func splitQueryAndFragment(_ text: String) -> (head: String, tail: String) {
+        guard let index = text.firstIndex(where: { $0 == "?" || $0 == "#" }) else {
+            return (text, "")
+        }
+        return (String(text[text.startIndex ..< index]), String(text[index...]))
+    }
+
+    /// JS 源对应的校验地址：`index.js` → `index.js.md5`（查询串 / fragment 保留在末尾之后）。
     ///
-    /// 注意：`.md5` 是加在完整文件名之后，不能用 `deletingPathExtension` 再拼，
-    /// 否则会得到 `index.md5`。
+    /// 注意两件事（M28P24）：`.md5` 是加在**路径**之后，不能用 `deletingPathExtension` 再拼
+    /// （否则会得到 `index.md5`）；也不能直接拼在整串末尾（`…/index.js?v=3` 会变成
+    /// `…/index.js?v=3.md5`，那是错地址）。
     public static func digestURL(for url: URL) -> URL? {
-        URL(string: url.absoluteString + digestSuffix)
+        let (head, tail) = splitQueryAndFragment(url.absoluteString)
+        return URL(string: head + digestSuffix + tail)
     }
 
     /// 相对路径以配置文件 URL 为基准解析（webhtv 总配置接入约定）。

@@ -366,3 +366,19 @@ enum TinyMP4Fixture {
         case encodedSampleMissing
     }
 }
+
+/// GitHub 运行器上**跳过碰真实影音栈的用例**（M28P24）。
+///
+/// 为什么要有它：GitHub 的 macOS 运行器是**虚拟机**（没有硬件视频栈）。`TinyMP4Fixture` 用
+/// `AVAssetWriter`（VideoToolbox）**现场编** H.264，`AVPlayer` / `VideoToolbox` 的真实解码
+/// 走的是同一条链 —— 这些调用在虚拟机上会**阻塞**：2026-10-11 与 2026-10-12 两次 CI 的
+/// `CatVodPlayer tests` 都跑满 6 小时被强杀（日志停在
+/// `IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver`，同一批 121 个用例一个都没结束）。
+///
+/// 口径：**只在 GitHub 上跳过**（`GITHUB_ACTIONS` 只有它的 job 里有）；开发机（真硬件）照旧全跑。
+/// 不去「探测」硬件能力：探测本身就要调那几个 API，一样会卡在这儿。
+enum VideoStackAvailability {
+    static var isUsable: Bool {
+        ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == nil
+    }
+}

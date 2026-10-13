@@ -133,4 +133,22 @@ struct SourceRepositoryJavaScriptTests {
         #expect(!refreshed.usedCache)
         #expect(refreshed.digest == MD5.hexDigest(of: bundle))
     }
+
+    @Test("`.js.md5?v=` 输入 + `md5sum` 写法的摘要文件：整条链都能过（M28P24）")
+    func queryInputAndMd5SumStyleDigest() async throws {
+        let directory = try makeTempDirectory()
+        let bundle = Data(repeating: 0x42, count: 512)
+        let digest = MD5.hexDigest(of: bundle)
+        // 上游给的是 `md5sum` 风格（`<hash>  index.js`），输入地址带查询串。
+        let stub = StubTransport(responses: [
+            jsURL + ".md5?v=3": (200, Data("\(digest)  index.js\n".utf8)),
+            jsURL + "?v=3": (200, bundle),
+        ])
+        let repository = SourceRepository(transport: stub, cacheDirectory: directory)
+
+        let loaded = try await repository.load(configURL: jsURL + ".md5?v=3")
+        #expect(loaded.kind == .javaScript)
+        #expect(loaded.digest == digest)
+        #expect(!loaded.usedCache)
+    }
 }
