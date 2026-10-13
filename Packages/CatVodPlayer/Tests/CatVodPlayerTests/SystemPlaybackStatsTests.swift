@@ -116,7 +116,7 @@ struct SystemStatsFormatDescriptionTests {
 
 /// 端到端：真写一个 320×240 的小 MP4（`TinyMP4Fixture`），让系统内核读一遍。
 @MainActor
-@Suite("系统内核：播放信息（真读一个小 MP4）"), .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈")
+@Suite("系统内核：播放信息（真读一个小 MP4）", .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈"))
 struct SystemPlaybackStatsEndToEndTests {
     @Test("画面 / 编码 / 帧率 / 容器 / 音频都对得上；读不到的项不写假值")
     func readsTinyMP4() async throws {

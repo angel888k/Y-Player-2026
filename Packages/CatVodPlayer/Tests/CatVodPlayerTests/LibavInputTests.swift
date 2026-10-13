@@ -5,7 +5,7 @@ import Testing
 /// 自研内核的输入层（M04P6）：打开 → 读流信息 → 关。
 ///
 /// 真网络流不进单测（红绿看运气）；用 ``TinyMP4Fixture`` 现场编出来的小文件当输入。
-@Suite("Libav 输入层（M04P6）"), .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈")
+@Suite("Libav 输入层（M04P6）", .enabled(if: VideoStackAvailability.isUsable, "CI 跳过：GitHub 运行器没有硬件视频栈"))
 struct LibavInputTests {
     @Test("headers → FFmpeg http 选项：UA / Referer 走专名，其余拼串")
     func headerOptions() {
