@@ -506,8 +506,6 @@ public final class AppModel: ObservableObject {
     /// 可见性是「模块内」而不是 `private`：``AppModel+Cache`` 扩展文件要按它推导首页缓存目录
     /// （`private` 只对声明所在文件开放，跨文件读会编译失败）。
     let cacheDirectory: URL
-    /// 宿主站点清单的落盘快照（M28P14，见 ``HostSiteSnapshotStore``）：冷启动先把上次的清单摆出来。
-    let hostSiteSnapshots: HostSiteSnapshotStore
     let sessionTransport: URLSessionTransport
     /// 详情缓存（进程内共享）。
     let detailCache = DetailCache()
@@ -628,7 +626,6 @@ public final class AppModel: ObservableObject {
     ) {
         let base = cacheDirectory ?? Self.defaultCacheDirectory()
         self.cacheDirectory = base
-        hostSiteSnapshots = HostSiteSnapshotStore(directory: base)
         imageLoader = ImageLoader(cacheDirectory: base.appendingPathComponent("Images", isDirectory: true))
         self.downloadDirectory = downloadDirectory ?? Self.downloadDirectory
         downloadTransportOverride = downloadTransport
@@ -774,9 +771,8 @@ public final class AppModel: ObservableObject {
             // 接口缓存自愈：按容量上限淘汰最旧的（当前接口的缓存不动）。
             enforceSourceCacheLimit()
             // JS 源：站点清单不在配置里，必须由内嵌 Node 宿主提供（macOS 进程 / iOS libnode）。
-            // **先把上次的快照摆出来**（M28P14）：宿主要在后面才起（秒级），先把站点与
-            // 「首页缓存」里的内容摆出来 —— 冷启动别让用户对着转圈等宿主。就绪后 refreshHost 整体替换。
-            publishCachedHostSites(for: loaded)
+            // **冷启动不再先摆上次的站点快照**（M28P25，用户口径「冷启动要刷新」）：宿主就绪前
+            // 发现页显示「站点加载中…」，不再拿旧清单（旧端口 / 旧站点集合）先糊一屏。
             await refreshHost(for: loaded, forceRestart: forceRefresh)
         } catch let error as CatVodError {
             state = .failed(error.errorDescription ?? "加载失败")
