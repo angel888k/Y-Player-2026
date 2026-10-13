@@ -180,7 +180,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Release (unsigned ipa / mac app)
+    name: Release (unsigned ipa / mac zip + dmg + pkg)
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-26
     needs: [build]
@@ -221,20 +221,46 @@ jobs:
             -configuration Release \
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
-          cd build/DerivedData/Build/Products/Release && zip -qry ../../../YPlayer-macOS-unsigned.zip YPlayer.app
+          # 层数别再数错：cd 之后是 build/DerivedData/Build/Products/Release，
+          # 要**四层** `..` 才回到 build/ —— v1.0.3 首跑只写了三层，zip 落进
+          # build/DerivedData/，Release 上就少一个 mac 附件（那时缺文件只是 warning）。
+          cd build/DerivedData/Build/Products/Release && zip -qry ../../../../YPlayer-macOS-unsigned.zip YPlayer.app
+      - name: Package macOS DMG (unsigned)
+        run: |
+          STAGE=build/dmg-stage
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          cp -R build/DerivedData/Build/Products/Release/YPlayer.app "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "YPlayer ${GITHUB_REF_NAME#v}" -srcfolder "$STAGE" -ov -format UDZO build/YPlayer-macOS-unsigned.dmg
+      - name: Package macOS PKG (unsigned)
+        run: |
+          rm -rf build/pkg-root
+          mkdir -p build/pkg-root
+          cp -R build/DerivedData/Build/Products/Release/YPlayer.app build/pkg-root/
+          pkgbuild --root build/pkg-root --install-location /Applications \
+            --identifier com.YPlayer.cat --version "${GITHUB_REF_NAME#v}" \
+            build/YPlayer-macOS-unsigned.pkg
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: YPlayer-${{ github.ref_name }}
+          # 缺任何一类产物都直接红 —— 别再把「少挂附件」静默放过去。
+          if-no-files-found: error
           path: |
             build/YPlayer-unsigned.ipa
             build/YPlayer-macOS-unsigned.zip
+            build/YPlayer-macOS-unsigned.dmg
+            build/YPlayer-macOS-unsigned.pkg
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          fail_on_unmatched_files: true
           files: |
             build/YPlayer-unsigned.ipa
             build/YPlayer-macOS-unsigned.zip
+            build/YPlayer-macOS-unsigned.dmg
+            build/YPlayer-macOS-unsigned.pkg
           # 正文来自仓库里的发布说明（下载 / 安装 / 本版有什么 / 已知限制都在那儿）——
           # 发下一版先改 `docs/发布说明.md` 再打 tag，别把说明留在这个文件里。
           body_path: docs/发布说明.md

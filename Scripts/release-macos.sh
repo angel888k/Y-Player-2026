@@ -5,7 +5,8 @@
 #   ① lint 作业：SwiftFormat --lint、SwiftLint、App 图标校验
 #   ② core-tests 作业：7 个包各跑 swift test
 #   ③ build 作业：iOS 模拟器构建 + macOS 构建
-#   ④ Release 产物：未签名 IPA（archive → Payload → zip）、macOS .zip（Release 构建 → zip）
+#   ④ Release 产物：未签名 IPA（archive → Payload → zip）+ macOS 三件套
+#      （.zip / .dmg / .pkg，Release 构建）
 #   ⑤ 打开产物目录（Finder）
 #
 # 用法（在仓库根目录）：
@@ -109,7 +110,7 @@ xcodebuild build \
   > build/macos-build.log 2>&1 \
   || { grep -E 'error:' build/macos-build.log | head -20; exit 1; }
 
-step "6/7 打 Release 产物（未签名 IPA + macOS zip）"
+step "6/7 打 Release 产物（未签名 IPA + macOS zip + dmg + pkg）"
 APP_IOS=build/YPlayer-iOS.xcarchive/Products/Applications/YPlayer.app
 rm -rf build/YPlayer-iOS.xcarchive build/Payload
 xcodebuild archive \
@@ -125,6 +126,20 @@ cp -R "$APP_IOS" build/Payload/
 
 MAC_APP=build/dd-macos/Build/Products/Release/YPlayer.app
 (cd "$(dirname "$MAC_APP")" && zip -qry "$OUT/YPlayer-macOS-unsigned.zip" YPlayer.app)
+
+STAGE=build/dmg-stage
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
+cp -R "$MAC_APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create -volname "YPlayer $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$OUT/YPlayer-macOS-unsigned.dmg"
+
+rm -rf build/pkg-root
+mkdir -p build/pkg-root
+cp -R "$MAC_APP" build/pkg-root/
+pkgbuild --root build/pkg-root --install-location /Applications \
+  --identifier com.YPlayer.cat --version "$VERSION" \
+  "$OUT/YPlayer-macOS-unsigned.pkg"
 
 step "7/7 校验产物 + 打开目录"
 ls -lh "$OUT"
