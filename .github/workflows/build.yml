@@ -70,12 +70,22 @@ jobs:
       - name: CatVodSource tests
         run: swift test --package-path Packages/CatVodSource
       # CatVodPlayer 是唯一要碰**真实影音栈**的包（AVAssetWriter 现场编 MP4 / AVPlayer /
-      # VideoToolbox）。GitHub 运行器是虚拟机：这类调用在它上面会**阻塞**（实测两次 6 小时挂死，
-      # 日志停在 `IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver`）—— 相关套件已在
-      # 测试代码里用 `VideoStackAvailability` 在 CI 上跳过（本地照跑）；这里再给一步 20 分钟兜底。
+      # VideoToolbox）。GitHub 运行器是虚拟机：这类调用在它上面会**阻塞**（2026-10-12 两次
+      # 6 小时挂死，日志停在 `IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver`）——
+      # 相关套件已在测试代码里用 `VideoStackAvailability` 在 CI 上跳过（本地照跑）。
+      #
+      # 再往里一层（2026-10-13 探针矩阵，探针工作流分 6 组实跑）：`MpvEngineTests` 在这台
+      # 虚拟机上会把整个测试进程挂死 —— 单独过滤它：构建完成后零测试输出一直挂；全量跑：
+      # 104 条 started / 0 条 completed，直到 20 分钟步级超时兜底被杀。其余套件 2~3 分钟全绿。
+      # 所以 CI 改**允许清单**：只跑在虚拟机实测跑得通的 16 个套件（A/B/D/E/F 五组探针的并集，
+      # 含 E 组实测覆盖到的 SystemStats* 两个纯映射套件）。`MpvEngineTests` 在本地
+      # （Scripts/release-macos.sh 全量单测）照跑；新增套件先在本地过，再探针验证虚拟机安全后
+      # 加进这份清单。注意过滤词对**同文件套件**也生效（已按「文件 + 类型名」两个口径核对）。
       - name: CatVodPlayer tests
         timeout-minutes: 20
-        run: swift test --package-path Packages/CatVodPlayer
+        run: |
+          swift test --package-path Packages/CatVodPlayer \
+            --filter "PlaybackScaleModeTests|SpeedSettingTests|MpvEventMappingTests|FFmpegAvailabilityTests|FFmpegEngineTests|FeedStarvationWatchdogTests|MpvAvailabilityTests|PlayerSettingsTests|PlaybackStatsTests|SystemStatsMappingTests|SystemStatsFormatDescriptionTests|LibavAudioRendererTests|LibavAudioSampleBufferTests|LibavSampleBufferTests|LibavSubtitleDecoderTests|LibavVideoRendererTests"
       - name: CatVodStore tests
         run: swift test --package-path Packages/CatVodStore
       # CatVodUI 以前这里只做 `swift build`（注释还写着「没有单测目标」，早已不准）——
