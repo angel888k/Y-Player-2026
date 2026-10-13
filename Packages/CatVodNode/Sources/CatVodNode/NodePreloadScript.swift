@@ -62,6 +62,16 @@ public enum NodePreloadScript {
       write('preload node=' + process.version + ' argv=' + JSON.stringify(process.argv));
       write('preload cwd=' + process.cwd());
       write('preload entry=' + (process.argv[1] || '<none>'));
+      write('preload env: platform=' + process.platform + ' arch=' + process.arch
+        + ' node=' + process.versions.node + ' v8=' + process.versions.v8
+        + ' uv=' + process.versions.uv + ' openssl=' + process.versions.openssl);
+      write('preload globals: WebAssembly=' + typeof WebAssembly
+        + ' fetch=' + typeof fetch
+        + ' structuredClone=' + typeof structuredClone
+        + ' AbortController=' + typeof AbortController
+        + ' TextDecoder=' + typeof TextDecoder
+        + ' MessageChannel=' + typeof MessageChannel
+        + ' ReadableStream=' + typeof ReadableStream);
       write('preload DEV_HTTP_PORT=' + process.env.DEV_HTTP_PORT
         + ' HOST=' + process.env.HOST);
 
@@ -101,12 +111,48 @@ public enum NodePreloadScript {
       /* iOS 版 libnode 不提供全部核心模块（无 child_process / worker_threads）。
        * 逐个试加载并记录：这样「bundle 一起手就没有就绪行」时有第一手证据 —— 正是
        * docs/任务记录/M16P4-iOS内嵌libnode.md 里列的第 4 个未验证项。 */
-      var names = ['child_process', 'worker_threads', 'cluster', 'vm', 'net', 'http', 'fs'];
+      var names = ['child_process', 'worker_threads', 'cluster', 'vm', 'net', 'http', 'fs',
+        'node:diagnostics_channel', 'node:async_hooks', 'node:crypto', 'node:zlib', 'node:assert',
+        'node:util', 'node:stream', 'node:buffer', 'node:os', 'node:module', 'node:events',
+        'node:url', 'node:querystring', 'node:http2', 'node:tls', 'node:dns', 'node:perf_hooks',
+        'node:timers/promises', 'node:string_decoder', 'node:fs/promises', 'node:path',
+        'node:process', 'node:worker_threads', 'node:net', 'node:http', 'node:https'];
       names.forEach(function (name) {
         try { require(name); write('preload module ok: ' + name); }
         catch (moduleError) {
           write('preload module MISSING: ' + name + ' -> ' + moduleError.message);
         }
+      });
+
+      /* require 追踪：iOS 上「bundle 起了个头就没声了」时必须知道它走到哪一步。
+       * 有上限（600 条）且全包 try/catch —— 预载自己绝不能把宿主带走。 */
+      var requireLogCount = 0;
+      try {
+        var moduleShim = require('module');
+        var originalLoad = moduleShim._load;
+        moduleShim._load = function (request) {
+          var result = originalLoad.apply(this, arguments);
+          if (requireLogCount < 600) {
+            requireLogCount += 1;
+            write('preload require[' + requireLogCount + '] ' + request);
+          }
+          return result;
+        };
+      } catch (traceError) {
+        write('preload require 追踪安装失败: ' + traceError.message);
+      }
+
+      /* 生命周期记账：事件循环空了（beforeExit）意味着 bundle 的启动链悬在一个
+       * 永远不会落地的等待上 —— 落盘里留下句柄数，这是 iOS 上唯一的现场。 */
+      process.on('beforeExit', function (code) {
+        var handles = -1;
+        var requests = -1;
+        try { handles = process._getActiveHandles().length; } catch (e) {}
+        try { requests = process._getActiveRequests().length; } catch (e) {}
+        write('beforeExit(' + code + ') 活动句柄=' + handles + ' 活动请求=' + requests);
+      });
+      process.on('exit', function (code) {
+        write('exit(' + code + ')');
       });
 
       process.on('uncaughtException', function (error) {
