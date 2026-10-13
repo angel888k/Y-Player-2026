@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 本地跑「CI 的硬性检查 + 出 Release 产物」一条龙（发布 1.0.2 用）。
+# 本地跑「CI 的硬性检查 + 出 Release 产物」一条龙（发布 1.0.3 用）。
 #
 # 跑的东西与 .github/workflows/build.yml 对齐：
 #   ① lint 作业：SwiftFormat --lint、SwiftLint、App 图标校验
@@ -20,8 +20,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 REPO_ROOT="$(pwd)"
-VERSION="1.0.2"
-BUILD="2"
+VERSION="1.0.3"
+BUILD="3"
 OUT="$REPO_ROOT/build/release-$VERSION"
 mkdir -p "$OUT"
 
